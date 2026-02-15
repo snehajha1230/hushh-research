@@ -16,7 +16,6 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { KaiFlow, FlowState } from "@/components/kai/kai-flow";
-import { KaiSearchBar } from "@/components/kai/kai-search-bar";
 import { useState, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -84,15 +83,6 @@ export default function KaiPage() {
     setFlowState(state);
   };
 
-  // Handle search bar commands
-  const handleCommand = (command: string, params?: Record<string, unknown>) => {
-    if (command === "analyze" && params?.symbol) {
-      const symbol = String(params.symbol);
-      // Navigate to analysis page with ticker
-      window.location.href = `/kai/dashboard/analysis?ticker=${symbol.toUpperCase()}`;
-    }
-  };
- 
   return (
     <div className="relative w-full">
       {/* Main Content - KaiFlow handles all states */}

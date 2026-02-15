@@ -64,15 +64,15 @@ All endpoints live in `api/routes/`. Each module is a FastAPI `APIRouter` regist
 | -------------------- | -------------------- | ---------------------------------------- |
 | `health`            | `/health`, `/kai/health` | Liveness probes                      |
 | `consent`           | `/api/consent`       | Token issuance, approval, revocation     |
-| `kai/__init__`      | `/kai`               | Chat, streaming, analysis, preferences   |
+| `kai/__init__`      | `/api/kai`           | Chat, streaming, analysis, preferences   |
 | `world_model`       | `/api/world-model`   | Domain data CRUD, index, scopes          |
 | `notifications`     | `/api/notifications` | FCM push token registration              |
 | `developer`         | `/api/v1`            | External developer consent flow          |
 | `agents`            | `/api/agents`        | Agent card discovery                     |
-| `session`           | `/api/session`       | Kai session management                   |
+| `session`           | `/api`               | Kai session management                   |
 | `sync`              | `/api/sync`          | Offline-to-online sync                   |
 | `account`           | `/api/account`       | Account deletion                         |
-| `db_proxy`          | `/api/db`            | Renaissance universe queries             |
+| `db_proxy`          | `/db`                | Renaissance universe queries             |
 
 ### Service Layer
 
@@ -85,7 +85,7 @@ API Route → Service (validates consent) → DatabaseClient → PostgreSQL
 | Service                | File                                          | Purpose                                   |
 | ---------------------- | --------------------------------------------- | ----------------------------------------- |
 | `WorldModelService`   | `hushh_mcp/services/world_model_service.py`   | Unified user data: store, retrieve, index |
-| `ConsentDBService`    | `hushh_mcp/services/consent_db_service.py`    | Consent audit trail, token lookup         |
+| `ConsentDBService`    | `hushh_mcp/services/consent_db.py`            | Consent audit trail, token lookup         |
 | `ChatDBService`       | `hushh_mcp/services/chat_db_service.py`       | Kai chat history persistence              |
 | `RenaissanceService`  | `hushh_mcp/services/renaissance_service.py`   | Investable universe data                  |
 | `PushTokensService`   | `hushh_mcp/services/push_tokens_service.py`   | FCM push token CRUD                       |
@@ -131,7 +131,7 @@ consent-protocol/
 ├── server.py                     # FastAPI app, CORS, rate limiting
 ├── consent_db.py                 # DatabaseClient singleton
 ├── api/
-│   ├── middlewares/               # Rate limiting, auth helpers
+│   ├── middleware.py              # Rate limiting, auth helpers
 │   └── routes/                    # All endpoint routers
 │       ├── consent.py
 │       ├── world_model.py
@@ -307,7 +307,7 @@ These rules are non-negotiable across the entire codebase:
 
 2. **Consent-First**: All data access requires a valid consent token. Even vault owners use `VAULT_OWNER` tokens -- no bypasses.
 
-3. **Zero-Storage**: No `sessionStorage`, no `localStorage`. All sensitive state lives in React memory (Zustand stores, React context). Evicted on tab close.
+3. **Credential Memory-Only**: Sensitive credentials (vault key and VAULT_OWNER token) stay in React memory. Some non-sensitive UI/cache data may use browser storage.
 
 4. **Tri-Flow Parity**: Every feature works on Web, iOS, and Android. No `fetch()` in components -- `ApiService` routes to the correct platform path.
 

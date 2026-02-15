@@ -240,6 +240,18 @@
       }
     },
     {
+      "id": "tickersPublic",
+      "webRouteFiles": [
+        "hushh-webapp/app/api/tickers/all/route.ts",
+        "hushh-webapp/app/api/tickers/search/route.ts"
+      ],
+      "backend": {
+        "file": "consent-protocol/api/routes/tickers.py",
+        "routerPrefix": "/api/tickers",
+        "paths": ["/all", "/search"]
+      }
+    },
+    {
       "id": "authSessionInternal",
       "webRouteFile": "hushh-webapp/app/api/auth/session/route.ts"
     }

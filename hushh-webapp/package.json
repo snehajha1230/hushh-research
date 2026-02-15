@@ -9,6 +9,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
+    "check-lint": "npm run lint",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -17,6 +18,7 @@
     "ci:simulate": "npm run typecheck && npm run lint && npm run test && npm run build",
     "verify:routes": "node scripts/verify-route-contracts.cjs",
     "verify:parity": "node scripts/verify-native-parity.cjs",
+    "cap:build": "npm run cap:build:mobile",
     "cap:build:mobile": "npx cross-env CAPACITOR_BUILD=true next build",
     "cap:clean:web": "rm -rf out .next",
     "cap:clean:android": "cd android && ./gradlew clean",
@@ -101,6 +103,7 @@
     "vitest": "^2.0.0"
   },
   "overrides": {
-    "tar": "7.5.7"
+    "tar": "7.5.7",
+    "@isaacs/brace-expansion": "5.0.1"
   }
 }

@@ -355,6 +355,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         const response = await ApiService.approvePendingConsent({
           userId,
           requestId: consent.id,
+          vaultOwnerToken,
           exportKey,
           encryptedData: encrypted.ciphertext,
           encryptedIv: encrypted.iv,
@@ -410,9 +411,15 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       markAsHandling(requestId);
 
       const promise = (async () => {
+        const vaultOwnerToken = getVaultOwnerToken();
+        if (!vaultOwnerToken) {
+          throw new Error("Vault owner token required");
+        }
+
         const response = await ApiService.denyPendingConsent({
           userId,
           requestId,
+          vaultOwnerToken,
         });
 
         if (!response.ok) {

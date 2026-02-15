@@ -7,7 +7,7 @@ Hushh is a **Personal Data Agent (PDA)** platform where users own their data, ag
 1. **BYOK** -- Bring Your Own Key. Server stores ciphertext only.
 2. **Consent-First** -- All data access requires a cryptographic consent token. No bypasses.
 3. **Tri-Flow** -- Every feature works on Web, iOS, and Android.
-4. **Zero-Storage** -- No `sessionStorage` or `localStorage`. All state in React memory.
+4. **Minimal Browser Storage** -- Sensitive credentials stay in React memory; selected non-sensitive UI/cache data may use browser storage.
 
 For repo-level setup instructions, see the root [`README.md`](../README.md) and [`getting_started.md`](../getting_started.md).
 
@@ -27,12 +27,12 @@ For repo-level setup instructions, see the root [`README.md`](../README.md) and 
 | Understand subtree sync enforcement | [guides/subtree-sync.md](./guides/subtree-sync.md) |
 | Add a new feature end-to-end | [guides/new-feature.md](./guides/new-feature.md) |
 | Build for iOS or Android | [guides/mobile.md](./guides/mobile.md) |
-| Implement native SSE streaming | [guides/native-streaming.md](./guides/native_streaming.md) |
+| Implement native SSE streaming | [guides/native_streaming.md](./guides/native_streaming.md) |
 | Check environment variables | [reference/env-and-secrets.md](./reference/env-and-secrets.md) |
 | Understand FCM notifications | [fcm-notifications.md](../consent-protocol/docs/reference/fcm-notifications.md) |
 | Review the design system | [reference/design-system.md](./reference/design-system.md) |
 | Review CI pipeline | [reference/ci.md](./reference/ci.md) |
-| Check iOS parity status | [audits/ios-parity.md](./audits/ios-parity.md) |
+| Check plugin parity status | [audits/plugins-parity.md](./audits/plugins-parity.md) |
 | Read the product vision | [vision/README.md](./vision/README.md) |
 | Deep-dive Agent Kai vision | [vision/kai/README.md](./vision/kai/README.md) |
 
@@ -67,7 +67,7 @@ docs/
     native_streaming.md              # Native SSE streaming implementation
 
   audits/                            # Living tracking matrices
-    ios-parity.md                    # iOS proxy parity matrix
+    plugins-parity.md                # iOS/Android plugin parity matrix
 
   vision/                            # Where is this going
     README.md                        # Philosophy, roadmap, community strategy

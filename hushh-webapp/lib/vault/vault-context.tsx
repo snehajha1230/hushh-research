@@ -147,8 +147,8 @@ export function VaultProvider({ children }: VaultProviderProps) {
           WorldModelService.getMetadata(userId),
           ApiService.getVaultStatus(userId, token),
           ApiService.getActiveConsents(userId, token),
-          ApiService.getPendingConsents(userId),
-          ApiService.getConsentHistory(userId, 1, 50),
+          ApiService.getPendingConsents(userId, token),
+          ApiService.getConsentHistory(userId, token, 1, 50),
         ]);
 
         if (vaultStatusResult.status === "fulfilled" && vaultStatusResult.value.ok) {

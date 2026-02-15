@@ -136,12 +136,12 @@ uvicorn server:app --reload --port 8000
 | Document                                                              | Description                |
 | --------------------------------------------------------------------- | -------------------------- |
 | [**🚀 Getting Started**](./getting_started.md)                        | Setup and run locally      |
-| [**📖 Documentation Index**](./docs/index.md)                        | Complete documentation hub |
-| [**👥 Contributor Guide**](./docs/guides/contributor_onboarding.md)   | Making your first contribution |
+| [**📖 Documentation Index**](./docs/readme.md)                        | Complete documentation hub |
+| [**👥 Contributor Guide**](./contributing.md)                         | Making your first contribution |
 | [**🏗️ Architecture**](./docs/reference/architecture.md)               | System design & flows      |
-| [**🔐 Consent Protocol**](./docs/reference/consent_protocol.md) | Token lifecycle            |
-| [**🔧 Developer API**](./docs/reference/developer_api.md)             | External API access        |
-| [**💾 Database Schema**](./docs/reference/database_schema.md)         | PostgreSQL tables          |
+| [**🔐 Consent Protocol**](./consent-protocol/docs/reference/consent-protocol.md) | Token lifecycle            |
+| [**🔧 Developer API**](./docs/reference/api-contracts.md)             | API contract surface       |
+| [**💾 Database Schema**](./consent-protocol/db/migrations/COMBINED_MIGRATION.sql) | PostgreSQL tables          |
 
 ---
 
@@ -305,7 +305,7 @@ Manish is a former **Google Product Management Director**, where he spent 4+ yea
 
 ## 🤝 Contributing
 
-We welcome contributions! See our [Contributing Guide](./contributing.md) and [Contributor Onboarding Guide](./docs/guides/contributor_onboarding.md) for details.
+We welcome contributions! See our [Contributing Guide](./contributing.md) and [Getting Started Guide](./docs/guides/getting-started.md) for details.
 
 **Quick start:**
 1. Fork & clone the repository

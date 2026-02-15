@@ -12,7 +12,7 @@
 
 import { useMemo } from "react";
 import { ArrowLeft, RefreshCw, Clock } from "lucide-react";
-import { Card, CardContent, CardHeader } from "@/lib/morphy-ux/card";
+import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
 import { DecisionCard, type DecisionResult } from "./decision-card";
 import { RoundTabsCard } from "./round-tabs-card";

@@ -15,8 +15,6 @@
 
 import { Capacitor } from "@capacitor/core";
 import { Kai, type KaiEncryptedPreference } from "@/lib/capacitor/kai";
-import { HushhIdentity } from "@/lib/capacitor";
-import { apiJson } from "@/lib/services/api-client";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";

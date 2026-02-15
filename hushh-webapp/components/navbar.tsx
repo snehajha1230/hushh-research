@@ -11,6 +11,7 @@ import { TrendingUp, Bell, User, Mic } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { ApiService } from "@/lib/services/api-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
+import { useVault } from "@/lib/vault/vault-context";
 
 interface NavItem {
   label: string;
@@ -23,6 +24,7 @@ interface NavItem {
 function usePendingConsents(): number {
   const [count, setCount] = useState(0);
   const { isAuthenticated, user } = useAuth();
+  const { getVaultOwnerToken } = useVault();
 
   useEffect(() => {
     if (!isAuthenticated || !user?.uid) {
@@ -32,7 +34,10 @@ function usePendingConsents(): number {
 
     const fetchCount = async () => {
       try {
-        const res = await ApiService.getPendingConsents(user.uid);
+        const vaultOwnerToken = getVaultOwnerToken();
+        if (!vaultOwnerToken) return;
+
+        const res = await ApiService.getPendingConsents(user.uid, vaultOwnerToken);
         if (!res.ok) return;
         const data = await res.json().catch(() => ({}));
         setCount(data.pending?.length || 0);
@@ -44,7 +49,7 @@ function usePendingConsents(): number {
     fetchCount();
     const interval = setInterval(fetchCount, 30000);
     return () => clearInterval(interval);
-  }, [isAuthenticated, user?.uid]);
+  }, [isAuthenticated, user?.uid, getVaultOwnerToken]);
 
   return count;
 }

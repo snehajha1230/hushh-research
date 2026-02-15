@@ -232,8 +232,6 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
     renaissance?: string;
   }>({});
 
-  const containerRef = useRef<HTMLDivElement>(null);
-
   // Helper to update specific agent state in current round
   const updateAgentState = useCallback((round: 1 | 2, agent: string, update: Partial<AgentState>) => {
     // Update Ref (Source of Truth for Stream)

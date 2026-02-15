@@ -5,12 +5,11 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
-  Clock,
   Search,
   BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Card, CardContent } from "@/lib/morphy-ux/card";
+import { Card } from "@/lib/morphy-ux/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 // Search is provided globally via Kai layout (bottom bar)
@@ -46,30 +45,6 @@ export interface AnalysisHistoryDashboardProps {
 // ============================================================================
 // Helpers
 // ============================================================================
-
-/** Format ISO timestamp into a human-readable relative string */
-function timeAgo(iso: string): string {
-  const now = Date.now();
-  const then = new Date(iso).getTime();
-  const diffMs = now - then;
-
-  if (Number.isNaN(diffMs) || diffMs < 0) return "just now";
-
-  const seconds = Math.floor(diffMs / 1000);
-  if (seconds < 60) return "just now";
-
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
-}
 
 /** Map decision string to display color classes */
 function decisionStyles(decision: string): {
@@ -114,7 +89,7 @@ function decisionStyles(decision: string): {
 function processHistory(map: AnalysisHistoryMap): HistoryEntryWithVersion[] {
   const latestPerTicker: HistoryEntryWithVersion[] = [];
 
-  Object.entries(map).forEach(([ticker, entries]) => {
+  Object.entries(map).forEach(([, entries]) => {
     if (!entries?.length) return;
 
     // Sort entries for this ticker by date ASC to assign version numbers
@@ -160,75 +135,6 @@ function HistoryCardSkeleton() {
         <Skeleton className="h-3 w-16" />
         <Skeleton className="h-3 w-12" />
       </div>
-    </Card>
-  );
-}
-
-// ============================================================================
-// History Card
-// ============================================================================
-
-function HistoryCard({
-  entry,
-  onClick,
-}: {
-  entry: AnalysisHistoryEntry;
-  onClick: () => void;
-}) {
-  const styles = decisionStyles(entry.decision);
-  const confidencePercent = Math.round(
-    entry.confidence >= 1 ? entry.confidence : entry.confidence * 100
-  );
-
-  return (
-    <Card
-      variant="none"
-      effect="glass"
-      showRipple
-      interactive
-      className="cursor-pointer group"
-      onClick={onClick}
-    >
-      <CardContent className="space-y-3">
-        {/* Top row: ticker + decision badge */}
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-lg font-black tracking-tight">{entry.ticker}</p>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              <span className="text-xs text-muted-foreground">Confidence</span>
-              <span className="text-xs font-bold">{confidencePercent}%</span>
-            </div>
-          </div>
-          <Badge
-            variant="outline"
-            className={cn(
-              "text-[10px] font-bold uppercase tracking-wider",
-              styles.bg,
-              styles.text,
-              styles.border
-            )}
-          >
-            {styles.icon}
-            {entry.decision.toUpperCase()}
-          </Badge>
-        </div>
-
-        {/* Summary */}
-        <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">
-          {entry.final_statement || "Analysis complete — tap to view details."}
-        </p>
-
-        {/* Bottom row: timestamp + consensus */}
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground/70">
-          <span className="flex items-center gap-1">
-            <Clock className="w-3 h-3" />
-            {timeAgo(entry.timestamp)}
-          </span>
-          {entry.consensus_reached && (
-            <span className="text-emerald-500 font-medium">Consensus</span>
-          )}
-        </div>
-      </CardContent>
     </Card>
   );
 }

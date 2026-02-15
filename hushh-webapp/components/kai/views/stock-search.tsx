@@ -86,13 +86,6 @@ function hasInvalidChars(text: string): boolean {
   return !/^[A-Za-z]*$/.test(text);
 }
 
-type TickerSearchResult = {
-  ticker: string;
-  title?: string | null;
-  cik?: string | number | null;
-  exchange?: string | null;
-};
-
 type StockSearchItem = {
   value: string;
   label: string;

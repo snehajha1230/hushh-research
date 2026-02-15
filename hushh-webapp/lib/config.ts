@@ -10,11 +10,13 @@
  * Matches consent-protocol MCP server PRODUCTION_MODE pattern.
  */
 
-export const ENVIRONMENT_MODE =
+const getEnvironmentMode = () =>
   process.env.ENVIRONMENT_MODE || process.env.NODE_ENV || "production";
 
-export const isDevelopment = () => ENVIRONMENT_MODE === "development";
-export const isProduction = () => ENVIRONMENT_MODE === "production";
+export const ENVIRONMENT_MODE = getEnvironmentMode();
+
+export const isDevelopment = () => getEnvironmentMode() === "development";
+export const isProduction = () => getEnvironmentMode() === "production";
 
 // Backend URL for Python consent-protocol server
 export const BACKEND_URL =
@@ -119,7 +121,7 @@ export function logSecurityEvent(
   details: SecurityEventDetails
 ) {
   const timestamp = new Date().toISOString();
-  const mode = ENVIRONMENT_MODE;
+  const mode = getEnvironmentMode();
   console.log(
     `[SECURITY ${mode.toUpperCase()}] ${timestamp} - ${event}`,
     details

@@ -249,13 +249,14 @@ export class ApiService {
     token?: string;
     requestId?: string;
     userId: string;
+    vaultOwnerToken: string;
     encryptedData?: string;
     encryptedIv?: string;
     encryptedTag?: string;
     exportKey?: string;
   }): Promise<Response> {
     const requestId = data.requestId || data.token;
-    const vaultOwnerToken = this.getVaultOwnerToken();
+    const vaultOwnerToken = data.vaultOwnerToken;
 
     if (!vaultOwnerToken) {
       return new Response(
@@ -311,9 +312,10 @@ export class ApiService {
     token?: string;
     requestId?: string;
     userId: string;
+    vaultOwnerToken: string;
   }): Promise<Response> {
     const requestId = data.requestId || data.token;
-    const vaultOwnerToken = this.getVaultOwnerToken();
+    const vaultOwnerToken = data.vaultOwnerToken;
 
     if (!vaultOwnerToken) {
       return new Response(
@@ -359,7 +361,7 @@ export class ApiService {
     userId: string;
     scope?: string;
   }): Promise<Response> {
-    const vaultOwnerToken = data.token || this.getVaultOwnerToken();
+    const vaultOwnerToken = data.token;
     if (!vaultOwnerToken) {
       return new Response(
         JSON.stringify({ error: "Vault must be unlocked" }),
@@ -419,9 +421,10 @@ export class ApiService {
    * Route: GET /api/consent/pending?userId=xxx
    * Requires VAULT_OWNER token for authentication.
    */
-  static async getPendingConsents(userId: string): Promise<Response> {
-    const vaultOwnerToken = this.getVaultOwnerToken();
-
+  static async getPendingConsents(
+    userId: string,
+    vaultOwnerToken: string
+  ): Promise<Response> {
     if (!vaultOwnerToken) {
       return new Response(
         JSON.stringify({ error: "Vault must be unlocked" }),
@@ -544,17 +547,19 @@ export class ApiService {
    * Get active consents
    * Route: GET /api/consent/active?userId=xxx
    */
-  static async getActiveConsents(userId: string, token?: string): Promise<Response> {
+  static async getActiveConsents(
+    userId: string,
+    vaultOwnerToken: string
+  ): Promise<Response> {
+    if (!vaultOwnerToken) {
+      return new Response(
+        JSON.stringify({ error: "Vault must be unlocked" }),
+        { status: 401 }
+      );
+    }
+
     if (Capacitor.isNativePlatform()) {
       try {
-        const vaultOwnerToken = this.getVaultOwnerToken() || token;
-        if (!vaultOwnerToken) {
-          return new Response(
-            JSON.stringify({ error: "Vault must be unlocked" }),
-            { status: 401 }
-          );
-        }
-
         const { consents } = await HushhConsent.getActive({
           userId,
           vaultOwnerToken,
@@ -571,16 +576,11 @@ export class ApiService {
       }
     }
     
-    // Web: Pass token in Authorization header if available
-    const vaultOwnerToken = token || this.getVaultOwnerToken();
-    const options: RequestInit = {};
-    if (vaultOwnerToken) {
-      options.headers = {
-        Authorization: `Bearer ${vaultOwnerToken}`
-      };
-    }
-    
-    return apiFetch(`/api/consent/active?userId=${encodeURIComponent(userId)}`, options);
+    return apiFetch(`/api/consent/active?userId=${encodeURIComponent(userId)}`, {
+      headers: {
+        Authorization: `Bearer ${vaultOwnerToken}`,
+      },
+    });
   }
 
   /**
@@ -589,19 +589,19 @@ export class ApiService {
    */
   static async getConsentHistory(
     userId: string,
+    vaultOwnerToken: string,
     page: number = 1,
     limit: number = 50
   ): Promise<Response> {
+    if (!vaultOwnerToken) {
+      return new Response(
+        JSON.stringify({ error: "Vault must be unlocked" }),
+        { status: 401 }
+      );
+    }
+
     if (Capacitor.isNativePlatform()) {
       try {
-        const vaultOwnerToken = this.getVaultOwnerToken();
-        if (!vaultOwnerToken) {
-          return new Response(
-            JSON.stringify({ error: "Vault must be unlocked" }),
-            { status: 401 }
-          );
-        }
-
         const { items } = await HushhConsent.getHistory({
           userId,
           vaultOwnerToken,
@@ -619,17 +619,15 @@ export class ApiService {
         });
       }
     }
-    const headers: HeadersInit = {};
-    const vaultOwnerToken = this.getVaultOwnerToken();
-    if (vaultOwnerToken) {
-      headers.Authorization = `Bearer ${vaultOwnerToken}`;
-    }
-
     return apiFetch(
       `/api/consent/history?userId=${encodeURIComponent(
         userId
       )}&page=${page}&limit=${limit}`,
-      { headers }
+      {
+        headers: {
+          Authorization: `Bearer ${vaultOwnerToken}`,
+        },
+      }
     );
   }
 
@@ -1736,4 +1734,3 @@ export class ApiService {
 
 // Re-export for convenience
 export { getApiBaseUrl };
-

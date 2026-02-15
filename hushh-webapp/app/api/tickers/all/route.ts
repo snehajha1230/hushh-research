@@ -14,6 +14,14 @@ import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
 export const dynamic = "force-dynamic";
 
+function getErrorDetail(data: unknown): string | null {
+  if (!data || typeof data !== "object" || !("detail" in data)) {
+    return null;
+  }
+  const detail = (data as { detail?: unknown }).detail;
+  return typeof detail === "string" ? detail : null;
+}
+
 export async function GET(_request: NextRequest) {
   try {
     const backendUrl = getPythonApiUrl();
@@ -24,11 +32,11 @@ export async function GET(_request: NextRequest) {
       },
     });
 
-    const data = await response.json().catch(() => []);
+    const data: unknown = await response.json().catch(() => []);
 
     if (!response.ok) {
       return NextResponse.json(
-        { error: (data as any)?.detail || "Ticker universe fetch failed" },
+        { error: getErrorDetail(data) || "Ticker universe fetch failed" },
         { status: response.status }
       );
     }

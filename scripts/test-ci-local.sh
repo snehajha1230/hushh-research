@@ -171,7 +171,7 @@ fi
 
 if [ $FAIL -eq 0 ]; then
   echo "  Linting..."
-  npm run check-lint || { echo "❌ Lint check failed"; FAIL=1; }
+  npm run lint || { echo "❌ Lint check failed"; FAIL=1; }
 fi
 
 if [ $FAIL -eq 0 ]; then
@@ -185,7 +185,7 @@ if [ $FAIL -eq 0 ]; then
 fi
 
 echo "  Security audit..."
-npm audit --audit-level=high || { echo "⚠️  Security audit warnings (non-blocking)"; WARNINGS=$((WARNINGS + 1)); }
+npm audit --audit-level=high || { echo "❌ Security audit failed"; FAIL=1; }
 
 cd "$REPO_ROOT"
 echo ""
@@ -251,7 +251,7 @@ npm ci || { echo "❌ npm ci failed - check package-lock.json is in sync"; FAIL=
 if [ $FAIL -eq 0 ]; then
   if [ -f "scripts/verify-route-contracts.cjs" ]; then
     echo "  Verifying route contracts..."
-    npm run verify:routes || { echo "⚠️  Route contract verification (non-blocking)"; WARNINGS=$((WARNINGS + 1)); }
+    npm run verify:routes || { echo "❌ Route contract verification failed"; FAIL=1; }
   else
     echo "  ⚠️  Skipping route contract verification - script not found"
     WARNINGS=$((WARNINGS + 1))
@@ -269,7 +269,6 @@ if [ $FAIL -eq 0 ]; then
     echo "⚠️  $WARNINGS non-blocking warnings (see above)"
     echo ""
     echo "These warnings won't block CI but should be addressed:"
-    echo "- Security audit warnings"
     echo "- Missing test files or route contract verification script"
   fi
   echo ""

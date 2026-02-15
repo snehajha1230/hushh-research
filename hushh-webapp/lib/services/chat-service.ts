@@ -161,7 +161,7 @@ class ChatServiceImpl {
     message: string,
     userId: string,
     session: ChatSession,
-    agentId?: string
+    _agentId?: string
   ): Promise<ChatResponse> {
     try {
       const data = await apiJson<any>("/api/kai/chat", {

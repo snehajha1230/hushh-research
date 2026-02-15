@@ -259,7 +259,7 @@ TEST_COUNT=$((TEST_COUNT + 1))
 cd hushh-webapp || exit 1
 
 echo "  → Running ESLint..."
-if npm run check-lint 2>&1 | tee /tmp/eslint.log; then
+if npm run lint 2>&1 | tee /tmp/eslint.log; then
   echo "✓ [PASS] ESLint check passed"
   PASS_COUNT=$((PASS_COUNT + 1))
 else
@@ -493,8 +493,8 @@ if [ -f "scripts/verify-route-contracts.cjs" ]; then
     PASS_COUNT=$((PASS_COUNT + 1))
   else
     VERIFY_EXIT=$?
-    echo "⚠ [WARN] Route contract verification failed (non-blocking)"
-    WARNINGS=$((WARNINGS + 1))
+    echo "✗ [FAIL] Route contract verification failed (exit code: $VERIFY_EXIT)"
+    FAIL=1
   fi
 else
   echo "⚠ [WARN] verify-route-contracts.cjs not found, skipping"

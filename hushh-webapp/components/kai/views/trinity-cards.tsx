@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
-import { TrendingUp, ShieldAlert, Crown, Sparkles } from "lucide-react";
+import { TrendingUp, ShieldAlert, Crown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TrinityCardsProps {

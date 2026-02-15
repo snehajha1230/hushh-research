@@ -38,9 +38,10 @@ Required env:
 │  └──────────────────────────────────────────────────────────┘  │
 │                          ↓ Capacitor.call()                     │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │        Native Plugins (8 per platform)                    │  │
+│  │       Native Plugins (12 per platform)                    │  │
 │  │  HushhAuth · HushhVault · HushhConsent · HushhIdentity   │  │
 │  │  Kai · HushhSync · HushhSettings · HushhKeystore         │  │
+│  │  WorldModel · HushhOnboarding · HushhAccount · Notifications │
 │  └──────────────────────────────────────────────────────────┘  │
 │                          ↓ Native HTTP                          │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -52,9 +53,9 @@ Required env:
 
 ---
 
-## Native Plugins (8 Verified)
+## Native Plugins (12 Verified)
 
-All 8 plugins exist on both platforms with matching methods:
+All 12 plugins exist on both platforms with matching methods:
 
 | Plugin            | jsName          | Purpose                        | iOS                         | Android                  |
 | ----------------- | --------------- | ------------------------------ | --------------------------- | ------------------------ |
@@ -66,6 +67,10 @@ All 8 plugins exist on both platforms with matching methods:
 | **HushhSync**     | `HushhSync`     | Cloud synchronization          | `HushhSyncPlugin.swift`     | `HushhSyncPlugin.kt`     |
 | **HushhSettings** | `HushhSettings` | App preferences                | `HushhSettingsPlugin.swift` | `HushhSettingsPlugin.kt` |
 | **HushhKeystore** | `HushhKeychain` | Secure key storage             | `HushhKeystorePlugin.swift` | `HushhKeystorePlugin.kt` |
+| **WorldModel**    | `WorldModel`    | Domain metadata/index access   | `WorldModelPlugin.swift`    | `WorldModelPlugin.kt`    |
+| **HushhOnboarding** | `HushhOnboarding` | Onboarding tour state       | `HushhOnboardingPlugin.swift` | `HushhOnboardingPlugin.kt` |
+| **HushhAccount**  | `HushhAccount`  | Account lifecycle actions      | `HushhAccountPlugin.swift`  | `HushhAccountPlugin.kt`  |
+| **HushhNotifications** | `HushhNotifications` | Push token registration | `HushhNotificationsPlugin.swift` | `HushhNotificationsPlugin.kt` |
 
 > Note: HushhKeystore uses jsName `HushhKeychain` for historical compatibility.
 
@@ -679,7 +684,7 @@ await WorldModelService.storeDomainData({
 });
 ```
 
-**Why:** Native platforms may not have reliable sessionStorage access, and the service layer's fallback (`sessionStorage.getItem("vault_owner_token")`) may return `undefined`, causing authentication failures.
+**Why:** Protected consent operations now require an explicit `vaultOwnerToken`; this avoids implicit storage reads and prevents intermittent auth failures across native webview lifecycles.
 
 ## Streaming Features
 
@@ -694,7 +699,7 @@ For Server-Sent Events (SSE) streaming on native:
 
 Before releasing mobile updates:
 
-- [ ] All 8 plugins registered on both platforms
+- [ ] All 12 plugins registered on both platforms
 - [ ] Firebase authentication works (Google Sign-In)
 - [ ] Apple Sign-In works on iOS
 - [ ] Vault operations work end-to-end

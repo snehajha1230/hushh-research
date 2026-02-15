@@ -4,8 +4,6 @@ import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import {
   Zap,
-  CheckCircle2,
-  AlertCircle,
   ChevronDown,
   ChevronUp,
   ExternalLink,
@@ -39,7 +37,6 @@ import {
   XAxis,
   YAxis,
   ResponsiveContainer,
-  Label,
   LabelList, // Added LabelList
 } from "recharts";
 import {
@@ -396,46 +393,6 @@ function RenaissanceBadge({ tier, score }: { tier: "ACE" | "KING" | "QUEEN" | "J
 }
 
 // ============================================================================
-// Sub-Components
-// ============================================================================
-
-function AgentSummarySection({
-  title,
-  summary,
-  icon,
-  color,
-}: {
-  title: string;
-  summary: string;
-  icon: React.ReactNode;
-  color: string;
-}) {
-  const [isExpanded, setIsExpanded] = useState(true);
-  if (!summary) return null;
-
-  return (
-    <div className="border border-border/50 rounded-xl overflow-hidden bg-card/30 backdrop-blur-sm transition-all duration-200 hover:bg-card/50 hover:border-border/80 hover:shadow-sm">
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full text-left flex items-center gap-3 p-3 transition-colors duration-200 cursor-pointer">
-        <div className={cn("flex items-center justify-center w-6 h-6 rounded-full bg-background border shadow-sm", color)}>
-            {icon}
-        </div>
-        <span className={cn("text-xs font-bold uppercase tracking-wide", color)}>{title}</span>
-        <div className="ml-auto opacity-50">
-          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-        </div>
-      </button>
-      {isExpanded && (
-        <div className="px-4 pb-4 pt-1 text-xs text-muted-foreground leading-relaxed animate-in slide-in-from-top-1 fade-in duration-200">
-          {summary}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -446,7 +403,6 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
 
   const rawCard = result.raw_card;
   const sources = rawCard?.all_sources || [];
-  const hasAgentSummaries = result.fundamental_summary || result.sentiment_summary || result.valuation_summary;
   const hasQuantMetrics = rawCard?.quant_metrics && Object.keys(rawCard.quant_metrics).filter(
     (k) => rawCard.quant_metrics![k] !== null && rawCard.quant_metrics![k] !== undefined && typeof rawCard.quant_metrics![k] !== "object"
   ).length > 0;

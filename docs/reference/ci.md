@@ -46,11 +46,11 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 | Validate files | `package-lock.json` exists and valid JSON; `next.config.ts` exists | Yes |
 | Install | `npm ci` | Yes |
 | TypeScript | `npx tsc --noEmit` | Yes |
-| Lint | `npm run check-lint` (ESLint) | Yes |
+| Lint | `npm run lint` (ESLint) | Yes |
 | Build (web) | `npm run build` (Next.js) | Yes |
 | Build (Capacitor) | `npm run cap:build` with `CAPACITOR_BUILD=true` | Yes |
-| Security audit | `npm audit --audit-level=high` | No (continue-on-error) |
-| Tests | `npm test` | No (continue-on-error) |
+| Security audit | `npm audit --audit-level=high` | Yes |
+| Tests | `npm test` | Yes |
 
 **Build env (CI):** `NEXT_PUBLIC_BACKEND_URL` and all six `NEXT_PUBLIC_FIREBASE_*` vars are set to placeholders in the workflow so the build does not depend on real secrets.
 
@@ -132,7 +132,7 @@ If it exits 0, CI should pass. If it fails, fix the reported step before committ
 
 | Area | Commands (from repo root) |
 |------|----------------------------|
-| Frontend | `cd hushh-webapp && npm ci && npx tsc --noEmit && npm run check-lint && npm run build && npm run cap:build` |
+| Frontend | `cd hushh-webapp && npm ci && npx tsc --noEmit && npm run lint && npm run build && npm run cap:build` |
 | Backend | `cd consent-protocol && pip install -r requirements.txt -r requirements-dev.txt && ruff check . && mypy --config-file pyproject.toml --ignore-missing-imports && pytest tests/` |
 | Integration | `cd hushh-webapp && npm ci && npm run verify:routes` |
 | All | `./scripts/test-ci-local.sh` |

@@ -68,8 +68,8 @@ export function ConsentNotificationProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { isVaultUnlocked } = useVault();
-  const [pendingCount, setPendingCount] = useState(0);
+  const { isVaultUnlocked, getVaultOwnerToken } = useVault();
+  const [, setPendingCount] = useState(0);
   const { user } = useAuth();
   const fcmInitializedRef = useRef(false);
   // Track which request IDs we've already toasted this session
@@ -207,7 +207,10 @@ export function ConsentNotificationProvider({
 
     (async () => {
       try {
-        const response = await ApiService.getPendingConsents(uid);
+        const vaultOwnerToken = getVaultOwnerToken();
+        if (!vaultOwnerToken) return;
+
+        const response = await ApiService.getPendingConsents(uid, vaultOwnerToken);
         if (cancelled) return;
         if (response.ok) {
           const json = await response.json().catch(() => ({}));
@@ -225,7 +228,7 @@ export function ConsentNotificationProvider({
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, user?.uid, showConsentToast]);
+  }, [isVaultUnlocked, user?.uid, showConsentToast, getVaultOwnerToken]);
 
   return <>{children}</>;
 }
@@ -241,7 +244,7 @@ export function ConsentNotificationProvider({
  */
 export function usePendingConsentCount() {
   const [count, setCount] = useState(0);
-  const { isVaultUnlocked } = useVault();
+  const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   const { user } = useAuth();
 
   // One-time fetch on vault unlock
@@ -254,7 +257,10 @@ export function usePendingConsentCount() {
 
     (async () => {
       try {
-        const response = await ApiService.getPendingConsents(uid);
+        const vaultOwnerToken = getVaultOwnerToken();
+        if (!vaultOwnerToken) return;
+
+        const response = await ApiService.getPendingConsents(uid, vaultOwnerToken);
         if (cancelled) return;
         if (response.ok) {
           const data = await response.json().catch(() => ({}));
@@ -268,7 +274,7 @@ export function usePendingConsentCount() {
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, user?.uid]);
+  }, [isVaultUnlocked, user?.uid, getVaultOwnerToken]);
 
   // Adjust count on FCM events
   useEffect(() => {

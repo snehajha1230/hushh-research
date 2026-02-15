@@ -40,7 +40,7 @@ const config: NextConfig = {
   // When building for mobile, we ONLY want to include UI pages (.tsx)
   // This effectively ignores app/api/ route.ts files, preventing invalid export errors.
   pageExtensions: isCapacitorBuild
-    ? ["tsx"] // Mobile: Only include .tsx pages (no .ts routes)
+    ? ["tsx"] // Mobile: Only include .tsx pages (no .ts API routes)
     : ["tsx", "ts", "jsx", "js"], // Web: Include everything
 
   images: {

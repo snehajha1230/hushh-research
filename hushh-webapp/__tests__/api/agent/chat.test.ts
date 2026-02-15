@@ -14,12 +14,31 @@ import {
   mockFetch,
 } from "../../utils/test-helpers";
 import { mockFirebaseHeader } from "../../utils/mock-tokens";
+import { afterEach, vi } from "vitest";
+
+vi.mock("@/lib/auth/validate", () => ({
+  validateFirebaseToken: vi.fn(async (authHeader: string | null) => {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return { valid: false, error: "Missing or invalid Authorization header" };
+    }
+
+    if (authHeader.includes("firebase_token_for_")) {
+      return { valid: true, userId: "test_user", email: "test@example.com" };
+    }
+
+    return { valid: false, error: "Invalid Firebase ID token" };
+  }),
+}));
 
 // Dynamic import
 let route: { POST: Function };
 
 beforeAll(async () => {
   route = await import("../../../app/api/chat/route");
+});
+
+afterEach(() => {
+  process.env.ENVIRONMENT_MODE = "development";
 });
 
 describe("/api/chat", () => {
@@ -51,9 +70,6 @@ describe("/api/chat", () => {
     it("should accept valid Firebase token", async () => {
       process.env.ENVIRONMENT_MODE = "production";
 
-      // Mock Firebase validation success
-      mockFetch({ sessionToken: "session_token" }, 200);
-
       // Mock orchestrator response
       mockFetch({
         response: "Hello! How can I help you?",
@@ -74,8 +90,6 @@ describe("/api/chat", () => {
       const response = await route.POST(request);
       // Should not be 401
       expect(response.status).not.toBe(401);
-
-      process.env.ENVIRONMENT_MODE = "development";
     });
 
     it("should allow chat without auth in development mode", async () => {
