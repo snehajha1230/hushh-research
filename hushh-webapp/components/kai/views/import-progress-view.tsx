@@ -5,7 +5,7 @@
  * Displays Gemini AI extraction progress with thinking mode support.
  *
  * Features:
- * - Stage progress indicators (Upload → Analyze → Think → Extract → Complete)
+ * - Animated progress bar for stream progression
  * - Real-time thought summaries from Gemini thinking mode (in StreamingAccordion)
  * - Human-readable streaming text display (transforms JSON to readable format)
  * - Character count and chunk count stats
@@ -17,9 +17,6 @@
 
 import { useMemo } from "react";
 import { cn } from "@/lib/morphy-ux";
-import {
-  StreamingStageIndicator,
-} from "@/lib/morphy-ux";
 import { StreamingAccordion } from "@/lib/morphy-ux/streaming-accordion";
 import { 
   Card, 
@@ -27,6 +24,7 @@ import {
   CardHeader, 
   CardTitle 
 } from "@/lib/morphy-ux/card";
+import { Progress } from "@/components/ui/progress";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { X, FileChartColumn, Database, CheckCircle2 } from "lucide-react";
 
@@ -49,6 +47,14 @@ interface QualityReport {
   mismatch_detected?: number;
 }
 
+interface LiveHoldingPreview {
+  symbol?: string;
+  name?: string;
+  market_value?: number | null;
+  quantity?: number | null;
+  asset_type?: string;
+}
+
 export interface ImportProgressViewProps {
   /** Current processing stage */
   stage: ImportStage;
@@ -60,12 +66,22 @@ export interface ImportProgressViewProps {
   totalChars: number;
   /** Total chunks received */
   chunkCount: number;
+  /** Stream progress percentage from backend canonical payload */
+  progressPct?: number;
+  /** Optional status message from backend payload */
+  statusMessage?: string;
   /** Array of thought summaries from Gemini thinking mode */
   thoughts?: string[];
   /** Total thought count */
   thoughtCount?: number;
   /** Quality reconciliation summary from backend parser */
   qualityReport?: QualityReport;
+  /** Incremental parsed holdings preview */
+  liveHoldings?: LiveHoldingPreview[];
+  /** Parsed holdings count so far */
+  holdingsExtracted?: number;
+  /** Total holdings expected */
+  holdingsTotal?: number;
   /** Error message if stage is 'error' */
   errorMessage?: string;
   /** Cancel handler */
@@ -77,19 +93,6 @@ export interface ImportProgressViewProps {
   /** Additional CSS classes */
   className?: string;
 }
-
-const STAGES = ["Upload", "Analyze", "Think", "Extract", "Complete"] as const;
-
-const stageToIndex: Record<ImportStage, number> = {
-  idle: -1,
-  uploading: 0,
-  analyzing: 1,
-  thinking: 2,
-  extracting: 3,
-  parsing: 3,
-  complete: 4,
-  error: -1,
-};
 
 const stageMessages: Record<ImportStage, string> = {
   idle: "Ready to import",
@@ -108,21 +111,52 @@ export function ImportProgressView({
   isStreaming,
   totalChars,
   chunkCount,
+  progressPct,
+  statusMessage,
   thoughts = [],
   thoughtCount = 0,
   qualityReport,
+  liveHoldings = [],
+  holdingsExtracted = 0,
+  holdingsTotal,
   errorMessage,
   onCancel,
   onContinue,
   onBackToDashboard,
   className,
 }: ImportProgressViewProps) {
-  const currentStageIndex = stageToIndex[stage];
-
   // Determine if we're in a thinking or extracting phase
   const isThinking = stage === "thinking";
   const isExtracting = stage === "extracting" || stage === "parsing";
   const isComplete = stage === "complete";
+  const visibleStreamText =
+    streamedText ||
+    (isStreaming
+      ? `${statusMessage || stageMessages[stage]}\n\nWaiting for next stream chunk...`
+      : "");
+  const resolvedProgress = useMemo(() => {
+    if (typeof progressPct === "number" && Number.isFinite(progressPct)) {
+      return Math.max(0, Math.min(100, progressPct));
+    }
+    switch (stage) {
+      case "uploading":
+        return 5;
+      case "analyzing":
+        return 20;
+      case "thinking":
+        return 45;
+      case "extracting":
+        return 70;
+      case "parsing":
+        return 90;
+      case "complete":
+        return 100;
+      case "error":
+        return 100;
+      default:
+        return 0;
+    }
+  }, [progressPct, stage]);
 
   // Format thoughts into a single text string for the accordion
   // Matches the [N] **Header** pattern for bold rendering
@@ -157,20 +191,23 @@ export function ImportProgressView({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Stage Progress */}
-        <StreamingStageIndicator
-          stages={[...STAGES]}
-          currentStage={currentStageIndex}
-          showLabels
-        />
+        {/* Stream Progress */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Import progress</span>
+            <span>{Math.round(resolvedProgress)}%</span>
+          </div>
+          <Progress
+            value={resolvedProgress}
+            className={cn("h-2", isStreaming && "transition-all")}
+          />
+        </div>
 
         {/* Status Message */}
         <div className="flex items-center gap-2">
-          {stage !== "analyzing" && !isThinking && !isExtracting && (
-            <p className="text-sm text-muted-foreground">
-              {stageMessages[stage]}
-            </p>
-          )}
+          <p className="text-sm text-muted-foreground">
+            {statusMessage || stageMessages[stage]}
+          </p>
         </div>
 
 
@@ -189,8 +226,8 @@ export function ImportProgressView({
 
 
 
-        {/* Data Extraction Panels - Interpreted + Raw */}
-        {(isExtracting || (streamedText && !isComplete) || (isComplete && streamedText)) && (
+        {/* Data Extraction Stream */}
+        {(isStreaming || (streamedText && !isComplete) || (isComplete && streamedText)) && (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
               <span className="flex items-center gap-1.5">
@@ -202,28 +239,71 @@ export function ImportProgressView({
               </span>
             </div>
             <StreamingAccordion
-              id="data-extraction-human"
-              title="Interpreted Stream"
-              text={streamedText}
-              isStreaming={isStreaming && isExtracting}
-              isComplete={isComplete}
-              formatAsHuman={true}
-              icon={isComplete ? "database" : "spinner"}
-              iconClassName="w-6 h-6"
-              maxHeight="220px"
-              defaultExpanded={true}
-            />
-            <StreamingAccordion
-              id="data-extraction-raw"
-              title="Raw Stream"
-              text={streamedText}
-              isStreaming={isStreaming && isExtracting}
+              id="data-extraction-live"
+              title="Realtime Extracted Text"
+              text={visibleStreamText}
+              isStreaming={isStreaming}
               isComplete={isComplete}
               formatAsHuman={false}
               icon={isComplete ? "database" : "spinner"}
               iconClassName="w-6 h-6"
-              maxHeight="180px"
+              maxHeight="320px"
+              defaultExpanded={true}
+              autoCollapseOnComplete={false}
+              emptyStreamingMessage="Initializing Vertex stream..."
+              bodyClassName="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed"
             />
+          </div>
+        )}
+
+        {/* Parsed holdings preview while parsing */}
+        {(holdingsExtracted > 0 || liveHoldings.length > 0) && (
+          <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+              <span>Extracted Holdings</span>
+              <span>
+                {holdingsExtracted}
+                {typeof holdingsTotal === "number" && holdingsTotal > 0 ? ` / ${holdingsTotal}` : ""}
+              </span>
+            </div>
+            <div className="max-h-80 overflow-y-auto pr-1 space-y-1.5">
+              {liveHoldings.map((holding, idx) => (
+                  <div
+                    key={`${holding.symbol || holding.name || "holding"}-${idx}`}
+                    className="rounded-lg border border-border/40 bg-background/70 px-2.5 py-2 text-xs"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-foreground/90 truncate">
+                          {holding.symbol || `Holding ${idx + 1}`}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {holding.name || "Security captured from statement"}
+                        </p>
+                      </div>
+                      {holding.asset_type && (
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground border border-border/50 rounded px-1.5 py-0.5">
+                          {holding.asset_type}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>
+                        Qty:{" "}
+                        {typeof holding.quantity === "number"
+                          ? holding.quantity.toLocaleString()
+                          : "—"}
+                      </span>
+                      <span>
+                        Value:{" "}
+                        {typeof holding.market_value === "number"
+                          ? `$${holding.market_value.toLocaleString()}`
+                          : "—"}
+                      </span>
+                    </div>
+                  </div>
+              ))}
+            </div>
           </div>
         )}
 

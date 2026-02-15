@@ -21,6 +21,7 @@ const DEFAULT_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
 
 let inMemory: CachePayload | null = null;
 let inFlight: Promise<TickerUniverseRow[]> | null = null;
+const remoteSearchInFlight = new Map<string, Promise<TickerUniverseRow[]>>();
 
 function normalizeRow(row: TickerUniverseRow): TickerUniverseRow {
   return {
@@ -122,6 +123,52 @@ export async function preloadTickerUniverse(options?: {
 
 export function getTickerUniverseSync(): TickerUniverseRow[] | null {
   return inMemory?.rows ?? null;
+}
+
+/**
+ * Return a synchronous ticker snapshot from memory or localStorage.
+ * Useful for immediate UX while async preload runs.
+ */
+export function getTickerUniverseSnapshot(): TickerUniverseRow[] | null {
+  if (inMemory?.rows?.length) {
+    return inMemory.rows;
+  }
+  const stored = readFromStorage();
+  if (stored?.rows?.length) {
+    inMemory = stored;
+    return stored.rows;
+  }
+  return null;
+}
+
+/**
+ * Search the backend ticker cache (Python in-memory cache) for continuous results.
+ * This complements the local universe preload and keeps suggestions responsive.
+ */
+export async function searchTickerUniverseRemote(
+  query: string,
+  limit = 25,
+): Promise<TickerUniverseRow[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const safeLimit = Math.max(1, Math.min(limit, 100));
+  const key = `${q.toUpperCase()}::${safeLimit}`;
+  const cachedPromise = remoteSearchInFlight.get(key);
+  if (cachedPromise) return cachedPromise;
+
+  const promise = (async () => {
+    const endpoint = `/api/tickers/search?q=${encodeURIComponent(q)}&limit=${safeLimit}`;
+    const resp = await ApiService.apiFetch(endpoint, { method: "GET" });
+    if (!resp.ok) throw new Error("Failed to search ticker universe");
+    const json = (await resp.json()) as unknown;
+    if (!Array.isArray(json)) return [];
+    return (json as TickerUniverseRow[]).map(normalizeRow);
+  })().finally(() => {
+    remoteSearchInFlight.delete(key);
+  });
+
+  remoteSearchInFlight.set(key, promise);
+  return promise;
 }
 
 export function searchTickerUniverse(

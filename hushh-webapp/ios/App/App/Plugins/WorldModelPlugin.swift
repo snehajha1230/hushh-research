@@ -37,6 +37,7 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getAvailableScopes", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getPortfolio", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listPortfolios", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getEncryptedData", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "storeDomainData", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getDomainData", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearDomain", returnType: CAPPluginReturnPromise)
@@ -375,6 +376,36 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         let backendUrl = getBackendUrl(call)
         let urlStr = "\(backendUrl)/api/world-model/domain-data/\(userId)/\(domain)"
+
+        guard let url = URL(string: urlStr) else {
+            call.reject("Invalid URL: \(urlStr)")
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(vaultOwnerToken)", forHTTPHeaderField: "Authorization")
+
+        executeRequest(request, call: call, backendUrl: backendUrl)
+    }
+
+    /**
+     * Get full encrypted world-model blob for a user.
+     */
+    @objc func getEncryptedData(_ call: CAPPluginCall) {
+        print("[\(TAG)] getEncryptedData called")
+        guard let userId = call.getString("userId") else {
+            call.reject("Missing required parameter: userId")
+            return
+        }
+
+        guard let vaultOwnerToken = getVaultOwnerToken(call) else {
+            call.reject("Missing required parameter: vaultOwnerToken")
+            return
+        }
+        let backendUrl = getBackendUrl(call)
+        let urlStr = "\(backendUrl)/api/world-model/data/\(userId)"
 
         guard let url = URL(string: urlStr) else {
             call.reject("Invalid URL: \(urlStr)")

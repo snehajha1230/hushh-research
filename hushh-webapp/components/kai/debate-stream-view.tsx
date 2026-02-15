@@ -3,13 +3,12 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckCircle2, ArrowDown } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckCircle2 } from "lucide-react";
 import { setKaiVaultOwnerToken } from "@/lib/services/kai-service";
 import { KaiHistoryService } from "@/lib/services/kai-history-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { DecisionCard } from "./views/decision-card";
 import { RoundTabsCard } from "./views/round-tabs-card";
-import { TrinityCards } from "./views/trinity-cards";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { HushhLoader } from "@/components/ui/hushh-loader";
@@ -18,6 +17,8 @@ import { Progress } from "@/components/ui/progress";
 import { ApiService } from "@/lib/services/api-service";
 import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
+import { useKaiSession } from "@/lib/stores/kai-session-store";
+import { KaiIntroService } from "@/lib/services/kai-intro-service";
 
 // ============================================================================
 // Types
@@ -147,6 +148,7 @@ interface DebateStreamViewProps {
 }
 
 export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp, vaultOwnerToken, vaultKey, onClose }: DebateStreamViewProps) {
+  const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
   // State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -165,9 +167,8 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
   );
 
   // Live Insights State
-  const [insights, setInsights] = useState<Insight[]>([]);
+  const [_insights, setInsights] = useState<Insight[]>([]);
   const insightsRef = useRef<Insight[]>([]); // Ref for stream safety
-  const intelScrollRef = useRef<HTMLDivElement | null>(null);
 
   // Refs for robust state tracking inside async stream
   const round1StatesRef = useRef<Record<string, AgentState>>(JSON.parse(JSON.stringify(INITIAL_ROUND_STATE)));
@@ -229,13 +230,6 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
   const hasStartedRef = useRef(false);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
-  // Trinity State
-  const [trinityState, setTrinityState] = useState<{
-    bull?: string;
-    bear?: string;
-    renaissance?: string;
-  }>({});
-
   // Helper to update specific agent state in current round
   const updateAgentState = useCallback((round: 1 | 2, agent: string, update: Partial<AgentState>) => {
     // Update Ref (Source of Truth for Stream)
@@ -264,8 +258,9 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
     if (retryTimerRef.current) {
       clearTimeout(retryTimerRef.current);
     }
+    setBusyOperation("stock_analysis_stream", false);
     onClose();
-  }, [onClose]);
+  }, [onClose, setBusyOperation]);
 
   // Reset state for retry
   const resetState = useCallback(() => {
@@ -284,7 +279,6 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
     setDecision(null);
     setInsights([]);
     setRetryCountdown(null);
-    setTrinityState({}); // Reset Trinity state
     // Reset refs
     round1StatesRef.current = JSON.parse(JSON.stringify(INITIAL_ROUND_STATE));
     round2StatesRef.current = JSON.parse(JSON.stringify(INITIAL_ROUND_STATE));
@@ -306,37 +300,28 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
           setLoading(true);
           setError(null);
         }
+        setBusyOperation("stock_analysis_stream", true);
         abortControllerRef.current = new AbortController();
 
-        // Fetch and decrypt user context (Portfolio, Bio, etc.)
-        let context = null;
+        // Build user context payload for backend personalization.
+        let context: Record<string, unknown> | null = null;
         if (vaultKey) {
           try {
-             // 1. Get encrypted profile
-             const { getEncryptedProfile } = await import("@/lib/services/kai-service");
-             const { profileData } = await getEncryptedProfile(vaultOwnerToken);
-
-             if (profileData) {
-               // 2. Decrypt
-               const { decryptData } = await import("@/lib/vault/encrypt");
-               const decryptedJson = await decryptData(
-                 {
-                   ciphertext: profileData.ciphertext,
-                   iv: profileData.iv,
-                   tag: profileData.tag,
-                   encoding: "base64",
-                   algorithm: "aes-256-gcm",
-                 },
-                 vaultKey
-               );
-               context = JSON.parse(decryptedJson);
-               // Add user name if available in the profile
-               if (context && !context.name && context.identity?.name) {
-                 context.name = context.identity.name;
-               }
-             }
+            const profile = await KaiIntroService.getProfile({
+              userId,
+              vaultKey,
+              vaultOwnerToken,
+            });
+            context = {
+              user_name: userId,
+              preferences: {
+                investment_horizon: profile.investment_horizon,
+                investment_style: profile.investment_style,
+              },
+              kai_profile: profile,
+            };
           } catch (err) {
-            console.warn("[DebateStreamView] Failed to load/decrypt context:", err);
+            console.warn("[DebateStreamView] Failed to load Kai profile context:", err);
             // Non-fatal, proceed without context
           }
         }
@@ -352,6 +337,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
           riskProfile,
           userContext: context, // Pass the FULL decrypted context object
           vaultOwnerToken,
+          signal: abortControllerRef.current.signal,
         });
 
         // If the user closes/back while the native plugin is still streaming,
@@ -416,13 +402,32 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
             const data = envelope.payload as Record<string, any>;
 
             switch (resolvedEventType) {
+              case "start": {
+                const message =
+                  (typeof data.message === "string" && data.message) ||
+                  (typeof data.text === "string" ? data.text : "");
+                if (message) {
+                  setKaiThinking(message);
+                }
+                break;
+              }
+              case "warning": {
+                const message =
+                  (typeof data.message === "string" && data.message) ||
+                  (typeof data.code === "string" ? data.code : "Streaming warning");
+                if (message) {
+                  setKaiThinking(message);
+                  toast.warning("Streaming warning", { description: message });
+                }
+                break;
+              }
               case "kai_thinking": {
                 setKaiThinking(
                   (typeof data.message === "string" && data.message) ||
                     (typeof data.text === "string" ? data.text : "")
                 );
-                const phase = typeof data.phase === "string" ? data.phase : "";
-                if (phase === "debate" && activeRoundRef.current !== 2) {
+                const r = resolveRound(data);
+                if (r === 2 && activeRoundRef.current !== 2) {
                   activeRoundRef.current = 2;
                   setActiveRound(2);
                   setCollapsedRounds({ 1: true, 2: false });
@@ -430,7 +435,8 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                 }
                 break;
               }
-              case "debate_round": {
+              case "debate_round":
+              case "round_start": {
                 const r = resolveRound(data);
                 if (r === 2 && activeRoundRef.current !== 2) {
                   activeRoundRef.current = 2;
@@ -532,16 +538,6 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                   timestamp: new Date().toISOString(),
                 };
 
-                if (data.type === "bull_case_personalized") {
-                  setTrinityState((prev) => ({ ...prev, bull: data.content }));
-                }
-                if (data.type === "bear_case_personalized") {
-                  setTrinityState((prev) => ({ ...prev, bear: data.content }));
-                }
-                if (data.type === "renaissance_verdict") {
-                  setTrinityState((prev) => ({ ...prev, renaissance: data.content }));
-                }
-
                 setInsights((prev) => [...prev, newInsight]);
                 insightsRef.current.push(newInsight);
                 if (data.type === "impact" && (data.magnitude === "high" || data.score >= 8)) {
@@ -556,6 +552,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                 setDecision(data);
                 setKaiThinking("Analysis Complete.");
                 setCollapsedRounds({ 1: true, 2: true });
+                setBusyOperation("stock_analysis_stream", false);
                 if (vaultKey && userId) {
                   KaiHistoryService.saveAnalysis({
                     userId,
@@ -588,7 +585,15 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
               case "error": {
                 const errMsg = data.message || "Analysis failed";
                 const errType = classifyError(null, errMsg);
-                if ((errType === "rate_limit" || errType === "server_error") && retryCountRef.current < MAX_RETRIES) {
+                setBusyOperation("stock_analysis_stream", false);
+                const hasProgress =
+                  AGENTS.some((agent) => round1StatesRef.current[agent]?.stage !== "idle") ||
+                  AGENTS.some((agent) => round2StatesRef.current[agent]?.stage !== "idle");
+                if (
+                  !hasProgress &&
+                  (errType === "rate_limit" || errType === "server_error") &&
+                  retryCountRef.current < MAX_RETRIES
+                ) {
                   const delay = RETRY_DELAYS[retryCountRef.current] || 8000;
                   retryCountRef.current++;
                   const seconds = Math.ceil(delay / 1000);
@@ -608,19 +613,27 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                 setErrorType(errType);
                 break;
               }
+              case "aborted": {
+                const errMsg = data.message || "Analysis stream stopped";
+                setBusyOperation("stock_analysis_stream", false);
+                setError(errMsg);
+                setErrorType("connection_lost");
+                break;
+              }
               default:
                 break;
             }
           },
           {
             signal: abortControllerRef.current.signal,
-            idleTimeoutMs: 120000,
+            idleTimeoutMs: 360000,
             requireTerminal: true,
           }
         );
       } catch (err: any) {
         if (err.name === "AbortError") {
           console.log("Stream aborted by user");
+          setBusyOperation("stock_analysis_stream", false);
           return;
         }
 
@@ -641,11 +654,12 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
 
         setError(errMsg);
         setErrorType(errType);
+        setBusyOperation("stock_analysis_stream", false);
       } finally {
         setLoading(false);
       }
     },
-    [ticker, userId, vaultOwnerToken, riskProfileProp, updateAgentState, resetState]
+    [ticker, userId, vaultOwnerToken, riskProfileProp, updateAgentState, resetState, setBusyOperation]
   );
 
   // Effect to start stream on mount
@@ -655,6 +669,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
     // Production-grade disconnect: abort on force-close, mobile swipe-away
     const abortStream = () => abortControllerRef.current?.abort();
     window.addEventListener('beforeunload', abortStream);
+    window.addEventListener('pagehide', abortStream);
 
     let visibilityTimeout: NodeJS.Timeout | undefined;
     const handleVisibility = () => {
@@ -675,10 +690,12 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
         clearTimeout(retryTimerRef.current);
       }
       window.removeEventListener('beforeunload', abortStream);
+      window.removeEventListener('pagehide', abortStream);
       document.removeEventListener('visibilitychange', handleVisibility);
       clearTimeout(visibilityTimeout);
+      setBusyOperation("stock_analysis_stream", false);
     };
-  }, [startStream]);
+  }, [startStream, setBusyOperation]);
 
   // -------------- RENDER ----------------
 
@@ -728,19 +745,10 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
 
   return (
     <div className="flex flex-col h-full bg-transparent relative">
-      {/* Header - Masked gradient + hero ticker */}
-      <div className="flex-none sticky top-0 z-10 overflow-hidden">
-        {/* Masked gradient background */}
-        <div
-          className="absolute inset-0 morphy-app-bg opacity-80"
-          style={{ maskImage: "linear-gradient(to bottom, black 60%, transparent)", WebkitMaskImage: "linear-gradient(to bottom, black 60%, transparent)" }}
-        />
-        <div className="absolute inset-0 backdrop-blur-md bg-background/40" />
-
-        {/* Content */}
-        <div className="relative px-4 pt-3 pb-2">
-
-
+      {/* Header - continuous glass layer aligned with top app chrome */}
+      <div className="flex-none sticky top-0 z-10 mb-4 overflow-hidden rounded-b-3xl border-b border-border/30">
+        <div className="absolute inset-0 top-bar-glass pointer-events-none" />
+        <div className="relative px-4 pt-3 pb-2 md:max-w-2xl md:mx-auto">
           {/* Hero row: Centered ticker with close button on right */}
           <div className="grid grid-cols-[40px_1fr_40px] items-center">
             {/* Left spacer */}
@@ -754,7 +762,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                   <CheckCircle2 className="w-3 h-3 mr-1" /> Complete
                 </Badge>
               ) : loading ? (
-                <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-medium">
+                <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-medium max-w-[240px] truncate">
                   <Loader2 className="w-3 h-3 mr-1 animate-spin" /> {kaiThinking}
                 </Badge>
               ) : retryCountdown !== null ? (
@@ -765,13 +773,12 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
             </div>
             {/* Right: Back button */}
             <div className="flex justify-end">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={handleClose} 
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleClose}
                 className="shrink-0 h-8 gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
               >
-                <span>Back to Hub</span>
                 <X className="w-3.5 h-3.5" />
               </Button>
             </div>
@@ -806,18 +813,22 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
       <ScrollArea className="flex-1 p-4">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto px-4 sm:px-6 pb-10">
           <div className="space-y-6">
-            <RoundTabsCard
-              roundNumber={1}
-              title="Initial Deep Analysis"
-              description="Agents analyze raw data independently."
-              isCollapsed={collapsedRounds[1] || false}
-              onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
-              activeAgent={activeRound === 1 ? activeAgent : undefined}
-              agentStates={round1States}
-              onTabChange={setActiveAgent}
-            />
+            {!decision && (
+              <RoundTabsCard
+                roundNumber={1}
+                title="Initial Deep Analysis"
+                description="Agents analyze raw data independently."
+                isCollapsed={collapsedRounds[1] || false}
+                onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
+                activeAgent={activeRound === 1 ? activeAgent : undefined}
+                agentStates={round1States}
+                onTabChange={setActiveAgent}
+              />
+            )}
 
-            {(activeRound >= 2 || decision) && (
+            {!decision &&
+              (activeRound >= 2 ||
+                AGENTS.some((agent) => round2States[agent]?.stage !== "idle")) && (
               <RoundTabsCard
                 roundNumber={2}
                 title="Strategic Debate"
@@ -829,15 +840,34 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                 onTabChange={setActiveAgent}
               />
             )}
+
+            {decision && (
+              <>
+                <RoundTabsCard
+                  roundNumber={1}
+                  title="Initial Deep Analysis"
+                  description="Agents analyze raw data independently."
+                  isCollapsed={collapsedRounds[1] ?? true}
+                  onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
+                  activeAgent={undefined}
+                  agentStates={round1States}
+                  onTabChange={setActiveAgent}
+                />
+                <RoundTabsCard
+                  roundNumber={2}
+                  title="Strategic Debate"
+                  description="Agents challenge and refine positions."
+                  isCollapsed={collapsedRounds[2] ?? true}
+                  onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 2: !prev[2] }))}
+                  activeAgent={undefined}
+                  agentStates={round2States}
+                  onTabChange={setActiveAgent}
+                />
+              </>
+            )}
           </div>
 
           <div className="space-y-6 lg:sticky lg:top-4 h-fit">
-            <TrinityCards
-              bullCase={trinityState.bull}
-              bearCase={trinityState.bear}
-              renaissanceVerdict={trinityState.renaissance}
-            />
-
             {decision ? (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
                 <DecisionCard result={decision} />
@@ -852,92 +882,6 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                 </CardContent>
               </Card>
             )}
-
-            <Card variant="none" className="p-4">
-              <CardContent className="p-0 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-sm flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                    Live Intel Graph
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-[10px] h-5">
-                      {insights.length} Nodes
-                    </Badge>
-                    {insights.length > 0 && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-6 px-2 text-[10px]"
-                        onClick={() =>
-                          intelScrollRef.current?.scrollTo({
-                            top: intelScrollRef.current.scrollHeight,
-                            behavior: "smooth",
-                          })
-                        }
-                      >
-                        <ArrowDown className="w-3 h-3 mr-1" />
-                        Jump to latest
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {insights.length === 0 ? (
-                  <div className="text-center text-xs text-muted-foreground py-6 border border-dashed rounded-lg">
-                    <div className="mb-2">Scanning stream for insights...</div>
-                    <Loader2 className="w-4 h-4 animate-spin mx-auto opacity-50" />
-                  </div>
-                ) : (
-                  <div
-                    ref={intelScrollRef}
-                    className="space-y-3 max-h-[420px] overflow-y-auto pr-1 custom-scrollbar"
-                  >
-                    {insights.map((insight, i) => (
-                      <div key={i} className="group animate-in slide-in-from-right-2 duration-500 fade-in">
-                        <Card
-                          variant="muted"
-                          className={`p-3 text-xs border-l-2 ${
-                            insight.type === "impact"
-                              ? insight.classification === "risk"
-                                ? "border-l-red-500 bg-red-500/5"
-                                : "border-l-green-500 bg-green-500/5"
-                              : insight.type === "claim"
-                                ? "border-l-blue-500"
-                                : "border-l-zinc-500"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <Badge variant="secondary" className="text-[9px] h-4 px-1 rounded-sm uppercase tracking-wider">
-                              {insight.type.replace("_", " ")}
-                            </Badge>
-                            <span className="text-[10px] text-muted-foreground uppercase">{insight.agent}</span>
-                          </div>
-                          <p className="leading-relaxed">{insight.content}</p>
-
-                          {insight.type === "impact" && (
-                            <div className="mt-2 flex items-center gap-2">
-                              <Progress
-                                value={(insight.score || 0) * 10}
-                                className={`h-1 w-16 ${insight.classification === "risk" ? "bg-red-100 [&>div]:bg-red-500" : "bg-green-100 [&>div]:bg-green-500"}`}
-                              />
-                              <span className="text-[9px] font-mono">{insight.score}/10 Impact</span>
-                            </div>
-                          )}
-
-                          {insight.type === "evidence" && (
-                            <div className="mt-1 text-[9px] text-muted-foreground/80 flex items-center gap-1">
-                              <ShieldAlert className="w-3 h-3" />
-                              Source: {insight.source}
-                            </div>
-                          )}
-                        </Card>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
           </div>
 
         </div>

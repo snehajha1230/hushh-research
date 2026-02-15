@@ -87,15 +87,28 @@ interface QualityReport {
   mismatch_detected?: number;
 }
 
+interface LiveHoldingPreview {
+  symbol?: string;
+  name?: string;
+  market_value?: number | null;
+  quantity?: number | null;
+  asset_type?: string;
+}
+
 // Streaming state
 interface StreamingState {
   stage: ImportStage;
   streamedText: string;
   totalChars: number;
   chunkCount: number;
+  progressPct: number;
+  statusMessage?: string;
   thoughts: string[];  // Array of thought summaries from Gemini thinking mode
   thoughtCount: number;
   qualityReport?: QualityReport;
+  liveHoldings: LiveHoldingPreview[];
+  holdingsExtracted: number;
+  holdingsTotal?: number;
   errorMessage?: string;
 }
 
@@ -132,6 +145,15 @@ function parseNumberOrZero(value: unknown): number {
   return parseMaybeNumber(value) ?? 0;
 }
 
+function firstPresent(obj: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
+      return obj[key];
+    }
+  }
+  return undefined;
+}
+
 function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPortfolioData {
   console.log("[KaiFlow] Raw backend data:", JSON.stringify(backendData, null, 2).slice(0, 2000));
   
@@ -144,15 +166,26 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
   
   // Normalize holdings - handle various field name formats
   const normalizedHoldings = rawHoldings.map((h) => {
-    const marketValue = parseNumberOrZero(h.market_value);
-    const costBasis = parseMaybeNumber(h.cost_basis);
-    const unrealized = h.unrealized_gain_loss !== undefined
-      ? parseMaybeNumber(h.unrealized_gain_loss)
-      : undefined;
-    let unrealizedPct =
-      h.unrealized_gain_loss_pct !== undefined
-        ? parseMaybeNumber(h.unrealized_gain_loss_pct)
-        : undefined;
+    const symbol = String(
+      firstPresent(h, ["symbol", "symbol_cusip", "ticker", "cusip", "security_id", "security"]) || ""
+    ).trim();
+    const name = String(
+      firstPresent(h, ["name", "description", "security_name", "holding_name"]) || "Unknown"
+    ).trim();
+    const quantity = parseNumberOrZero(firstPresent(h, ["quantity", "shares", "units", "qty"]));
+    const price = parseNumberOrZero(
+      firstPresent(h, ["price", "price_per_unit", "last_price", "unit_price", "current_price"])
+    );
+    const marketValue = parseNumberOrZero(
+      firstPresent(h, ["market_value", "current_value", "marketValue", "value", "position_value"])
+    );
+    const costBasis = parseMaybeNumber(firstPresent(h, ["cost_basis", "book_value", "cost", "total_cost"]));
+    const unrealized = parseMaybeNumber(
+      firstPresent(h, ["unrealized_gain_loss", "gain_loss", "unrealized_pnl", "pnl"])
+    );
+    let unrealizedPct = parseMaybeNumber(
+      firstPresent(h, ["unrealized_gain_loss_pct", "gain_loss_pct", "unrealized_return_pct", "return_pct"])
+    );
 
     // If percentage is missing but we have P/L and a reasonable denominator,
     // derive a fallback % so UI can always show something meaningful.
@@ -171,15 +204,17 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
     }
 
     return {
-      symbol: String(h.symbol || h.symbol_cusip || ""),
-      name: String(h.name || h.description || "Unknown"),
-      quantity: parseNumberOrZero(h.quantity),
-      price: parseNumberOrZero(h.price ?? h.price_per_unit),
+      symbol,
+      name,
+      quantity,
+      price,
       market_value: marketValue,
       cost_basis: costBasis,
       unrealized_gain_loss: unrealized,
       unrealized_gain_loss_pct: unrealizedPct,
-      asset_type: h.asset_type ? String(h.asset_type) : (h.asset_class ? String(h.asset_class) : undefined),
+      asset_type: firstPresent(h, ["asset_type", "asset_class", "security_type", "type"])
+        ? String(firstPresent(h, ["asset_type", "asset_class", "security_type", "type"]))
+        : undefined,
     };
   });
 
@@ -268,6 +303,41 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
     holdings: normalizedHoldings,
     income_summary: normalizedIncomeSummary,
     realized_gain_loss: normalizedRealizedGainLoss,
+    transactions: Array.isArray(backendData.transactions)
+      ? (backendData.transactions as Array<Record<string, unknown>>)
+      : Array.isArray(backendData.activity_and_transactions)
+        ? (backendData.activity_and_transactions as Array<Record<string, unknown>>)
+        : [],
+    activity_and_transactions: Array.isArray(backendData.activity_and_transactions)
+      ? (backendData.activity_and_transactions as Array<Record<string, unknown>>)
+      : undefined,
+    cash_flow:
+      backendData.cash_flow &&
+      typeof backendData.cash_flow === "object" &&
+      !Array.isArray(backendData.cash_flow)
+        ? (backendData.cash_flow as Record<string, unknown>)
+        : undefined,
+    cash_management:
+      backendData.cash_management &&
+      typeof backendData.cash_management === "object" &&
+      !Array.isArray(backendData.cash_management)
+        ? (backendData.cash_management as Record<string, unknown>)
+        : undefined,
+    projections_and_mrd:
+      backendData.projections_and_mrd &&
+      typeof backendData.projections_and_mrd === "object" &&
+      !Array.isArray(backendData.projections_and_mrd)
+        ? (backendData.projections_and_mrd as Record<string, unknown>)
+        : undefined,
+    legal_and_disclosures: Array.isArray(backendData.legal_and_disclosures)
+      ? (backendData.legal_and_disclosures as string[])
+      : undefined,
+    quality_report:
+      backendData.quality_report &&
+      typeof backendData.quality_report === "object" &&
+      !Array.isArray(backendData.quality_report)
+        ? (backendData.quality_report as Record<string, unknown>)
+        : undefined,
     cash_balance: cashBalance,
     total_value: totalValue,
   };
@@ -281,6 +351,14 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
   });
 
   return result;
+}
+
+function hasValidFinancialDomainData(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.holdings) || Array.isArray(record.detailed_holdings);
 }
 
 /**
@@ -353,10 +431,15 @@ export function KaiFlow({
     streamedText: "",
     totalChars: 0,
     chunkCount: 0,
+    progressPct: 0,
+    statusMessage: "Ready to import",
     thoughts: [],
     thoughtCount: 0,
+    liveHoldings: [],
+    holdingsExtracted: 0,
   });
   const abortControllerRef = useRef<AbortController | null>(null);
+  const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
 
   const handleAnalyzeLosers = useCallback(() => {
     if (!flowData.portfolioData) {
@@ -471,35 +554,25 @@ export function KaiFlow({
             // No cache - try to decrypt from World Model
             console.log("[KaiFlow] No cache, attempting to decrypt from World Model...");
             try {
-              const encryptedData = await WorldModelService.getDomainData(
+              const allData = await WorldModelService.loadFullBlob({
                 userId,
-                "financial",
-                vaultOwnerToken
-              );
-              
-              if (encryptedData) {
-                const { HushhVault } = await import("@/lib/capacitor");
-                const decrypted = await HushhVault.decryptData({
-                  payload: {
-                    ciphertext: encryptedData.ciphertext,
-                    iv: encryptedData.iv,
-                    tag: encryptedData.tag,
-                    encoding: "base64",
-                    algorithm: encryptedData.algorithm as "aes-256-gcm" || "aes-256-gcm",
-                  },
-                  keyHex: vaultKey,
-                });
-                
-                // Parse decrypted data - it may contain multiple domains
-                const allData = JSON.parse(decrypted.plaintext);
-                
-                // Extract financial domain data
-                // The structure could be { financial: {...} } or direct portfolio data
-                const rawFinancial = allData.financial || allData;
-                // Normalize Review-format → Dashboard-format field names
-                portfolioData = normalizeStoredPortfolio(rawFinancial) as PortfolioData;
-                console.log("[KaiFlow] Successfully decrypted portfolio data from World Model");
+                vaultKey,
+                vaultOwnerToken,
+              });
+              const rawFinancial = allData.financial;
+              if (!hasValidFinancialDomainData(rawFinancial)) {
+                console.warn(
+                  "[KaiFlow] Financial domain metadata exists but encrypted blob has no valid financial holdings shape."
+                );
+                toast.error("Portfolio data needs repair. Please re-import your statement.");
+                setFlowData({ hasFinancialData: false });
+                setState("import_required");
+                return;
               }
+
+              // Normalize Review-format → Dashboard-format field names
+              portfolioData = normalizeStoredPortfolio(rawFinancial) as PortfolioData;
+              console.log("[KaiFlow] Successfully decrypted portfolio data from World Model");
             } catch (decryptError) {
               // Handle encryption key mismatch or corrupted data
               console.error("[KaiFlow] Failed to decrypt from World Model:", decryptError);
@@ -544,6 +617,8 @@ export function KaiFlow({
           setState("dashboard");
         } else {
           // No financial data - prompt for import
+          // Ensure stale frontend cache never leaks into first-time user experience.
+          invalidateDomain(userId, "financial");
           setFlowData({ hasFinancialData: false });
           setState("import_required");
         }
@@ -652,6 +727,7 @@ export function KaiFlow({
   useEffect(() => {
     const abortStream = () => abortControllerRef.current?.abort();
     window.addEventListener('beforeunload', abortStream);
+    window.addEventListener('pagehide', abortStream);
 
     let visibilityTimeout: NodeJS.Timeout | undefined;
     const handleVisibility = () => {
@@ -666,6 +742,7 @@ export function KaiFlow({
     return () => {
       abortStream();
       window.removeEventListener('beforeunload', abortStream);
+      window.removeEventListener('pagehide', abortStream);
       document.removeEventListener('visibilitychange', handleVisibility);
       clearTimeout(visibilityTimeout);
     };
@@ -695,9 +772,11 @@ export function KaiFlow({
         return;
       }
 
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
       try {
         setState("importing");
         setError(null);
+        setBusyOperation("portfolio_import_stream", true);
         
         // Reset streaming state
         setStreaming({
@@ -705,16 +784,22 @@ export function KaiFlow({
           streamedText: "",
           totalChars: 0,
           chunkCount: 0,
+          progressPct: 5,
+          statusMessage: "Processing uploaded file...",
           thoughts: [],
           thoughtCount: 0,
           qualityReport: undefined,
+          liveHoldings: [],
+          holdingsExtracted: 0,
+          holdingsTotal: undefined,
+          errorMessage: undefined,
         });
 
         // Create abort controller for cancellation with timeout
         abortControllerRef.current = new AbortController();
         
         // Strict user-facing timeout for import streaming.
-        const timeoutId = setTimeout(() => {
+        timeoutId = setTimeout(() => {
           if (abortControllerRef.current) {
             abortControllerRef.current.abort();
             setError("Import timed out after 120 seconds. Please retry.");
@@ -735,19 +820,40 @@ export function KaiFlow({
             signal: abortControllerRef.current.signal,
           });
         } catch (fetchError) {
-          clearTimeout(timeoutId);
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+          }
           if (fetchError instanceof Error && fetchError.name === "AbortError") {
             throw fetchError;
           }
           throw new Error("Network error. Please check your connection and try again.");
         }
 
-        clearTimeout(timeoutId);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => "Unknown error");
           if (response.status === 401) {
             throw new Error("Session expired. Please refresh the page and try again.");
+          } else if (response.status === 422) {
+            let parsed: Record<string, unknown> | null = null;
+            try {
+              parsed = JSON.parse(errorText) as Record<string, unknown>;
+            } catch {
+              parsed = null;
+            }
+            const detail =
+              parsed && typeof parsed.detail === "object" && parsed.detail !== null
+                ? (parsed.detail as Record<string, unknown>)
+                : null;
+            const message =
+              (detail && typeof detail.message === "string" && detail.message) ||
+              "This document does not appear to be a brokerage statement.";
+            throw new Error(message);
           } else if (response.status === 413) {
             throw new Error("File too large for server. Please try a smaller file.");
           } else if (response.status >= 500) {
@@ -770,6 +876,24 @@ export function KaiFlow({
         ]);
         const readNumber = (value: unknown): number | undefined =>
           typeof value === "number" && Number.isFinite(value) ? value : undefined;
+        const readString = (value: unknown): string | undefined =>
+          typeof value === "string" && value.trim().length > 0 ? value : undefined;
+        const readHoldingsPreview = (value: unknown): LiveHoldingPreview[] | undefined => {
+          if (!Array.isArray(value)) return undefined;
+          const preview: LiveHoldingPreview[] = [];
+          for (const row of value) {
+            if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+            const item = row as Record<string, unknown>;
+            preview.push({
+              symbol: typeof item.symbol === "string" ? item.symbol : undefined,
+              name: typeof item.name === "string" ? item.name : undefined,
+              market_value: readNumber(item.market_value),
+              quantity: readNumber(item.quantity),
+              asset_type: typeof item.asset_type === "string" ? item.asset_type : undefined,
+            });
+          }
+          return preview;
+        };
 
         await consumeCanonicalKaiStream(
           response,
@@ -791,6 +915,12 @@ export function KaiFlow({
                   totalChars: readNumber(payload.total_chars) ?? prev.totalChars,
                   chunkCount: readNumber(payload.chunk_count) ?? prev.chunkCount,
                   thoughtCount: readNumber(payload.thought_count) ?? prev.thoughtCount,
+                  holdingsExtracted:
+                    readNumber(payload.holdings_detected) ?? prev.holdingsExtracted,
+                  liveHoldings:
+                    readHoldingsPreview(payload.holdings_preview) ?? prev.liveHoldings,
+                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  statusMessage: readString(payload.message) ?? prev.statusMessage,
                 }));
                 break;
               }
@@ -803,6 +933,8 @@ export function KaiFlow({
                     stage: "thinking",
                     thoughts,
                     thoughtCount: readNumber(payload.count) ?? thoughts.length,
+                    progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                    statusMessage: readString(payload.message) ?? prev.statusMessage,
                   };
                 });
                 break;
@@ -818,6 +950,37 @@ export function KaiFlow({
                   streamedText: fullStreamedText,
                   totalChars: readNumber(payload.total_chars) ?? fullStreamedText.length,
                   chunkCount: readNumber(payload.chunk_count) ?? prev.chunkCount,
+                  holdingsExtracted:
+                    readNumber(payload.holdings_detected) ?? prev.holdingsExtracted,
+                  liveHoldings:
+                    readHoldingsPreview(payload.holdings_preview) ?? prev.liveHoldings,
+                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  statusMessage: readString(payload.message) ?? prev.statusMessage,
+                }));
+                break;
+              }
+              case "progress": {
+                const preview = readHoldingsPreview(payload.holdings_preview);
+                const phase = readString(payload.phase);
+                setStreaming((prev) => ({
+                  ...prev,
+                  stage: phase === "parsing" ? "parsing" : prev.stage,
+                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  statusMessage: readString(payload.message) ?? prev.statusMessage,
+                  holdingsExtracted:
+                    readNumber(payload.holdings_extracted) ?? prev.holdingsExtracted,
+                  holdingsTotal: readNumber(payload.holdings_total) ?? prev.holdingsTotal,
+                  liveHoldings: preview && preview.length > 0 ? preview : prev.liveHoldings,
+                }));
+                break;
+              }
+              case "warning": {
+                const message = readString(payload.message);
+                if (!message) break;
+                setStreaming((prev) => ({
+                  ...prev,
+                  statusMessage: message,
+                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
                 }));
                 break;
               }
@@ -845,8 +1008,35 @@ export function KaiFlow({
                   stage: "complete",
                   thoughtCount: readNumber(payload.thought_count) ?? prev.thoughtCount,
                   qualityReport,
+                  holdingsExtracted:
+                    parsedPortfolio?.holdings?.length ?? prev.holdingsExtracted,
+                  holdingsTotal:
+                    parsedPortfolio?.holdings?.length ?? prev.holdingsTotal,
+                  liveHoldings:
+                    (parsedPortfolio?.holdings ?? []).map((holding) => ({
+                      symbol: holding.symbol,
+                      name: holding.name,
+                      market_value: holding.market_value,
+                      quantity: holding.quantity,
+                    })) || prev.liveHoldings,
+                  progressPct: readNumber(payload.progress_pct) ?? 100,
+                  statusMessage: readString(payload.message) ?? "Import complete!",
                 }));
                 break;
+              }
+              case "aborted": {
+                const message =
+                  typeof payload.message === "string"
+                    ? payload.message
+                    : "Import was stopped before completion";
+                setStreaming((prev) => ({
+                  ...prev,
+                  stage: "error",
+                  errorMessage: message,
+                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  statusMessage: message,
+                }));
+                throw new Error(message);
               }
               case "error": {
                 const message =
@@ -857,6 +1047,8 @@ export function KaiFlow({
                   ...prev,
                   stage: "error",
                   errorMessage: message,
+                  progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
+                  statusMessage: message,
                 }));
                 throw new Error(message);
               }
@@ -907,11 +1099,17 @@ export function KaiFlow({
           ...prev,
           stage: "error",
           errorMessage: err instanceof Error ? err.message : "Unknown error",
+          statusMessage: err instanceof Error ? err.message : "Import failed",
         }));
-        setState("import_required");
+        setState("importing");
+      } finally {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        setBusyOperation("portfolio_import_stream", false);
       }
     },
-    [userId, vaultOwnerToken, vaultKey]
+    [userId, vaultOwnerToken, vaultKey, setBusyOperation]
   );
 
   // Handle cancel import
@@ -919,17 +1117,24 @@ export function KaiFlow({
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
+    setBusyOperation("portfolio_import_stream", false);
     setState(flowData.portfolioData ? "dashboard" : "import_required");
     setStreaming({
       stage: "idle",
       streamedText: "",
       totalChars: 0,
       chunkCount: 0,
+      progressPct: 0,
+      statusMessage: "Ready to import",
       thoughts: [],
       thoughtCount: 0,
       qualityReport: undefined,
+      liveHoldings: [],
+      holdingsExtracted: 0,
+      holdingsTotal: undefined,
+      errorMessage: undefined,
     });
-  }, [flowData.portfolioData]);
+  }, [flowData.portfolioData, setBusyOperation]);
 
   // Handle retry import after error
   const _handleRetryImport = useCallback(() => {
@@ -939,9 +1144,15 @@ export function KaiFlow({
       streamedText: "",
       totalChars: 0,
       chunkCount: 0,
+      progressPct: 0,
+      statusMessage: "Ready to import",
       thoughts: [],
       thoughtCount: 0,
       qualityReport: undefined,
+      liveHoldings: [],
+      holdingsExtracted: 0,
+      holdingsTotal: undefined,
+      errorMessage: undefined,
     });
     setState("import_required");
   }, []);
@@ -1176,9 +1387,14 @@ export function KaiFlow({
           }
           totalChars={streaming.totalChars}
           chunkCount={streaming.chunkCount}
+          progressPct={streaming.progressPct}
+          statusMessage={streaming.statusMessage}
           thoughts={streaming.thoughts}
           thoughtCount={streaming.thoughtCount}
           qualityReport={streaming.qualityReport}
+          liveHoldings={streaming.liveHoldings}
+          holdingsExtracted={streaming.holdingsExtracted}
+          holdingsTotal={streaming.holdingsTotal}
           errorMessage={streaming.errorMessage}
           onCancel={handleCancelImport}
         />
@@ -1191,9 +1407,14 @@ export function KaiFlow({
           isStreaming={false}
           totalChars={streaming.totalChars}
           chunkCount={streaming.chunkCount}
+          progressPct={streaming.progressPct}
+          statusMessage={streaming.statusMessage}
           thoughts={streaming.thoughts}
           thoughtCount={streaming.thoughtCount}
           qualityReport={streaming.qualityReport}
+          liveHoldings={streaming.liveHoldings}
+          holdingsExtracted={streaming.holdingsExtracted}
+          holdingsTotal={streaming.holdingsTotal}
           onContinue={handleReviewParsedPortfolio}
           onBackToDashboard={handleBackToDashboardFromImport}
         />

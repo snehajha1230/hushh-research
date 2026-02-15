@@ -230,6 +230,7 @@ export function RoundTabsCard({
                     color={config.color}
                     state={agentStates[agent] || { stage: "idle", text: "", thoughts: [] }}
                     disableStreaming={false}
+                    compactMode
                   />
                 </TabsContent>
               );

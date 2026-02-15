@@ -152,6 +152,22 @@ export interface HushhWorldModelPlugin {
   }>;
 
   /**
+   * Get full encrypted world-model blob for a user.
+   * Calls: GET /api/world-model/data/:userId
+   */
+  getEncryptedData(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+  }): Promise<{
+    ciphertext: string;
+    iv: string;
+    tag: string;
+    algorithm?: string;
+    data_version?: number;
+    updated_at?: string;
+  }>;
+
+  /**
    * Store encrypted domain blob (BYOK v2).
    * Calls: POST /api/world-model/store-domain
    */

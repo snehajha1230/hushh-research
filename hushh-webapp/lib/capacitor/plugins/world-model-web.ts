@@ -334,6 +334,30 @@ export class HushhWorldModelWeb
     return { portfolios: data.portfolios || [] };
   }
 
+  async getEncryptedData(options: {
+    userId: string;
+    vaultOwnerToken?: string;
+  }): Promise<{
+    ciphertext: string;
+    iv: string;
+    tag: string;
+    algorithm?: string;
+    data_version?: number;
+    updated_at?: string;
+  }> {
+    const response = await fetch(`/api/world-model/data/${options.userId}`, {
+      headers: {
+        Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get encrypted data: ${response.status}`);
+    }
+
+    return response.json();
+  }
+
   async storeDomainData(options: {
     userId: string;
     domain: string;

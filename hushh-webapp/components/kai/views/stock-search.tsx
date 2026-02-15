@@ -17,7 +17,9 @@ import {
 } from "@/lib/morphy-ux/ui/combobox";
 import { cn } from "@/lib/utils";
 import {
+  getTickerUniverseSnapshot,
   preloadTickerUniverse,
+  searchTickerUniverseRemote,
   searchTickerUniverse,
   type TickerUniverseRow,
 } from "@/lib/kai/ticker-universe-cache";
@@ -105,8 +107,11 @@ export function StockSearch({
   const [search, setSearch] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
 
-  const [universe, setUniverse] = React.useState<TickerUniverseRow[] | null>(null);
-  const [universeLoading, setUniverseLoading] = React.useState(false);
+  const initialUniverse = React.useMemo(() => getTickerUniverseSnapshot(), []);
+  const [universe, setUniverse] = React.useState<TickerUniverseRow[] | null>(initialUniverse);
+  const [universeLoading, setUniverseLoading] = React.useState(!initialUniverse);
+  const [remoteMatches, setRemoteMatches] = React.useState<TickerUniverseRow[]>([]);
+  const [remoteLoading, setRemoteLoading] = React.useState(false);
 
   const [open, setOpen] = React.useState(false);
   const [value, setValue] = React.useState<string | null>(null);
@@ -117,7 +122,9 @@ export function StockSearch({
 
     (async () => {
       try {
-        setUniverseLoading(true);
+        if (!initialUniverse) {
+          setUniverseLoading(true);
+        }
         const rows = await preloadTickerUniverse();
         if (!cancelled) setUniverse(rows);
       } catch {
@@ -130,17 +137,70 @@ export function StockSearch({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialUniverse]);
+
+  // Keep ticker search continuous while local universe is still loading by querying backend cache.
+  React.useEffect(() => {
+    const q = search.trim();
+    if (!q) {
+      setRemoteMatches([]);
+      setRemoteLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      try {
+        setRemoteLoading(true);
+        const rows = await searchTickerUniverseRemote(q, 25);
+        if (cancelled) return;
+        setRemoteMatches(rows);
+        if (rows.length > 0) {
+          setUniverse((prev) => {
+            if (!prev || prev.length === 0) return rows;
+            const byTicker = new Map(prev.map((row) => [row.ticker.toUpperCase(), row]));
+            for (const row of rows) {
+              const key = row.ticker.toUpperCase();
+              if (!byTicker.has(key)) {
+                byTicker.set(key, row);
+              }
+            }
+            return Array.from(byTicker.values());
+          });
+        }
+      } catch {
+        if (!cancelled) setRemoteMatches([]);
+      } finally {
+        if (!cancelled) setRemoteLoading(false);
+      }
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [search]);
+
+  const knownTickerSet = React.useMemo(() => {
+    const out = new Set<string>();
+    for (const row of universe ?? []) {
+      out.add(row.ticker.toUpperCase());
+    }
+    for (const row of remoteMatches) {
+      out.add(row.ticker.toUpperCase());
+    }
+    return out;
+  }, [universe, remoteMatches]);
 
   const escapeTicker = React.useMemo(() => {
     const upper = search.trim().toUpperCase();
     if (!upper || !isTickerLike(upper)) return null;
 
     // If it already appears in local results, don't show escape hatch.
-    if (universe?.some((r) => r.ticker.toUpperCase() === upper)) return null;
+    if (knownTickerSet.has(upper)) return null;
 
     return upper;
-  }, [search, universe]);
+  }, [knownTickerSet, search]);
 
   const handleSelect = (rawValue: string) => {
     const ticker = rawValue.toUpperCase();
@@ -152,7 +212,7 @@ export function StockSearch({
     }
 
     // If we have the universe loaded, require the ticker to exist.
-    if (universe && !universe.some((r) => r.ticker.toUpperCase() === ticker)) {
+    if (knownTickerSet.size > 0 && !knownTickerSet.has(ticker)) {
       setError("Ticker not found");
       toast.error("Ticker not found", { description: "Please enter a valid stock symbol." });
       return;
@@ -185,6 +245,12 @@ export function StockSearch({
           group: "remote", // keep existing rendering/group label
         }))
       : [];
+    const remoteResults: StockSearchItem[] = remoteMatches.map((r) => ({
+      value: r.ticker.toUpperCase(),
+      label: `${r.ticker.toUpperCase()} — ${r.title ?? ""}`.trim(),
+      keywords: `${r.ticker} ${r.title ?? ""} ${r.exchange ?? ""} ${r.cik ?? ""}`,
+      group: "remote",
+    }));
 
     const escapeItems: StockSearchItem[] = escapeTicker
       ? [
@@ -209,12 +275,12 @@ export function StockSearch({
 
     // Dedupe by ticker value (local wins over escape/popular)
     const byValue = new Map<string, StockSearchItem>();
-    for (const it of [...popularItems, ...escapeItems, ...localMatches]) {
+    for (const it of [...popularItems, ...escapeItems, ...remoteResults, ...localMatches]) {
       byValue.set(it.value, it);
     }
 
     return Array.from(byValue.values());
-  }, [escapeTicker, search, universe]);
+  }, [escapeTicker, remoteMatches, search, universe]);
 
   const filteredItems = items;
 
@@ -261,7 +327,7 @@ export function StockSearch({
         <ComboboxContent className="w-[var(--anchor-width)]">
           <ComboboxList>
             <ComboboxEmpty>
-              {universeLoading ? "Loading tickers…" : "No results found."}
+              {universeLoading || remoteLoading ? "Loading tickers…" : "No results found."}
             </ComboboxEmpty>
 
             {showRemoteGroup && (

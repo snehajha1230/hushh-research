@@ -1,5 +1,3 @@
-import { HushhVault } from "@/lib/capacitor";
-import { decryptData } from "@/lib/vault/encrypt";
 import { WorldModelService } from "@/lib/services/world-model-service";
 
 const DOMAIN = "kai_profile";
@@ -82,30 +80,11 @@ async function getFullBlob(params: {
   vaultKey: string;
   vaultOwnerToken?: string;
 }): Promise<Record<string, unknown>> {
-  const existing = await WorldModelService.getDomainData(
-    params.userId,
-    DOMAIN,
-    params.vaultOwnerToken
-  );
-  if (!existing) {
-    return {};
-  }
-
-  const decrypted = await decryptData(
-    {
-      ciphertext: existing.ciphertext,
-      iv: existing.iv,
-      tag: existing.tag,
-      encoding: "base64",
-      algorithm: (existing.algorithm || "aes-256-gcm") as "aes-256-gcm",
-    },
-    params.vaultKey
-  );
-
-  const parsed = JSON.parse(decrypted);
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? (parsed as Record<string, unknown>)
-    : {};
+  return WorldModelService.loadFullBlob({
+    userId: params.userId,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+  });
 }
 
 function selectProfile(fullBlob: Record<string, unknown>): KaiIntroProfile {
@@ -144,23 +123,13 @@ export class KaiIntroService {
     const current = selectProfile(fullBlob);
     const next = applyPatch(current, params.patch);
 
-    fullBlob[DOMAIN] = next;
-
-    const encrypted = await HushhVault.encryptData({
-      plaintext: JSON.stringify(fullBlob),
-      keyHex: params.vaultKey,
-    });
-
-    await WorldModelService.storeDomainData({
+    const result = await WorldModelService.storeMergedDomain({
       userId: params.userId,
+      vaultKey: params.vaultKey,
       domain: DOMAIN,
-      encryptedBlob: {
-        ciphertext: encrypted.ciphertext,
-        iv: encrypted.iv,
-        tag: encrypted.tag,
-        algorithm: "aes-256-gcm",
-      },
+      domainData: next as unknown as Record<string, unknown>,
       summary: {
+        domain_intent: "kai_profile",
         intro_seen: next.intro_seen,
         has_investment_horizon: Boolean(next.investment_horizon),
         has_investment_style: Boolean(next.investment_style),
@@ -168,6 +137,10 @@ export class KaiIntroService {
       },
       vaultOwnerToken: params.vaultOwnerToken,
     });
+
+    if (!result.success) {
+      throw new Error("Failed to persist Kai intro profile");
+    }
 
     return next;
   }

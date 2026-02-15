@@ -13,9 +13,9 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Save, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Save, Loader2, Undo2 } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
 
 import { toast } from "sonner";
@@ -35,9 +35,10 @@ import { useVault } from "@/lib/vault/vault-context";
 import { useAuth } from "@/lib/firebase";
 import { WorldModelService } from "@/lib/services/world-model-service";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
-import { HushhVault } from "@/lib/capacitor";
 import { useCache } from "@/lib/cache/cache-context";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
+import { useKaiSession } from "@/lib/stores/kai-session-store";
 
 // =============================================================================
 // TYPES
@@ -53,6 +54,7 @@ interface Holding {
   unrealized_gain_loss?: number;
   unrealized_gain_loss_pct?: number;
   acquisition_date?: string;
+  pending_delete?: boolean;
 }
 
 interface AccountInfo {
@@ -74,7 +76,23 @@ interface PortfolioData {
   account_summary?: AccountSummary;
   holdings?: Holding[];
   transactions?: unknown[];
+  domain_intent?: {
+    primary?: string;
+    source?: string;
+    captured_sections?: string[];
+    updated_at?: string;
+  };
   updated_at?: string;
+}
+
+function hasValidFinancialShape(value: unknown): value is PortfolioData {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const holdings = record.holdings;
+  const detailedHoldings = record.detailed_holdings;
+  return Array.isArray(holdings) || Array.isArray(detailedHoldings);
 }
 
 // =============================================================================
@@ -138,16 +156,29 @@ export default function ManagePortfolioPage() {
   const [editingIndex, setEditingIndex] = useState<number>(-1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { registerSteps, completeStep, reset } = useStepProgress();
+  const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 5;
+  const activeHoldings = useMemo(
+    () => holdings.filter((holding) => !holding.pending_delete),
+    [holdings]
+  );
+  const pendingDeleteCount = holdings.length - activeHoldings.length;
 
   // Register 2 steps: Auth check, Load holdings
   useEffect(() => {
     registerSteps(2);
     return () => reset();
   }, [registerSteps, reset]);
+
+  useEffect(() => {
+    setBusyOperation("portfolio_manage_active", true);
+    return () => {
+      setBusyOperation("portfolio_manage_active", false);
+    };
+  }, [setBusyOperation]);
 
   // Load portfolio data on mount
   useEffect(() => {
@@ -178,35 +209,22 @@ export default function ManagePortfolioPage() {
           if (!parsed) {
             console.log("[ManagePortfolio] No cache, attempting to decrypt from World Model...");
             try {
-              const encryptedData = await WorldModelService.getDomainData(
-                user.uid,
-                "financial",
-                vaultOwnerToken || undefined
-              );
-              
-              if (encryptedData) {
-                const decrypted = await HushhVault.decryptData({
-                  payload: {
-                    ciphertext: encryptedData.ciphertext,
-                    iv: encryptedData.iv,
-                    tag: encryptedData.tag,
-                    encoding: "base64",
-                    algorithm: encryptedData.algorithm as "aes-256-gcm" || "aes-256-gcm",
-                  },
-                  keyHex: vaultKey,
-                });
-                
-                // Parse decrypted data
-                const allData = JSON.parse(decrypted.plaintext);
-                const rawFinancial = allData.financial || allData;
+              const allData = await WorldModelService.loadFullBlob({
+                userId: user.uid,
+                vaultKey,
+                vaultOwnerToken: vaultOwnerToken || undefined,
+              });
+              const rawFinancial = allData.financial;
+
+              if (!hasValidFinancialShape(rawFinancial)) {
+                toast.error("Portfolio index exists but financial data is missing. Please re-import your statement.");
+              } else {
                 // Normalize Review-format → Dashboard-format field names
                 parsed = normalizeStoredPortfolio(rawFinancial) as unknown as PortfolioData;
-                
+
                 // Update cache for future use
-                if (parsed) {
-                  setCachePortfolioData(user.uid, parsed);
-                  console.log("[ManagePortfolio] Decrypted and cached portfolio data");
-                }
+                setCachePortfolioData(user.uid, parsed);
+                console.log("[ManagePortfolio] Decrypted and cached portfolio data");
               }
             } catch (decryptError) {
               console.error("[ManagePortfolio] Failed to decrypt from World Model:", decryptError);
@@ -240,7 +258,12 @@ export default function ManagePortfolioPage() {
             }
             
             setPortfolioData(parsed);
-            setHoldings(parsed.holdings || []);
+            setHoldings(
+              (parsed.holdings || []).map((holding) => ({
+                ...holding,
+                pending_delete: Boolean(holding.pending_delete),
+              }))
+            );
             setAccountInfo(parsed.account_info || {});
             setAccountSummary(parsed.account_summary || { ending_value: 0 });
           }
@@ -277,39 +300,41 @@ export default function ManagePortfolioPage() {
     setIsSaving(true);
     try {
       // 1. Build complete portfolio data object
+      const holdingsForSave = activeHoldings.map(({ pending_delete: _pending_delete, ...rest }) => rest);
       const updatedPortfolioData: PortfolioData = {
         account_info: accountInfo,
         account_summary: {
           ...accountSummary,
-          ending_value: holdings.reduce((sum, h) => sum + (h.market_value || 0), 0) + (accountSummary.cash_balance || 0),
-          equities_value: holdings.reduce((sum, h) => sum + (h.market_value || 0), 0),
+          ending_value:
+            holdingsForSave.reduce((sum, h) => sum + (h.market_value || 0), 0) +
+            (accountSummary.cash_balance || 0),
+          equities_value: holdingsForSave.reduce((sum, h) => sum + (h.market_value || 0), 0),
         },
-        holdings: holdings,
+        holdings: holdingsForSave,
         transactions: portfolioData?.transactions || [],
+        domain_intent: {
+          primary: "financial",
+          source: "kai_manage_edit",
+          captured_sections: ["account_info", "account_summary", "holdings", "transactions"],
+          updated_at: new Date().toISOString(),
+        },
         updated_at: new Date().toISOString(),
       };
 
       // 2. Encrypt client-side using HushhVault
-      const encrypted = await HushhVault.encryptData({
-        keyHex: vaultKey,
-        plaintext: JSON.stringify(updatedPortfolioData),
-      });
-
-      // 3. Store via WorldModelService (tri-flow compliant)
-      const result = await WorldModelService.storeDomainData({
+      // 2. Store via WorldModelService with full-blob merge semantics.
+      const result = await WorldModelService.storeMergedDomain({
         userId: user.uid,
+        vaultKey,
         domain: "financial",
-        encryptedBlob: {
-          ciphertext: encrypted.ciphertext,
-          iv: encrypted.iv,
-          tag: encrypted.tag,
-          algorithm: "aes-256-gcm",
-        },
+        domainData: updatedPortfolioData as unknown as Record<string, unknown>,
         summary: {
+          domain_intent: "financial",
+          intent_source: "kai_manage_edit",
           has_portfolio: true,
-          holdings_count: holdings.length,
+          holdings_count: holdingsForSave.length,
           total_value: updatedPortfolioData.account_summary?.ending_value || 0,
-          risk_bucket: deriveRiskBucket(holdings),
+          risk_bucket: deriveRiskBucket(holdingsForSave),
           last_updated: new Date().toISOString(),
         },
         vaultOwnerToken: vaultOwnerToken || undefined,
@@ -317,6 +342,8 @@ export default function ManagePortfolioPage() {
 
       if (result.success) {
         setCachePortfolioData(user.uid, updatedPortfolioData);
+        const cache = CacheService.getInstance();
+        cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(user.uid));
 
         toast.success("Portfolio saved securely");
         setHasChanges(false);
@@ -330,7 +357,7 @@ export default function ManagePortfolioPage() {
     } finally {
       setIsSaving(false);
     }
-  }, [user?.uid, vaultKey, accountInfo, accountSummary, holdings, portfolioData, router]);
+  }, [user?.uid, vaultKey, accountInfo, accountSummary, activeHoldings, portfolioData, router]);
 
   // Handle edit holding
   const handleEditHolding = useCallback((index: number) => {
@@ -359,7 +386,11 @@ export default function ManagePortfolioPage() {
 
   // Handle delete holding
   const handleDeleteHolding = useCallback((index: number) => {
-    setHoldings(prev => prev.filter((_, i) => i !== index));
+    setHoldings(prev =>
+      prev.map((holding, i) =>
+        i === index ? { ...holding, pending_delete: !holding.pending_delete } : holding
+      )
+    );
     setHasChanges(true);
   }, []);
 
@@ -371,6 +402,7 @@ export default function ManagePortfolioPage() {
       quantity: 0,
       price: 0,
       market_value: 0,
+      pending_delete: false,
     });
     setEditingIndex(-1);
     setIsModalOpen(true);
@@ -422,7 +454,7 @@ export default function ManagePortfolioPage() {
                 <p className="text-sm text-muted-foreground">Ending</p>
                 <p className="font-semibold">
                   {formatCurrency(
-                    holdings.reduce((sum, h) => sum + (h.market_value || 0), 0) +
+                    activeHoldings.reduce((sum, h) => sum + (h.market_value || 0), 0) +
                     (accountSummary.cash_balance || 0)
                   )}
                 </p>
@@ -439,7 +471,7 @@ export default function ManagePortfolioPage() {
                 <p className="text-sm text-muted-foreground">Equities</p>
                 <p className="font-semibold">
                   {formatCurrency(
-                    holdings.reduce((sum, h) => sum + (h.market_value || 0), 0)
+                    activeHoldings.reduce((sum, h) => sum + (h.market_value || 0), 0)
                   )}
                 </p>
               </div>
@@ -451,7 +483,12 @@ export default function ManagePortfolioPage() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">
-              Holdings ({holdings.length})
+              Holdings ({activeHoldings.length})
+              {pendingDeleteCount > 0 ? (
+                <span className="ml-2 text-xs font-medium text-muted-foreground">
+                  {pendingDeleteCount} pending remove
+                </span>
+              ) : null}
             </h2>
             <Button
               variant="none"
@@ -480,15 +517,26 @@ export default function ManagePortfolioPage() {
                         variant="none"
                         effect="glass"
                         showRipple={false}
+                        className={cn(holding.pending_delete && "opacity-60 border-dashed")}
                       >
                         <CardContent className="p-4">
                           <div className="flex items-start justify-between">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
-                                <span className="font-bold text-lg">
+                                <span
+                                  className={cn(
+                                    "font-bold text-lg",
+                                    holding.pending_delete && "line-through text-muted-foreground"
+                                  )}
+                                >
                                   {holding.symbol}
                                 </span>
-                                <span className="text-sm text-muted-foreground truncate">
+                                <span
+                                  className={cn(
+                                    "text-sm text-muted-foreground truncate",
+                                    holding.pending_delete && "line-through"
+                                  )}
+                                >
                                   {holding.name}
                                 </span>
                               </div>
@@ -504,6 +552,11 @@ export default function ManagePortfolioPage() {
                                   <span className={cn("font-bold", isPositive ? "text-emerald-500" : "text-red-500")}>
                                     {isPositive ? "+" : ""}{formatCurrency(gainLoss)}
                                   </span>
+                                  {holding.unrealized_gain_loss_pct !== undefined && (
+                                    <span className="ml-1 text-xs text-muted-foreground">
+                                      ({_formatPercent(holding.unrealized_gain_loss_pct)})
+                                    </span>
+                                  )}
                                 </p>
                               )}
 
@@ -514,7 +567,10 @@ export default function ManagePortfolioPage() {
                                   variant="none"
                                   effect="glass"
                                   size="icon-sm"
-                                  className="h-10 w-10 text-muted-foreground hover:text-primary transition-all duration-300 rounded-xl"
+                                  className={cn(
+                                    "h-10 w-10 text-muted-foreground hover:text-primary transition-all duration-300 rounded-xl",
+                                    holding.pending_delete && "pointer-events-none opacity-50"
+                                  )}
                                   onClick={() => handleEditHolding(actualIndex)}
                                   icon={{ icon: Pencil }}
                                 />
@@ -525,11 +581,18 @@ export default function ManagePortfolioPage() {
                                   variant="none"
                                   effect="glass"
                                   size="icon-sm"
-                                  className="h-10 w-10 text-red-400 hover:text-red-500 hover:bg-red-50 transition-all duration-300 rounded-xl"
+                                  className={cn(
+                                    "h-10 w-10 transition-all duration-300 rounded-xl",
+                                    holding.pending_delete
+                                      ? "text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50"
+                                      : "text-red-400 hover:text-red-500 hover:bg-red-50"
+                                  )}
                                   onClick={() => handleDeleteHolding(actualIndex)}
-                                  icon={{ icon: Trash2 }}
+                                  icon={{ icon: holding.pending_delete ? Undo2 : Trash2 }}
                                 />
-                                <Kbd className="text-[8px] px-1 h-3.5">DEL</Kbd>
+                                <Kbd className="text-[8px] px-1 h-3.5">
+                                  {holding.pending_delete ? "UNDO" : "DEL"}
+                                </Kbd>
                               </div>
                             </div>
 
@@ -592,7 +655,7 @@ export default function ManagePortfolioPage() {
       {/* Save Button - Floating Action Style */}
       {/* Save Button - Floating Action Style with Safe Area Support */}
       {hasChanges && (
-        <div className="fixed bottom-0 left-0 right-0 px-10 sm:px-16 pb-[calc(5rem+env(safe-area-inset-bottom))] z-110 pointer-events-none">
+        <div className="fixed left-0 right-0 bottom-[calc(96px+env(safe-area-inset-bottom))] px-10 sm:px-16 pb-2 z-[145] pointer-events-none">
           <div className="max-w-xs mx-auto pointer-events-auto">
             <Button
               onClick={handleSave}

@@ -14,6 +14,7 @@ import {
   Scale,
   FileText,
   Link2,
+  Target,
   Crown,
   Sparkles, // Use Sparkles for QUEEN if Crown is for KING
   Trophy,
@@ -24,16 +25,12 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import {
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
   PieChart,
   Pie,
   Cell,
   BarChart,
   Bar,
+  CartesianGrid,
   XAxis,
   YAxis,
   ResponsiveContainer,
@@ -45,7 +42,6 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import { useTheme } from "next-themes";
 
 // ============================================================================
 // Types
@@ -86,6 +82,57 @@ export interface DecisionResult {
     debate_digest?: string;
     consensus_reached?: boolean;
     dissenting_opinions?: string[];
+    price_targets?: Record<string, number>;
+    debate_highlights?: Array<{
+      type?: string;
+      agent?: string;
+      content?: string;
+      classification?: string;
+      confidence?: number;
+      magnitude?: string;
+      score?: number;
+      source?: string;
+    }>;
+    world_model_context?: {
+      risk_profile?: string;
+      preferences?: Record<string, unknown>;
+      holdings_count?: number;
+      portfolio_allocation?: Record<string, unknown>;
+      has_domain_summaries?: boolean;
+    };
+    renaissance_context?: {
+      tier?: string;
+      tier_description?: string;
+      conviction_weight?: number;
+      investment_thesis?: string;
+      fcf_billions?: number;
+      sector?: string;
+      sector_peers?: string[];
+      recommendation_bias?: string;
+      is_investable?: boolean;
+      is_avoid?: boolean;
+      avoid_reason?: string;
+      screening_criteria?: string;
+    };
+    alphaagents_trace?: {
+      paper?: string;
+      protocol?: string;
+      rounds_executed?: number;
+      turns_per_agent?: number;
+      consensus_method?: string;
+      consensus_threshold?: number;
+      consensus_reached?: boolean;
+    };
+    llm_synthesis?: {
+      thesis?: string;
+      key_drivers?: string[];
+      key_risks?: string[];
+      action_plan?: string[];
+      watchlist_triggers?: string[];
+      horizon_fit?: string;
+      error?: string;
+      fallback?: boolean;
+    };
     // Renaissance Data (New)
     renaissance_tier?: "ACE" | "KING" | "QUEEN" | "JACK";
     renaissance_score?: number;
@@ -147,53 +194,69 @@ function SourceLink({ source }: { source: string }) {
 // Chart Sub-Components
 // ============================================================================
 
-const radarChartConfig = {
-  value: {
-    label: "Confidence",
-    color: "hsl(var(--primary))",
+const voteChartConfig = {
+  score: {
+    label: "Score",
+    color: "hsl(var(--chart-1))",
+  },
+  voteBullish: {
+    label: "Bullish",
+    color: "hsl(var(--chart-2))",
+  },
+  voteNeutral: {
+    label: "Neutral",
+    color: "hsl(var(--chart-3))",
+  },
+  voteBearish: {
+    label: "Bearish",
+    color: "hsl(var(--chart-5))",
   },
 } satisfies ChartConfig;
 
-function AgentConfidenceRadar({ result }: { result: DecisionResult }) {
-  const keyMetrics = result.raw_card?.key_metrics;
-  if (!keyMetrics) return null;
+function AgentVoteBar({ result }: { result: DecisionResult }) {
+  const votes = result.agent_votes || {};
+  const entries = Object.entries(votes);
+  if (entries.length === 0) return null;
 
-  const data = [
-    {
-      agent: "Fundamental",
-      value: (keyMetrics.fundamental?.confidence as number) || result.confidence || 0,
-    },
-    {
-      agent: "Sentiment",
-      value: keyMetrics.sentiment?.sentiment_score !== undefined
-        ? ((keyMetrics.sentiment.sentiment_score + 1) / 2)
-        : result.confidence || 0,
-    },
-    {
-      agent: "Valuation",
-      value: (keyMetrics.valuation?.confidence as number) || result.confidence || 0,
-    },
-  ].map((d) => ({ ...d, value: Math.round(d.value * 100) }));
+  const toScore = (vote: string): number => {
+    const normalized = vote.toLowerCase();
+    if (normalized === "buy" || normalized === "bullish" || normalized === "undervalued") return 1;
+    if (normalized === "reduce" || normalized === "sell" || normalized === "bearish") return -1;
+    return 0;
+  };
+  const data = entries.map(([agent, vote]) => {
+    const score = toScore(vote);
+    return {
+      agent: agent.charAt(0).toUpperCase() + agent.slice(1),
+      vote: vote.toUpperCase(),
+      score,
+      fill:
+        score > 0
+          ? "var(--color-voteBullish)"
+          : score < 0
+          ? "var(--color-voteBearish)"
+          : "var(--color-voteNeutral)",
+    };
+  });
 
   return (
     <div className="space-y-1.5">
       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">
-        Agent Confidence
+        Agent Votes
       </p>
-      <ChartContainer config={radarChartConfig} className="h-[180px] w-full">
-        <RadarChart accessibilityLayer data={data} cx="50%" cy="50%" outerRadius="70%">
-          <PolarGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <PolarAngleAxis dataKey="agent" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-          <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
-          <ChartTooltip content={<ChartTooltipContent hideLabel />} />
-          <Radar
-            dataKey="value"
-            stroke="hsl(var(--primary))"
-            fill="hsl(var(--primary))"
-            fillOpacity={0.2}
-            strokeWidth={2}
-          />
-        </RadarChart>
+      <ChartContainer config={voteChartConfig} className="h-[140px] w-full">
+        <BarChart accessibilityLayer data={data}>
+          <CartesianGrid vertical={false} />
+          <XAxis dataKey="agent" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickMargin={10} />
+          <YAxis domain={[-1, 1]} hide />
+          <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+          <Bar dataKey="score" radius={8}>
+            {data.map((entry) => (
+              <Cell key={entry.agent} fill={entry.fill} />
+            ))}
+            <LabelList dataKey="vote" position="top" fontSize={10} fill="hsl(var(--foreground))" />
+          </Bar>
+        </BarChart>
       </ChartContainer>
     </div>
   );
@@ -202,11 +265,11 @@ function AgentConfidenceRadar({ result }: { result: DecisionResult }) {
 const consensusChartConfig = {
   agree: {
     label: "Agree",
-    color: "hsl(var(--emerald-500))", // Morphy Token
+    color: "hsl(var(--chart-2))",
   },
   dissent: {
     label: "Dissent",
-    color: "hsl(var(--amber-500))", // Morphy Token
+    color: "hsl(var(--chart-5))",
   },
 } satisfies ChartConfig;
 
@@ -256,14 +319,19 @@ function ConsensusDonut({ result }: { result: DecisionResult }) {
 const barChartConfig = {
   value: {
     label: "Value",
-    color: "hsl(var(--primary))",
+    color: "hsl(var(--chart-1))",
+  },
+  negative: {
+    label: "Negative",
+    color: "hsl(var(--chart-5))",
+  },
+  scenario: {
+    label: "Scenario",
+    color: "hsl(var(--chart-4))",
   },
 } satisfies ChartConfig;
 
 function QuantMetricsBarChart({ metrics }: { metrics: Record<string, any> }) {
-  const { theme } = useTheme();
-  const isDark = theme === "dark";
-
   const data = useMemo(() => {
     return Object.entries(metrics)
       .filter(([, v]) => typeof v === "number" && v !== 0 && !Number.isNaN(v))
@@ -276,6 +344,7 @@ function QuantMetricsBarChart({ metrics }: { metrics: Record<string, any> }) {
           ? (value as number) / 1e6
           : (value as number),
         isNegative: (value as number) < 0,
+        fill: (value as number) < 0 ? "var(--color-negative)" : "var(--color-value)",
       }));
   }, [metrics]);
 
@@ -289,6 +358,7 @@ function QuantMetricsBarChart({ metrics }: { metrics: Record<string, any> }) {
       </p>
       <ChartContainer config={barChartConfig} className="w-full h-[160px]">
         <BarChart accessibilityLayer data={data} layout="vertical" margin={{ left: 0, right: 30, top: 0, bottom: 0 }}>
+          <CartesianGrid horizontal={false} />
           <XAxis type="number" hide />
           <YAxis 
             type="category" 
@@ -298,15 +368,55 @@ function QuantMetricsBarChart({ metrics }: { metrics: Record<string, any> }) {
             axisLine={false} 
             tickLine={false} 
           />
-          <ChartTooltip cursor={{ fill: isDark ? "#ffffff10" : "#00000005" }} content={<ChartTooltipContent hideLabel />} />
+          <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
           <Bar 
             dataKey="value" 
-            fill="hsl(var(--primary))" 
+            fill="var(--color-value)"
             radius={[0, 4, 4, 0]} 
             barSize={12}
-            background={{ fill: isDark ? "#ffffff05" : "#00000005" }}
           >
+            {data.map((entry) => (
+              <Cell key={entry.name} fill={entry.fill} />
+            ))}
             <LabelList dataKey="value" position="right" fontSize={9} fill="hsl(var(--foreground))" formatter={(val: number) => val.toFixed(1)} />
+          </Bar>
+        </BarChart>
+      </ChartContainer>
+    </div>
+  );
+}
+
+function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
+  const data = Object.entries(targets)
+    .filter(([, value]) => typeof value === "number" && Number.isFinite(value))
+    .slice(0, 4)
+    .map(([key, value]) => ({
+      scenario: key.replace(/_/g, " ").replace(/\b\w/g, (letter: string) => letter.toUpperCase()),
+      value: value as number,
+    }));
+
+  if (data.length < 2) return null;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+        <TrendingUp className="w-3.5 h-3.5" />
+        Price Scenarios
+      </p>
+      <ChartContainer config={barChartConfig} className="w-full h-[160px]">
+        <BarChart accessibilityLayer data={data}>
+          <CartesianGrid vertical={false} />
+          <XAxis dataKey="scenario" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+          <YAxis hide />
+          <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+          <Bar dataKey="value" radius={8} fill="var(--color-scenario)">
+            <LabelList
+              dataKey="value"
+              position="top"
+              fontSize={10}
+              fill="hsl(var(--foreground))"
+              formatter={(value: number) => `$${value.toFixed(2)}`}
+            />
           </Bar>
         </BarChart>
       </ChartContainer>
@@ -410,6 +520,26 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
   // Fallback for empty/missing decision to prevent layout shift
   const safeDecision = result.decision || "HOLD";
   const safeConfidence = result.confidence || 0;
+  const llmSynthesis = rawCard?.llm_synthesis;
+  const synthesisDrivers = (llmSynthesis?.key_drivers || []).filter(Boolean).slice(0, 6);
+  const synthesisRisks = (llmSynthesis?.key_risks || []).filter(Boolean).slice(0, 6);
+  const synthesisActionPlan = (llmSynthesis?.action_plan || []).filter(Boolean).slice(0, 5);
+  const synthesisTriggers = (llmSynthesis?.watchlist_triggers || []).filter(Boolean).slice(0, 6);
+  const debateHighlights = (rawCard?.debate_highlights || [])
+    .filter((entry) => Boolean(entry?.content))
+    .slice(0, 12);
+  const alphaTrace = rawCard?.alphaagents_trace;
+  const renaissanceContext = rawCard?.renaissance_context;
+  const worldModelContext = rawCard?.world_model_context;
+  const worldModelPreferences = (worldModelContext?.preferences || {}) as Record<string, unknown>;
+  const investmentHorizon =
+    typeof worldModelPreferences.investment_horizon === "string"
+      ? worldModelPreferences.investment_horizon
+      : undefined;
+  const investmentStyle =
+    typeof worldModelPreferences.investment_style === "string"
+      ? worldModelPreferences.investment_style
+      : undefined;
 
   return (
     <Card
@@ -467,8 +597,10 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
 
         {/* DATA VISUALIZATION GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <AgentConfidenceRadar result={result} />
-          {hasQuantMetrics && rawCard?.quant_metrics ? (
+          <AgentVoteBar result={result} />
+          {rawCard?.price_targets && Object.keys(rawCard.price_targets).length > 1 ? (
+               <PriceTargetsChart targets={rawCard.price_targets} />
+          ) : hasQuantMetrics && rawCard?.quant_metrics ? (
                <QuantMetricsBarChart metrics={rawCard.quant_metrics} />
           ) : (
                <ConsensusDonut result={result} />
@@ -520,13 +652,13 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             
             {/* Sentiment Gauge Card */}
             {rawCard?.key_metrics?.sentiment?.sentiment_score !== undefined && (
-            <div className="p-4 bg-purple-500/5 border border-purple-500/10 rounded-2xl flex flex-col justify-center">
+            <div className="p-4 bg-card/40 border border-border/50 rounded-2xl flex flex-col justify-center">
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                        <BarChart3 className="w-3.5 h-3.5 text-purple-500" />
-                        <span className="text-[10px] font-bold text-purple-500 uppercase tracking-widest">Sentiment</span>
+                        <BarChart3 className="w-3.5 h-3.5" style={{ color: "hsl(var(--chart-3))" }} />
+                        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: "hsl(var(--chart-3))" }}>Sentiment</span>
                     </div>
-                    <Badge variant="outline" className="text-[10px] font-mono bg-purple-500/10 text-purple-500 border-purple-500/20">
+                    <Badge variant="outline" className="text-[10px] font-mono bg-muted/30 border-border/40">
                         {(rawCard.key_metrics.sentiment.sentiment_score * 100).toFixed(0)}%
                     </Badge>
                 </div>
@@ -588,6 +720,214 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             </div>
             <p className="text-sm font-medium leading-relaxed">{rawCard?.debate_digest || result.final_statement}</p>
         </div>
+
+        {/* LLM SYNTHESIS */}
+        {(llmSynthesis?.thesis || llmSynthesis?.horizon_fit || llmSynthesis?.error) && (
+          <div className="p-5 bg-primary/5 border border-primary/20 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                Chief Strategist Synthesis
+              </p>
+              {llmSynthesis?.fallback && (
+                <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                  Deterministic
+                </Badge>
+              )}
+            </div>
+            {llmSynthesis?.thesis && (
+              <p className="text-sm leading-relaxed text-foreground/90">{llmSynthesis.thesis}</p>
+            )}
+            {llmSynthesis?.horizon_fit && (
+              <div className="p-3 rounded-xl border border-primary/20 bg-background/50">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
+                  Horizon Fit
+                </p>
+                <p className="text-xs text-foreground/80">{llmSynthesis.horizon_fit}</p>
+              </div>
+            )}
+            {llmSynthesis?.error && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                Synthesis warning: {llmSynthesis.error}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* DRIVERS + RISKS */}
+        {(synthesisDrivers.length > 0 || synthesisRisks.length > 0) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {synthesisDrivers.length > 0 && (
+              <div className="p-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400 mb-2 flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  Key Drivers
+                </p>
+                <ul className="space-y-2">
+                  {synthesisDrivers.map((driver, idx) => (
+                    <li
+                      key={`${driver}-${idx}`}
+                      className="text-xs text-muted-foreground pl-3 border-l-2 border-emerald-500/30"
+                    >
+                      {driver}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {synthesisRisks.length > 0 && (
+              <div className="p-4 rounded-2xl border border-red-500/20 bg-red-500/5">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-red-600 dark:text-red-400 mb-2 flex items-center gap-1.5">
+                  <Shield className="w-3.5 h-3.5" />
+                  Key Risks
+                </p>
+                <ul className="space-y-2">
+                  {synthesisRisks.map((risk, idx) => (
+                    <li
+                      key={`${risk}-${idx}`}
+                      className="text-xs text-muted-foreground pl-3 border-l-2 border-red-500/30"
+                    >
+                      {risk}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ACTION PLAN + WATCHLIST */}
+        {(synthesisActionPlan.length > 0 || synthesisTriggers.length > 0) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {synthesisActionPlan.length > 0 && (
+              <div className="p-4 rounded-2xl border border-blue-500/20 bg-blue-500/5">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-blue-600 dark:text-blue-400 mb-2 flex items-center gap-1.5">
+                  <Target className="w-3.5 h-3.5" />
+                  Action Plan
+                </p>
+                <ul className="space-y-2">
+                  {synthesisActionPlan.map((step, idx) => (
+                    <li
+                      key={`${step}-${idx}`}
+                      className="text-xs text-muted-foreground pl-3 border-l-2 border-blue-500/30"
+                    >
+                      {step}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {synthesisTriggers.length > 0 && (
+              <div className="p-4 rounded-2xl border border-amber-500/20 bg-amber-500/5">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 mb-2 flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5" />
+                  Watchlist Triggers
+                </p>
+                <ul className="space-y-2">
+                  {synthesisTriggers.map((trigger, idx) => (
+                    <li
+                      key={`${trigger}-${idx}`}
+                      className="text-xs text-muted-foreground pl-3 border-l-2 border-amber-500/30"
+                    >
+                      {trigger}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CONTEXT + PROTOCOL TRACE */}
+        {(worldModelContext || renaissanceContext || alphaTrace) && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {worldModelContext && (
+              <div className="p-4 bg-card/50 rounded-2xl border border-border/50 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  World Model Context
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Risk: {String(worldModelContext.risk_profile || "balanced")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Holdings: {worldModelContext.holdings_count ?? 0}
+                </p>
+                {investmentHorizon && (
+                  <p className="text-xs text-muted-foreground">Horizon: {investmentHorizon}</p>
+                )}
+                {investmentStyle && (
+                  <p className="text-xs text-muted-foreground">Style: {investmentStyle}</p>
+                )}
+              </div>
+            )}
+            {renaissanceContext && (
+              <div className="p-4 bg-card/50 rounded-2xl border border-border/50 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Renaissance Context
+                </p>
+                <p className="text-xs">
+                  Tier: <span className="font-semibold">{renaissanceContext.tier || "N/A"}</span>
+                  {renaissanceContext.recommendation_bias
+                    ? ` (${renaissanceContext.recommendation_bias})`
+                    : ""}
+                </p>
+                {typeof renaissanceContext.conviction_weight === "number" && (
+                  <p className="text-xs text-muted-foreground">
+                    Conviction: {(renaissanceContext.conviction_weight * 100).toFixed(0)}%
+                  </p>
+                )}
+                {renaissanceContext.investment_thesis && (
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {renaissanceContext.investment_thesis}
+                  </p>
+                )}
+              </div>
+            )}
+            {alphaTrace && (
+              <div className="p-4 bg-card/50 rounded-2xl border border-border/50 space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  AlphaAgents Protocol
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Paper: {alphaTrace.paper || "N/A"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Rounds: {alphaTrace.rounds_executed ?? 0} | Turns/Agent:{" "}
+                  {alphaTrace.turns_per_agent ?? 0}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Consensus Method: {alphaTrace.consensus_method || "weighted_vote"}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* DEBATE HIGHLIGHTS */}
+        {debateHighlights.length > 0 && (
+          <div className="p-4 bg-card/40 rounded-2xl border border-border/40 space-y-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              Debate Highlights
+            </p>
+            <div className="max-h-56 overflow-y-auto pr-1 space-y-2">
+              {debateHighlights.map((entry, idx) => (
+                <div key={`${entry.agent}-${idx}`} className="p-2 rounded-lg border border-border/40 bg-background/40">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <Badge variant="outline" className="text-[10px] uppercase">
+                      {entry.agent || "agent"}
+                    </Badge>
+                    {entry.type && (
+                      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {entry.type.replace(/_/g, " ")}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{entry.content}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* AGENT DETAILED SUMMARIES - Collapsible (REMOVED: Redundant with Debate Tabs) */}
         {/* User feedback: "We are already showing round 1 and 2 above, the decision card need not again have the Deep analysis section" */}

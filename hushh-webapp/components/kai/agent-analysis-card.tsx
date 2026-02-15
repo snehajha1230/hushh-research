@@ -10,6 +10,7 @@ interface AgentAnalysisCardProps {
   color: string; // Tailwind class e.g. "text-blue-500"
   state: AgentState;
   disableStreaming?: boolean;
+  compactMode?: boolean;
 }
 
 export function AgentAnalysisCard({
@@ -18,6 +19,7 @@ export function AgentAnalysisCard({
   color,
   state,
   disableStreaming = false,
+  compactMode = false,
 }: AgentAnalysisCardProps) {
   // Color is now passed as a tailwind class directly (text-blue-500, etc.)
   const accentClass = color.startsWith("text-") ? color : "text-primary";
@@ -49,6 +51,7 @@ export function AgentAnalysisCard({
       peerComparison={state.peerComparison}
       priceTargets={state.priceTargets}
       disableStreaming={disableStreaming}
+      compactMode={compactMode}
     />
   );
 }

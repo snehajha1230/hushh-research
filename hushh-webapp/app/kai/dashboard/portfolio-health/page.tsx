@@ -4,13 +4,17 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
+import {
+  KaiIntroService,
+  type KaiIntroProfile,
+} from "@/lib/services/kai-intro-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
-import { HushhLoader } from "@/components/ui/hushh-loader";
 import { StreamingAccordion } from "@/lib/morphy-ux/streaming-accordion";
+import { Progress } from "@/components/ui/progress";
 import { Activity, Zap, ArrowRight, TrendingDown, TrendingUp, ShieldCheck, Target, Info, LayoutDashboard, ListChecks } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -83,15 +87,15 @@ type AnalysisResult = {
 const chartConfig = {
   current: {
     label: "Current",
-    color: "var(--destructive)",
+    color: "var(--chart-5)",
   },
   optimized: {
     label: "Optimized",
-    color: "var(--primary)",
+    color: "var(--chart-3)",
   },
   score: {
     label: "Score",
-    color: "var(--primary)",
+    color: "var(--chart-1)",
   },
 } satisfies ChartConfig;
 
@@ -115,7 +119,15 @@ function useThemeAware() {
 export default function PortfolioHealthPage() {
   const theme = useThemeAware();
   const { user, loading: authLoading } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, vaultKey } = useVault();
+  const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
+
+  useEffect(() => {
+    setBusyOperation("portfolio_health_active", true);
+    return () => {
+      setBusyOperation("portfolio_health_active", false);
+    };
+  }, [setBusyOperation]);
   
   // Loading and result state
   const [loading, setLoading] = useState(true);
@@ -125,9 +137,11 @@ export default function PortfolioHealthPage() {
   // Streaming state
   const [isStreaming, setIsStreaming] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
-  const [_streamingText, setStreamingText] = useState("");
-  const [_currentStage, setCurrentStage] = useState<string>("analyzing");
+  const [currentStage, setCurrentStage] = useState<string>("analyzing");
+  const [progressPct, setProgressPct] = useState<number>(5);
+  const [statusMessage, setStatusMessage] = useState("Preparing portfolio optimization...");
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [introProfile, setIntroProfile] = useState<KaiIntroProfile | null>(null);
 
   // New streaming states for granular control
   const [thoughts, setThoughts] = useState<string[]>([]);
@@ -152,9 +166,73 @@ export default function PortfolioHealthPage() {
     forceOptimize?: boolean;
   } | null;
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProfile() {
+      if (!user?.uid || !vaultKey || !vaultOwnerToken) {
+        setIntroProfile(null);
+        return;
+      }
+
+      try {
+        const profile = await KaiIntroService.getProfile({
+          userId: user.uid,
+          vaultKey,
+          vaultOwnerToken,
+        });
+        if (!cancelled) {
+          setIntroProfile(profile);
+        }
+      } catch {
+        if (!cancelled) {
+          setIntroProfile(null);
+        }
+      }
+    }
+
+    loadProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, vaultKey, vaultOwnerToken]);
+
   const thoughtsText = useMemo(() => {
     return thoughts.map((t, i) => `[${i + 1}] ${t.replace(/\*\*/g, "")}`).join("\n");
   }, [thoughts]);
+
+  const contextStats = useMemo(() => {
+    const holdings = input?.holdings ?? [];
+    const totalValue = holdings.reduce(
+      (sum, h) => sum + (typeof h.market_value === "number" ? h.market_value : 0),
+      0
+    );
+    const sorted = [...holdings].sort(
+      (a, b) => (b.market_value ?? 0) - (a.market_value ?? 0)
+    );
+    const top3WeightPct =
+      totalValue > 0
+        ? (sorted
+            .slice(0, 3)
+            .reduce((sum, h) => sum + (typeof h.market_value === "number" ? h.market_value : 0), 0) /
+            totalValue) *
+          100
+        : 0;
+    const sectorCount = new Set(
+      holdings
+        .map((h) => (typeof h.sector === "string" ? h.sector.trim() : ""))
+        .filter((sector) => sector.length > 0)
+    ).size;
+
+    return {
+      holdingsCount: holdings.length,
+      losersCount: input?.losers?.length ?? 0,
+      totalValue,
+      top3WeightPct,
+      sectorCount,
+    };
+  }, [input]);
   
   const radarData = useMemo(() => {
     if (!result?.analytics?.health_radar) return [];
@@ -195,17 +273,29 @@ export default function PortfolioHealthPage() {
         setLoading(true);
         setError(null);
         setIsStreaming(true);
+        setBusyOperation("portfolio_optimize_stream", true);
         setIsComplete(false);
-        setStreamingText(""); // Clear old streaming text
         setThoughts([]); // Clear old thoughts
         setThoughtCount(0);
         setStreamedText(""); // Clear old streamed text
         setCurrentStage("analyzing");
+        setProgressPct(8);
+        setStatusMessage("Preparing portfolio context and optimization universe...");
         setIsThinking(false);
         setIsExtracting(false);
 
         // Create abort controller for cleanup
         abortControllerRef.current = new AbortController();
+
+        const userPreferences = {
+          investment_horizon: introProfile?.investment_horizon ?? null,
+          investment_style: introProfile?.investment_style ?? null,
+          holdings_count: contextStats.holdingsCount,
+          losers_count: contextStats.losersCount,
+          top3_concentration_pct: Number(contextStats.top3WeightPct.toFixed(2)),
+          sector_count: contextStats.sectorCount,
+          force_optimize: Boolean(input.forceOptimize),
+        };
 
         const response = await ApiService.analyzePortfolioLosersStream({
           userId: user.uid,
@@ -215,6 +305,8 @@ export default function PortfolioHealthPage() {
           vaultOwnerToken: effectiveToken,
           holdings: input.holdings,
           forceOptimize: input.forceOptimize,
+          userPreferences,
+          signal: abortControllerRef.current.signal,
         });
 
         if (!response.ok) {
@@ -228,6 +320,22 @@ export default function PortfolioHealthPage() {
 
         const readNumber = (value: unknown): number | undefined =>
           typeof value === "number" && Number.isFinite(value) ? value : undefined;
+        const readString = (value: unknown): string | undefined =>
+          typeof value === "string" && value.trim().length > 0 ? value : undefined;
+        const stageProgressFallback: Record<string, number> = {
+          analyzing: 20,
+          thinking: 45,
+          extracting: 75,
+          parsing: 90,
+          complete: 100,
+        };
+        const resolveProgress = (stage: string, raw: unknown): number => {
+          const fromPayload = readNumber(raw);
+          if (typeof fromPayload === "number") {
+            return fromPayload;
+          }
+          return stageProgressFallback[stage] ?? 20;
+        };
 
         await consumeCanonicalKaiStream(
           response,
@@ -240,6 +348,10 @@ export default function PortfolioHealthPage() {
                 setCurrentStage(stage);
                 setIsThinking(stage === "thinking");
                 setIsExtracting(stage === "extracting");
+                setProgressPct(resolveProgress(stage, payload.progress_pct));
+                setStatusMessage(
+                  readString(payload.message) ?? "Analyzing portfolio positions..."
+                );
                 break;
               }
               case "thinking": {
@@ -248,6 +360,12 @@ export default function PortfolioHealthPage() {
                   setThoughts((prev) => [...prev, thought]);
                 }
                 setThoughtCount((prev) => readNumber(payload.count) ?? prev + (thought ? 1 : 0));
+                setCurrentStage("thinking");
+                setProgressPct(resolveProgress("thinking", payload.progress_pct));
+                setStatusMessage(
+                  readString(payload.message) ??
+                    "AI is reasoning through concentration and replacement scenarios..."
+                );
                 break;
               }
               case "chunk": {
@@ -255,6 +373,13 @@ export default function PortfolioHealthPage() {
                 if (text) {
                   setStreamedText((prev) => prev + text);
                 }
+                setCurrentStage("extracting");
+                setIsExtracting(true);
+                setProgressPct(resolveProgress("extracting", payload.progress_pct));
+                setStatusMessage(
+                  readString(payload.message) ??
+                    "Streaming optimization output..."
+                );
                 break;
               }
               case "complete": {
@@ -263,6 +388,8 @@ export default function PortfolioHealthPage() {
                 setIsStreaming(false);
                 setIsThinking(false);
                 setIsExtracting(false);
+                setProgressPct(100);
+                setStatusMessage("Optimization analysis complete.");
                 break;
               }
               case "error": {
@@ -270,6 +397,15 @@ export default function PortfolioHealthPage() {
                   typeof payload.message === "string"
                     ? payload.message
                     : "Portfolio health analysis failed";
+                setStatusMessage(message);
+                throw new Error(message);
+              }
+              case "aborted": {
+                const message =
+                  typeof payload.message === "string"
+                    ? payload.message
+                    : "Portfolio optimization stream was stopped";
+                setStatusMessage(message);
                 throw new Error(message);
               }
               default:
@@ -286,14 +422,17 @@ export default function PortfolioHealthPage() {
       } catch (e) {
         if ((e as Error).name === "AbortError") {
           console.log("[PortfolioHealth] Analysis aborted");
+          setStatusMessage("Analysis stopped before completion.");
         } else {
           setError((e as Error).message);
+          setStatusMessage((e as Error).message);
         }
         setIsStreaming(false);
         setIsThinking(false);
         setIsExtracting(false);
       } finally {
         setLoading(false);
+        setBusyOperation("portfolio_optimize_stream", false);
       }
     }
 
@@ -302,20 +441,78 @@ export default function PortfolioHealthPage() {
     return () => {
       // Cleanup: abort any in-flight request
       abortControllerRef.current?.abort();
+      setBusyOperation("portfolio_optimize_stream", false);
     };
-  }, [authLoading, input, user, vaultOwnerToken]);
+  }, [
+    authLoading,
+    input,
+    user,
+    vaultOwnerToken,
+    setBusyOperation,
+    introProfile,
+    contextStats.holdingsCount,
+    contextStats.losersCount,
+    contextStats.top3WeightPct,
+    contextStats.sectorCount,
+  ]);
+
+  useEffect(() => {
+    const abortStream = () => abortControllerRef.current?.abort();
+    window.addEventListener("beforeunload", abortStream);
+    window.addEventListener("pagehide", abortStream);
+
+    let visibilityTimeout: ReturnType<typeof setTimeout> | undefined;
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        visibilityTimeout = setTimeout(abortStream, 5000);
+      } else if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+        visibilityTimeout = undefined;
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      abortStream();
+      window.removeEventListener("beforeunload", abortStream);
+      window.removeEventListener("pagehide", abortStream);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (visibilityTimeout) {
+        clearTimeout(visibilityTimeout);
+      }
+    };
+  }, []);
 
   const thresholdLabel =
     input?.thresholdPct !== undefined ? `${input.thresholdPct}%` : "-5%";
 
   const hadBelowThreshold = input?.hadBelowThreshold ?? false;
 
-  // Stage messages for display
-  const _stageMessages: Record<string, string> = {
+  const stageMessages: Record<string, string> = {
     analyzing: "Analyzing portfolio positions...",
     thinking: "AI reasoning about portfolio health...",
     extracting: "Extracting optimization recommendations...",
+    parsing: "Validating structured optimization output...",
+    complete: "Portfolio optimization complete.",
   };
+  const resolvedStatus =
+    statusMessage || stageMessages[currentStage] || "Running portfolio health analysis...";
+  const resolvedProgress = Math.max(0, Math.min(100, progressPct));
+  const showLivePanels =
+    loading || isStreaming || thoughts.length > 0 || streamedText.length > 0;
+  const reasoningPanelText =
+    thoughtsText ||
+    [
+      "Booting Vertex stream...",
+      "Loading holdings context and Renaissance screening tables...",
+      "Reasoning thoughts will appear here as soon as the first stream chunk arrives.",
+    ].join("\n");
+  const extractionPanelText =
+    streamedText ||
+    [
+      "Initializing extraction runtime...",
+      "Streaming optimizer output will appear here in real time.",
+    ].join("\n");
 
   return (
     <div className="w-full mx-auto space-y-4 px-4 py-4 sm:px-6 sm:py-6 md:max-w-5xl">
@@ -328,30 +525,70 @@ export default function PortfolioHealthPage() {
         </div>
       </div>
 
-      {/* AI Reasoning Accordion - Shows during thinking phase, persists when complete */}
-      {(isThinking || (thoughts.length > 0 && !isComplete) || (isComplete && thoughts.length > 0)) && (
-        <StreamingAccordion
-          id="ai-reasoning"
-          title={`AI Reasoning${thoughtCount > 0 ? ` (${thoughtCount} thoughts)` : ""}`}
-          text={thoughtsText}
-          isStreaming={isThinking || isExtracting}
-          isComplete={isComplete}
-          icon={isComplete ? "brain" : "spinner"}
-          iconClassName="w-6 h-6"
-          maxHeight="250px"
-          className="border-primary/10"
-        />
-      )}
-{/* Loading state (only show if not streaming yet) */}
-      {loading && !isStreaming && !thoughtsText && !streamedText && (
-        <Card variant="none" effect="glass" showRipple={false}>
-          <CardContent className="p-6">
-            <HushhLoader
-              variant="inline"
-              label="Initializing portfolio analysis..."
+      <Card variant="none" effect="glass" showRipple={false} className="border-border/40">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge variant="secondary">{contextStats.holdingsCount} holdings</Badge>
+            <Badge variant="secondary">{contextStats.losersCount} flagged losers</Badge>
+            <Badge variant="secondary">Top 3 concentration {contextStats.top3WeightPct.toFixed(1)}%</Badge>
+            <Badge variant="secondary">{contextStats.sectorCount || 0} sectors</Badge>
+            {introProfile?.investment_horizon && (
+              <Badge variant="outline">Horizon: {introProfile.investment_horizon}</Badge>
+            )}
+            {introProfile?.investment_style && (
+              <Badge variant="outline">Style: {introProfile.investment_style}</Badge>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {showLivePanels && (
+        <Card variant="none" effect="glass" showRipple={false} className="border-primary/20">
+          <CardContent className="p-4 sm:p-5 space-y-3">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{resolvedStatus}</span>
+              <span>{Math.round(resolvedProgress)}%</span>
+            </div>
+            <Progress
+              value={resolvedProgress}
+              className="h-2"
+              indicatorClassName={cn("transition-all duration-500", isStreaming && "animate-pulse")}
             />
           </CardContent>
         </Card>
+      )}
+
+      {showLivePanels && (
+        <StreamingAccordion
+          id="ai-reasoning"
+          title={`AI Reasoning${thoughtCount > 0 ? ` (${thoughtCount} thoughts)` : ""}`}
+          text={reasoningPanelText}
+          isStreaming={isStreaming || isThinking || isExtracting}
+          isComplete={isComplete}
+          icon={isComplete ? "brain" : "spinner"}
+          iconClassName="w-6 h-6"
+          maxHeight="260px"
+          className="border-primary/10"
+          autoCollapseOnComplete={false}
+          emptyStreamingMessage="Initializing portfolio reasoning stream..."
+        />
+      )}
+
+      {showLivePanels && (
+        <StreamingAccordion
+          id="optimizer-runtime"
+          title="Live Optimizer Runtime"
+          text={extractionPanelText}
+          isStreaming={isStreaming}
+          isComplete={isComplete}
+          icon={isComplete ? "database" : "spinner"}
+          iconClassName="w-6 h-6"
+          maxHeight="260px"
+          className="border-primary/10"
+          autoCollapseOnComplete={false}
+          emptyStreamingMessage="Waiting for first optimization chunks..."
+          bodyClassName="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed"
+        />
       )}
 
       {/* All-clear card only when we have no optimization result and no error */}
@@ -434,7 +671,21 @@ export default function PortfolioHealthPage() {
                             fill="var(--color-optimized)"
                             fillOpacity={0.6}
                           />
-                          <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                          <ChartTooltip
+                            cursor={false}
+                            content={
+                              <ChartTooltipContent
+                                formatter={(value, name) => (
+                                  <div className="flex items-center justify-between gap-3 min-w-[120px]">
+                                    <span className="text-muted-foreground">{String(name)}</span>
+                                    <span className="font-semibold text-foreground">
+                                      {Number(value).toFixed(1)}%
+                                    </span>
+                                  </div>
+                                )}
+                              />
+                            }
+                          />
                         </RadarChart>
                       </ChartContainer>
                     ) : (
@@ -447,11 +698,11 @@ export default function PortfolioHealthPage() {
                   {/* Chart Legend */}
                   <div className="flex justify-center gap-6 mt-[-10px]">
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-background/50 border border-border/5 backdrop-blur-sm">
-                      <div className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
+                      <div className="w-2 h-2 rounded-full bg-[var(--color-current)]" />
                       <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Current</span>
                     </div>
                     <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-background/50 border border-border/5 backdrop-blur-sm">
-                      <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" />
+                      <div className="w-2 h-2 rounded-full bg-[var(--color-optimized)]" />
                       <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Optimized</span>
                     </div>
                   </div>
@@ -583,11 +834,39 @@ export default function PortfolioHealthPage() {
                         tick={{ fill: "currentColor", opacity: 0.5, fontSize: 10 }}
                         unit="%"
                       />
-                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <ChartTooltip
+                        content={
+                          <ChartTooltipContent
+                            formatter={(value, name, _item, _index, payload) => {
+                              const row = payload as { before_pct?: number; after_pct?: number };
+                              return (
+                                <div className="space-y-1">
+                                  <p className="font-semibold text-foreground">
+                                    {String(name)}: {Number(value).toFixed(1)}%
+                                  </p>
+                                  {typeof row.before_pct === "number" &&
+                                    typeof row.after_pct === "number" && (
+                                      <p className="text-xs text-muted-foreground">
+                                        Delta {(row.after_pct - row.before_pct).toFixed(1)}%
+                                      </p>
+                                    )}
+                                </div>
+                              );
+                            }}
+                          />
+                        }
+                      />
                       <Legend 
                         verticalAlign="top" 
                         align="right" 
-                        wrapperStyle={{ fontSize: "10px", fontWeight: "bold", textTransform: "uppercase", letterSpacing: "0.1em", paddingBottom: "20px" }} 
+                        wrapperStyle={{
+                          fontSize: "10px",
+                          fontWeight: "bold",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.1em",
+                          paddingBottom: "20px",
+                          color: "var(--muted-foreground)",
+                        }} 
                       />
                       <Bar name="Current" dataKey="before_pct" fill="var(--color-current)" opacity={0.3} radius={[4, 4, 0, 0]} />
                       <Bar name="Optimized" dataKey="after_pct" fill="var(--color-optimized)" radius={[4, 4, 0, 0]} />
@@ -844,20 +1123,17 @@ export default function PortfolioHealthPage() {
               </CardContent>
             </Card>
 
-            {(isExtracting || (streamedText && !isComplete) || (isComplete && streamedText)) && (
+            {streamedText && (
               <Card variant="none" effect="glass" showRipple={false} className="border-primary/10 overflow-hidden">
-                <CardContent className="p-0">
-                  <StreamingAccordion
-                    id="data-extraction"
-                    title={`Alpha Analysis Engine Runtime`}
-                    text={streamedText}
-                    isStreaming={isExtracting}
-                    isComplete={isComplete}
-                    icon={isComplete ? "check" : "database"}
-                    iconClassName="w-5 h-5 text-primary"
-                    maxHeight="200px"
-                    className="border-none bg-transparent rounded-none"
-                  />
+                <CardHeader className="py-4">
+                  <CardTitle className="text-[10px] font-black uppercase tracking-widest">
+                    Alpha Analysis Runtime Transcript
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 pb-4">
+                  <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-border/40 bg-muted/20 p-3 text-[11px] leading-relaxed text-muted-foreground">
+                    {streamedText}
+                  </pre>
                 </CardContent>
               </Card>
             )}

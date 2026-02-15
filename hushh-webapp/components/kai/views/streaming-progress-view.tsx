@@ -55,6 +55,7 @@ export interface StreamingProgressViewProps {
   peerComparison?: Record<string, any>;
   priceTargets?: Record<string, any>;
   disableStreaming?: boolean;
+  compactMode?: boolean;
 }
 
 // ============================================================================
@@ -339,6 +340,7 @@ export function StreamingProgressView({
   peerComparison,
   priceTargets,
   disableStreaming = false,
+  compactMode = false,
 }: StreamingProgressViewProps) {
   const isActive = stage === "active";
   const isComplete = stage === "complete";
@@ -358,6 +360,7 @@ export function StreamingProgressView({
     if (thoughts.length === 0) return "";
     return thoughts.map((t, i) => `[${i + 1}] **${t}**`).join("\n");
   }, [thoughts]);
+  const reasoningText = streamedText || thoughtsText;
 
   return (
     <div className={cn("w-full transition-all duration-200 space-y-3", className)}>
@@ -388,17 +391,17 @@ export function StreamingProgressView({
         <StreamingAccordion
           id={`thoughts-${title.toLowerCase().replace(/\s+/g, "-")}`}
           title="Reasoning"
-          text={isActive ? streamedText : thoughtsText}
+          text={reasoningText}
           isStreaming={!disableStreaming && isActive} // Disable streaming animation if requested
           isComplete={isComplete}
           icon={isComplete ? "brain" : "spinner"}
           className="border-primary/5 bg-primary/5"
-          defaultExpanded={isActive}
+          defaultExpanded={compactMode || isActive}
         />
       )}
 
       {/* Main Output / Insight - Only show final summary when complete */}
-      {isComplete && streamedText && (
+      {!compactMode && isComplete && streamedText && (
         <div
           className={cn(
             "rounded-md border p-2.5 text-xs leading-relaxed",
@@ -410,7 +413,7 @@ export function StreamingProgressView({
       )}
 
       {/* KPI Section */}
-      {hasKpiData && (
+      {!compactMode && hasKpiData && (
         <div className="space-y-2.5">
           <Separator className="opacity-50" />
 

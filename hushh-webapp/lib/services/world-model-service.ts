@@ -61,6 +61,11 @@ export interface EncryptedValue {
   algorithm?: string;
 }
 
+export interface EncryptedUserBlob extends EncryptedValue {
+  dataVersion?: number;
+  updatedAt?: string;
+}
+
 export interface EncryptedAttribute extends EncryptedValue {
   domain: string;
   attributeKey: string;
@@ -458,25 +463,13 @@ export class WorldModelService {
     vaultKey: string,
     vaultOwnerToken?: string
   ): Promise<boolean> {
-    const blob = await WorldModelService.getDomainData(userId, domain, vaultOwnerToken);
-    if (!blob) {
-      return true;
-    }
-    const { decryptData } = await import("@/lib/vault/encrypt");
-    const { HushhVault } = await import("@/lib/capacitor");
     let full: Record<string, Record<string, unknown>>;
     try {
-      const decrypted = await decryptData(
-        {
-          ciphertext: blob.ciphertext,
-          iv: blob.iv,
-          tag: blob.tag,
-          encoding: "base64",
-          algorithm: (blob.algorithm || "aes-256-gcm") as "aes-256-gcm",
-        },
-        vaultKey
-      );
-      full = JSON.parse(decrypted) as Record<string, Record<string, unknown>>;
+      full = (await WorldModelService.loadFullBlob({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+      })) as Record<string, Record<string, unknown>>;
     } catch {
       return false;
     }
@@ -500,21 +493,13 @@ export class WorldModelService {
       }
     }
     updatedSummary.last_updated = new Date().toISOString();
-    const encrypted = await HushhVault.encryptData({
-      keyHex: vaultKey,
-      plaintext: JSON.stringify(full),
-    });
-    const result = await WorldModelService.storeDomainData({
+    const result = await WorldModelService.storeMergedDomain({
       userId,
+      vaultKey,
       domain,
-      encryptedBlob: {
-        ciphertext: encrypted.ciphertext,
-        iv: encrypted.iv,
-        tag: encrypted.tag,
-        algorithm: "aes-256-gcm",
-      },
-      summary: updatedSummary as Record<string, string | number>,
-      vaultOwnerToken: vaultOwnerToken ?? undefined,
+      domainData: full[domain] as Record<string, unknown>,
+      summary: updatedSummary,
+      vaultOwnerToken,
     });
     return result.success;
   }
@@ -752,6 +737,183 @@ export class WorldModelService {
   }
 
   /**
+   * Get the full encrypted world-model blob for a user.
+   */
+  static async getEncryptedData(
+    userId: string,
+    vaultOwnerToken?: string
+  ): Promise<EncryptedUserBlob | null> {
+    if (Capacitor.isNativePlatform()) {
+      const result = await HushhWorldModel.getEncryptedData({
+        userId,
+        vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
+      });
+      if (!result?.ciphertext || !result?.iv || !result?.tag) {
+        return null;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw = result as any;
+      return {
+        ciphertext: raw.ciphertext,
+        iv: raw.iv,
+        tag: raw.tag,
+        algorithm: raw.algorithm || "aes-256-gcm",
+        dataVersion:
+          typeof raw.data_version === "number"
+            ? raw.data_version
+            : typeof raw.dataVersion === "number"
+              ? raw.dataVersion
+              : undefined,
+        updatedAt:
+          typeof raw.updated_at === "string"
+            ? raw.updated_at
+            : typeof raw.updatedAt === "string"
+              ? raw.updatedAt
+              : undefined,
+      };
+    }
+
+    const response = await ApiService.apiFetch(`/api/world-model/data/${userId}`, {
+      headers: this.getAuthHeaders(vaultOwnerToken),
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        return null;
+      }
+      throw new Error(`Failed to get encrypted data: ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data?.ciphertext || !data?.iv || !data?.tag) {
+      return null;
+    }
+
+    return {
+      ciphertext: data.ciphertext,
+      iv: data.iv,
+      tag: data.tag,
+      algorithm: data.algorithm || "aes-256-gcm",
+      dataVersion: typeof data.data_version === "number" ? data.data_version : undefined,
+      updatedAt: typeof data.updated_at === "string" ? data.updated_at : undefined,
+    };
+  }
+
+  /**
+   * Decrypt and return the full world-model blob.
+   * Returns empty object when user has no encrypted data.
+   */
+  static async loadFullBlob(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const encrypted = await this.getEncryptedData(params.userId, params.vaultOwnerToken);
+    if (!encrypted) {
+      return {};
+    }
+
+    const { decryptData } = await import("@/lib/vault/encrypt");
+    const decrypted = await decryptData(
+      {
+        ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        tag: encrypted.tag,
+        encoding: "base64",
+        algorithm: (encrypted.algorithm || "aes-256-gcm") as "aes-256-gcm",
+      },
+      params.vaultKey
+    );
+
+    const parsed = JSON.parse(decrypted);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return parsed as Record<string, unknown>;
+  }
+
+  /**
+   * Merge one domain into full world-model blob, encrypt, and persist.
+   */
+  static async mergeAndEncryptFullBlob(params: {
+    userId: string;
+    vaultKey: string;
+    domain: string;
+    domainData: Record<string, unknown>;
+    vaultOwnerToken?: string;
+  }): Promise<{
+    encryptedBlob: EncryptedValue;
+    fullBlob: Record<string, unknown>;
+  }> {
+    const { HushhVault } = await import("@/lib/capacitor");
+
+    const fullBlob = await this.loadFullBlob({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch(() => ({} as Record<string, unknown>));
+
+    fullBlob[params.domain] = params.domainData;
+
+    const encrypted = await HushhVault.encryptData({
+      plaintext: JSON.stringify(fullBlob),
+      keyHex: params.vaultKey,
+    });
+
+    return {
+      encryptedBlob: {
+        ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        tag: encrypted.tag,
+        algorithm: "aes-256-gcm",
+      },
+      fullBlob,
+    };
+  }
+
+  /**
+   * Merge one domain into full blob and persist via storeDomainData.
+   */
+  static async storeMergedDomain(params: {
+    userId: string;
+    vaultKey: string;
+    domain: string;
+    domainData: Record<string, unknown>;
+    summary: Record<string, unknown>;
+    vaultOwnerToken?: string;
+  }): Promise<{
+    success: boolean;
+    fullBlob: Record<string, unknown>;
+  }> {
+    const merged = await this.mergeAndEncryptFullBlob({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      domain: params.domain,
+      domainData: params.domainData,
+      vaultOwnerToken: params.vaultOwnerToken,
+    });
+
+    const summaryWithIntent = {
+      domain_intent: params.domain,
+      ...params.summary,
+    };
+
+    const result = await this.storeDomainData({
+      userId: params.userId,
+      domain: params.domain,
+      encryptedBlob: merged.encryptedBlob,
+      summary: summaryWithIntent,
+      vaultOwnerToken: params.vaultOwnerToken,
+    });
+
+    return {
+      success: result.success,
+      fullBlob: merged.fullBlob,
+    };
+  }
+
+  /**
    * Get encrypted domain data blob for decryption on client.
    * This retrieves the encrypted blob stored via storeDomainData().
    * 
@@ -823,12 +985,24 @@ export class WorldModelService {
     domain: string,
     vaultOwnerToken?: string
   ): Promise<boolean> {
+    const invalidateDomainCaches = () => {
+      const cache = CacheService.getInstance();
+      cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
+      cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
+      if (domain === "financial") {
+        cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
+      }
+    };
+
     if (Capacitor.isNativePlatform()) {
       const result = await HushhWorldModel.clearDomain({
         userId,
         domain,
         vaultOwnerToken: this.getVaultOwnerToken(vaultOwnerToken),
       });
+      if (result.success) {
+        invalidateDomainCaches();
+      }
       return result.success;
     }
 
@@ -845,6 +1019,7 @@ export class WorldModelService {
       throw new Error(`Failed to clear domain: ${response.status}`);
     }
 
+    invalidateDomainCaches();
     return true;
   }
 }

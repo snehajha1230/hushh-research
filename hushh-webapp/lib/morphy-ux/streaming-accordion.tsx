@@ -143,6 +143,12 @@ export interface StreamingAccordionProps {
   showCursor?: boolean;
   /** Start expanded by default */
   defaultExpanded?: boolean;
+  /** Auto-collapse after completion */
+  autoCollapseOnComplete?: boolean;
+  /** Optional className for the body text wrapper */
+  bodyClassName?: string;
+  /** Message shown while streaming if no text has arrived yet */
+  emptyStreamingMessage?: string;
 }
 
 // ============================================================================
@@ -163,6 +169,9 @@ export function StreamingAccordion({
   iconClassName,
   showCursor = true,
   defaultExpanded = false,
+  autoCollapseOnComplete = true,
+  bodyClassName,
+  emptyStreamingMessage = "Preparing stream...",
 }: StreamingAccordionProps) {
 
   // Accordion open state
@@ -197,6 +206,9 @@ export function StreamingAccordion({
   // Auto-collapse when streaming completes
   // ============================================================================
   useEffect(() => {
+    if (!autoCollapseOnComplete) {
+      return;
+    }
     // If it's complete, we collapse regardless of whether we saw the start
     // this ensures that if a component mounts with "isComplete: true", it stays closed.
     if (isComplete) {
@@ -216,7 +228,7 @@ export function StreamingAccordion({
         clearTimeout(autoCollapseTimeoutRef.current);
       }
     };
-  }, [isComplete]);
+  }, [isComplete, autoCollapseOnComplete]);
 
   // ============================================================================
   // Reset state when text is cleared
@@ -423,19 +435,23 @@ export function StreamingAccordion({
               )}
               style={{ maxHeight }}
             >
-              {isEmpty && !isStreaming ? (
+              {isEmpty ? (
                 <p className="text-muted-foreground text-sm italic">
-                  Waiting for AI response...
+                  {isStreaming ? emptyStreamingMessage : "Waiting for AI response..."}
                 </p>
               ) : (
-                <div className="text-sm text-muted-foreground leading-relaxed">
+                <div
+                  className={cn(
+                    "text-sm text-muted-foreground leading-relaxed",
+                    bodyClassName
+                  )}
+                >
                   {formatThinkingText(displayText)}
                   {showCursor && isStreaming && (
                     <StreamingCursor isStreaming={isStreaming} color="primary" />
                   )}
                 </div>
               )}
-
             </div>
 
             {/* Scroll to bottom button */}

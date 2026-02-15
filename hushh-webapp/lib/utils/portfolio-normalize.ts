@@ -15,6 +15,30 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>;
 
+function parseMaybeNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  const text = String(value).trim();
+  if (!text || ["n/a", "na", "null", "none", "--", "-"].includes(text.toLowerCase())) {
+    return undefined;
+  }
+  const negative = text.startsWith("(") && text.endsWith(")");
+  const sanitized = text.replace(/[,$\s]/g, "").replace(/%/g, "").replace(/[()]/g, "");
+  const parsed = Number(negative ? `-${sanitized}` : sanitized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function firstPresent(obj: AnyObj, keys: string[]): unknown {
+  for (const key of keys) {
+    if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
+      return obj[key];
+    }
+  }
+  return undefined;
+}
+
 /**
  * Normalize a stored portfolio blob into Dashboard-compatible format.
  *
@@ -111,8 +135,13 @@ export function normalizeStoredPortfolio(raw: AnyObj): AnyObj {
       }
     : undefined;
 
-  // Normalize holdings: compute missing unrealized_gain_loss_pct
-  const normalizedHoldings = normalizeHoldingsPct(raw.holdings);
+  // Normalize holdings: map aliases and compute missing unrealized_gain_loss_pct
+  const sourceHoldings = Array.isArray(raw.holdings)
+    ? raw.holdings
+    : Array.isArray(raw.detailed_holdings)
+      ? raw.detailed_holdings
+      : [];
+  const normalizedHoldings = normalizeHoldings(sourceHoldings);
 
   return {
     ...raw,
@@ -122,8 +151,8 @@ export function normalizeStoredPortfolio(raw: AnyObj): AnyObj {
     income_summary: normalizedIncomeSummary,
     realized_gain_loss: normalizedRealizedGainLoss,
     holdings: normalizedHoldings,
-    // Preserve additional dashboard-only fields if present
-    detailed_holdings: raw.detailed_holdings,
+    // Keep both keys aligned so downstream pages can consume either.
+    detailed_holdings: normalizedHoldings,
     transactions: raw.transactions || [],
     activity_and_transactions: raw.activity_and_transactions,
     historical_values: raw.historical_values,
@@ -140,35 +169,60 @@ export function normalizeStoredPortfolio(raw: AnyObj): AnyObj {
 }
 
 /**
- * Ensure each holding has `unrealized_gain_loss_pct` computed.
+ * Ensure each holding has canonical fields and derived unrealized percentage.
  */
-function normalizeHoldingsPct(holdings: AnyObj[] | undefined): AnyObj[] | undefined {
+function normalizeHoldings(holdings: AnyObj[] | undefined): AnyObj[] | undefined {
   if (!holdings || !Array.isArray(holdings)) return holdings;
 
   return holdings.map((h) => {
-    // If percentage is already present and valid, keep it
-    if (
-      h.unrealized_gain_loss_pct !== undefined &&
-      h.unrealized_gain_loss_pct !== 0
-    ) {
-      return h;
+    const symbol = String(
+      firstPresent(h, ["symbol", "symbol_cusip", "ticker", "cusip", "security_id", "security"]) || ""
+    ).trim();
+    const name = String(
+      firstPresent(h, ["name", "description", "security_name", "holding_name"]) || "Unknown"
+    ).trim();
+    const quantity = parseMaybeNumber(firstPresent(h, ["quantity", "shares", "units", "qty"])) ?? 0;
+    const price =
+      parseMaybeNumber(
+        firstPresent(h, ["price", "price_per_unit", "last_price", "unit_price", "current_price"])
+      ) ?? 0;
+    const marketValue =
+      parseMaybeNumber(
+        firstPresent(h, ["market_value", "current_value", "marketValue", "value", "position_value"])
+      ) ?? 0;
+    const costBasis = parseMaybeNumber(firstPresent(h, ["cost_basis", "book_value", "cost", "total_cost"]));
+    const unrealized = parseMaybeNumber(
+      firstPresent(h, ["unrealized_gain_loss", "gain_loss", "unrealized_pnl", "pnl"])
+    );
+    let unrealizedPct = parseMaybeNumber(
+      firstPresent(h, ["unrealized_gain_loss_pct", "gain_loss_pct", "unrealized_return_pct", "return_pct"])
+    );
+
+    if (unrealizedPct === undefined && unrealized !== undefined) {
+      let basis: number | undefined;
+      if (costBasis !== undefined && Math.abs(costBasis) > 1e-6) {
+        basis = costBasis;
+      } else if (marketValue !== 0) {
+        basis = marketValue - unrealized;
+      }
+      if (basis !== undefined && Math.abs(basis) > 1e-6) {
+        unrealizedPct = (unrealized / basis) * 100;
+      }
     }
 
-    const unrealized = h.unrealized_gain_loss;
-    const costBasis = h.cost_basis;
-    const marketValue = h.market_value;
-
-    if (typeof unrealized === "number" && typeof costBasis === "number" && costBasis > 0) {
-      return { ...h, unrealized_gain_loss_pct: (unrealized / costBasis) * 100 };
-    }
-    if (typeof costBasis === "number" && typeof marketValue === "number" && costBasis > 0) {
-      const gain = marketValue - costBasis;
-      return {
-        ...h,
-        unrealized_gain_loss: h.unrealized_gain_loss ?? gain,
-        unrealized_gain_loss_pct: (gain / costBasis) * 100,
-      };
-    }
-    return h;
+    return {
+      ...h,
+      symbol,
+      name,
+      quantity,
+      price,
+      market_value: marketValue,
+      cost_basis: costBasis,
+      unrealized_gain_loss: unrealized,
+      unrealized_gain_loss_pct: unrealizedPct,
+      asset_type:
+        (firstPresent(h, ["asset_type", "asset_class", "security_type", "type"]) as string | undefined) ??
+        h.asset_type,
+    };
   });
 }

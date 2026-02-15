@@ -20,6 +20,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Pencil,
   Trash2,
+  Undo2,
   Plus,
   Save,
   RefreshCw,
@@ -46,7 +47,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { WorldModelService } from "@/lib/services/world-model-service";
-import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { 
   Card as MorphyCard, 
@@ -72,6 +74,7 @@ export interface Holding {
   unrealized_gain_loss?: number;
   unrealized_gain_loss_pct?: number;
   asset_type?: string;
+  pending_delete?: boolean;
 }
 
 export interface AccountInfo {
@@ -112,6 +115,15 @@ export interface RealizedGainLoss {
   net_realized?: number;
 }
 
+export interface QualityReport {
+  raw?: number;
+  validated?: number;
+  dropped?: number;
+  reconciled?: number;
+  mismatch_detected?: number;
+  parse_repair_applied?: boolean;
+}
+
 export interface PortfolioData {
   account_info?: AccountInfo;
   account_summary?: AccountSummary;
@@ -119,6 +131,19 @@ export interface PortfolioData {
   holdings?: Holding[];
   income_summary?: IncomeSummary;
   realized_gain_loss?: RealizedGainLoss;
+  transactions?: Array<Record<string, unknown>>;
+  activity_and_transactions?: Array<Record<string, unknown>>;
+  cash_flow?: Record<string, unknown>;
+  cash_management?: Record<string, unknown>;
+  projections_and_mrd?: Record<string, unknown>;
+  legal_and_disclosures?: string[];
+  quality_report?: QualityReport;
+  domain_intent?: {
+    primary: string;
+    source: string;
+    captured_sections: readonly string[];
+    updated_at: string;
+  };
   cash_balance?: number;
   total_value?: number;
 }
@@ -209,7 +234,10 @@ export function PortfolioReviewView({
     initialData.account_summary || {}
   );
   const [holdings, setHoldings] = useState<Holding[]>(
-    initialData.holdings || []
+    (initialData.holdings || []).map((holding) => ({
+      ...holding,
+      pending_delete: Boolean(holding.pending_delete),
+    }))
   );
   const [assetAllocation] = useState<AssetAllocation>(
     initialData.asset_allocation || {}
@@ -222,6 +250,7 @@ export function PortfolioReviewView({
   );
 
   const [isSaving, setIsSaving] = useState(false);
+  const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
   const [editingHoldingIndex, setEditingHoldingIndex] = useState<number | null>(
     null
   );
@@ -232,31 +261,59 @@ export function PortfolioReviewView({
     window.scrollTo(0, 0);
   }, []);
 
+  useEffect(() => {
+    setBusyOperation("portfolio_save", isSaving);
+    return () => {
+      setBusyOperation("portfolio_save", false);
+    };
+  }, [isSaving, setBusyOperation]);
+
+  useEffect(() => {
+    setBusyOperation("portfolio_review_active", true);
+    return () => {
+      setBusyOperation("portfolio_review_active", false);
+    };
+  }, [setBusyOperation]);
+
+  const activeHoldings = useMemo(
+    () => holdings.filter((holding) => !holding.pending_delete),
+    [holdings]
+  );
+  const pendingDeleteCount = holdings.length - activeHoldings.length;
+
   const totalValue = useMemo(() => {
-    const holdingsTotal = holdings.reduce(
-      (sum, h) => sum + (h.market_value || 0),
-      0
-    );
-    return (
-      accountSummary.ending_value ||
-      holdingsTotal + (initialData.cash_balance || 0) ||
-      holdingsTotal
-    );
-  }, [holdings, accountSummary.ending_value, initialData.cash_balance]);
+    const holdingsTotal = activeHoldings.reduce((sum, h) => sum + (h.market_value || 0), 0);
+    const cashBalance = initialData.cash_balance || accountSummary.cash_balance || 0;
+    const derivedTotal = holdingsTotal + cashBalance;
+    if (holdingsTotal > 0) {
+      return derivedTotal;
+    }
+    return accountSummary.ending_value || derivedTotal || holdingsTotal;
+  }, [activeHoldings, accountSummary.cash_balance, accountSummary.ending_value, initialData.cash_balance]);
 
   const totalUnrealizedGainLoss = useMemo(() => {
-    return holdings.reduce(
+    return activeHoldings.reduce(
       (sum, h) => sum + (h.unrealized_gain_loss || 0),
       0
     );
-  }, [holdings]);
+  }, [activeHoldings]);
 
-  const riskBucket = useMemo(() => deriveRiskBucket(holdings), [holdings]);
+  const riskBucket = useMemo(() => deriveRiskBucket(activeHoldings), [activeHoldings]);
 
   // Handlers
   const handleDeleteHolding = useCallback((index: number) => {
-    setHoldings((prev) => prev.filter((_, i) => i !== index));
-    toast.success("Holding removed");
+    let nextDeleteState = false;
+    setHoldings((prev) =>
+      prev.map((holding, i) =>
+        i === index
+          ? (() => {
+              nextDeleteState = !holding.pending_delete;
+              return { ...holding, pending_delete: nextDeleteState };
+            })()
+          : holding
+      )
+    );
+    toast.info(nextDeleteState ? "Holding marked for removal" : "Holding restored");
   }, []);
 
   const handleUpdateHolding = useCallback(
@@ -284,6 +341,7 @@ export function PortfolioReviewView({
       quantity: 0,
       price: 0,
       market_value: 0,
+      pending_delete: false,
     };
     setHoldings((prev) => [...prev, newHolding]);
     setEditingHoldingIndex(holdings.length);
@@ -299,6 +357,19 @@ export function PortfolioReviewView({
     setIsSaving(true);
 
     try {
+      const capturedSections = [
+        "account_info",
+        "account_summary",
+        "asset_allocation",
+        "holdings",
+        "income_summary",
+        "realized_gain_loss",
+        "cash_flow",
+        "cash_management",
+        "projections_and_mrd",
+        "legal_and_disclosures",
+      ] as const;
+
       // Build the complete portfolio data
       const portfolioToSave: PortfolioData = {
         account_info: accountInfo,
@@ -307,56 +378,32 @@ export function PortfolioReviewView({
           ending_value: totalValue,
         },
         asset_allocation: assetAllocation,
-        holdings,
+        holdings: activeHoldings,
         income_summary: incomeSummary,
         realized_gain_loss: realizedGainLoss,
         cash_balance: initialData.cash_balance || accountSummary.cash_balance,
         total_value: totalValue,
+        domain_intent: {
+          primary: "financial",
+          source: "kai_import_llm",
+          captured_sections: capturedSections,
+          updated_at: new Date().toISOString(),
+        },
       };
 
       // 1. Fetch existing blob and merge (prevents cross-domain overwrite)
-      const { HushhVault } = await import("@/lib/capacitor");
-      const { decryptData } = await import("@/lib/vault/encrypt");
-
-      let fullBlob: Record<string, any> = {};
-      try {
-        const existingEncrypted = await WorldModelService.getDomainData(userId, "financial", vaultOwnerToken);
-        if (existingEncrypted) {
-          const decrypted = await decryptData(
-            {
-              ciphertext: existingEncrypted.ciphertext,
-              iv: existingEncrypted.iv,
-              tag: existingEncrypted.tag,
-              encoding: "base64",
-              algorithm: (existingEncrypted.algorithm || "aes-256-gcm") as "aes-256-gcm",
-            },
-            vaultKey
-          );
-          fullBlob = JSON.parse(decrypted);
-        }
-      } catch (e) {
-        console.warn("[PortfolioReview] Could not fetch/decrypt existing blob, creating fresh:", e);
-      }
-
-      // 2. Merge new financial domain into existing blob (preserves other domains)
-      fullBlob.financial = portfolioToSave;
-
-      // 3. Re-encrypt the full merged blob
-      const encrypted = await HushhVault.encryptData({
-        plaintext: JSON.stringify(fullBlob),
-        keyHex: vaultKey,
-      });
-
-      // 4. Build summary for indexing (non-sensitive metadata only, no total_value)
-      const holdingsSummary = holdings.map((h) => ({
+      // 2. Build summary for indexing (non-sensitive metadata only)
+      const holdingsSummary = activeHoldings.map((h) => ({
         symbol: h.symbol,
         name: h.name,
         quantity: h.quantity,
         current_price: h.price,
       }));
 
-      const summary = {
-        holdings_count: holdings.length,
+      const financialSummary = {
+        domain_intent: "financial",
+        intent_source: "kai_import_llm",
+        holdings_count: activeHoldings.length,
         holdings: holdingsSummary,
         risk_bucket: riskBucket,
         has_income_data: !!(incomeSummary.total_income),
@@ -364,28 +411,121 @@ export function PortfolioReviewView({
         last_updated: new Date().toISOString(),
       };
 
-      // 5. Store to world model
-      const result = await WorldModelService.storeDomainData({
+      // 3. Store canonical financial domain with full-blob merge semantics.
+      const financialResult = await WorldModelService.storeMergedDomain({
         userId,
+        vaultKey,
         domain: "financial",
-        encryptedBlob: {
-          ciphertext: encrypted.ciphertext,
-          iv: encrypted.iv,
-          tag: encrypted.tag,
-          algorithm: "aes-256-gcm",
-        },
-        summary,
+        domainData: portfolioToSave as unknown as Record<string, unknown>,
+        summary: financialSummary,
         vaultOwnerToken,
       });
 
-      if (!result.success) {
+      if (!financialResult.success) {
         throw new Error("Backend returned failure on store");
       }
 
-      // 5b. Invalidate caches after successful save
+      // 4. Append structured statement snapshot (no raw PDF bytes).
+      const documentsDomain = "financial_documents";
+      const existingDocsValue = financialResult.fullBlob[documentsDomain];
+      const existingDocs =
+        existingDocsValue &&
+        typeof existingDocsValue === "object" &&
+        !Array.isArray(existingDocsValue)
+          ? (existingDocsValue as Record<string, unknown>)
+          : {};
+      const existingStatementsValue = existingDocs.statements;
+      const existingStatements = Array.isArray(existingStatementsValue)
+        ? [...existingStatementsValue]
+        : [];
+
+      const snapshotId = `stmt_${Date.now()}`;
+      const snapshot = {
+        id: snapshotId,
+        imported_at: new Date().toISOString(),
+        domain_intent: {
+          primary: "financial",
+          secondary: "financial_documents",
+          source: "kai_import_llm",
+        },
+        source: {
+          brokerage: accountInfo.brokerage || null,
+          statement_period_start: accountInfo.statement_period_start || null,
+          statement_period_end: accountInfo.statement_period_end || null,
+          account_type: accountInfo.account_type || null,
+        },
+        account_info: portfolioToSave.account_info || null,
+        account_summary: portfolioToSave.account_summary || null,
+        holdings: portfolioToSave.holdings || [],
+        transactions:
+          initialData.transactions ||
+          initialData.activity_and_transactions ||
+          [],
+        asset_allocation: portfolioToSave.asset_allocation || null,
+        income_summary: portfolioToSave.income_summary || null,
+        realized_gain_loss: portfolioToSave.realized_gain_loss || null,
+        cash_flow: initialData.cash_flow || null,
+        cash_management: initialData.cash_management || null,
+        projections_and_mrd: initialData.projections_and_mrd || null,
+        legal_and_disclosures: initialData.legal_and_disclosures || [],
+        quality_report: initialData.quality_report || null,
+      };
+      existingStatements.unshift(snapshot);
+
+      const nextDocsDomain = {
+        schema_version: 1,
+        statements: existingStatements.slice(0, 25),
+        domain_intent: {
+          primary: "financial_documents",
+          parent_domain: "financial",
+          source: "kai_import_llm",
+          captured_sections: capturedSections,
+          updated_at: new Date().toISOString(),
+        },
+      };
+
+      const lastQuality = initialData.quality_report;
+      const lastQualityScore =
+        typeof lastQuality?.validated === "number" &&
+        typeof lastQuality?.raw === "number" &&
+        lastQuality.raw > 0
+          ? Number((lastQuality.validated / lastQuality.raw).toFixed(4))
+          : undefined;
+
+      const docsSummary: Record<string, unknown> = {
+        domain_intent: "financial_documents",
+        parent_domain: "financial",
+        documents_count: nextDocsDomain.statements.length,
+        last_statement_end: accountInfo.statement_period_end || null,
+        last_brokerage: accountInfo.brokerage || null,
+        last_updated: new Date().toISOString(),
+      };
+      if (lastQualityScore !== undefined) {
+        docsSummary.last_quality_score = lastQualityScore;
+      }
+
+      const docsResult = await WorldModelService.storeMergedDomain({
+        userId,
+        vaultKey,
+        domain: documentsDomain,
+        domainData: nextDocsDomain as unknown as Record<string, unknown>,
+        summary: docsSummary,
+        vaultOwnerToken,
+      });
+
+      if (!docsResult.success) {
+        throw new Error("Failed to store financial_documents snapshot");
+      }
+
+      // 5b. Prime in-memory cache immediately so all Kai screens render updated data
+      // without waiting for a refetch/decrypt cycle.
       const cache = CacheService.getInstance();
-      cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, "financial"));
-      cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
+      cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), portfolioToSave, CACHE_TTL.SESSION);
+      cache.set(
+        CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+        portfolioToSave,
+        CACHE_TTL.SESSION
+      );
       cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
 
       // 6. Verify the save by reading back
@@ -483,7 +623,7 @@ export function PortfolioReviewView({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-4 pt-6 border-t border-primary/10">
                 <div className="min-w-0 text-center sm:text-left sm:pl-4">
-                  <p className="text-2xl font-black">{holdings.length}</p>
+                  <p className="text-2xl font-black">{activeHoldings.length}</p>
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assets</p>
                 </div>
                 <div className="min-w-0 flex flex-col items-center justify-center">
@@ -695,6 +835,11 @@ export function PortfolioReviewView({
                 <div>
                   <CardTitle className="text-lg font-black uppercase tracking-widest text-foreground">
                     Holdings ({holdings.length})
+                    {pendingDeleteCount > 0 ? (
+                      <span className="ml-2 text-[11px] font-semibold text-muted-foreground">
+                        {pendingDeleteCount} pending remove
+                      </span>
+                    ) : null}
                   </CardTitle>
                 </div>
                 <MorphyButton 
@@ -723,6 +868,7 @@ export function PortfolioReviewView({
                 key={`${holding.symbol}-${index}`}
                 className={cn(
                   "p-3 rounded-lg border transition-colors",
+                  holding.pending_delete && "opacity-60 border-dashed border-muted-foreground/40 bg-muted/40",
                   editingHoldingIndex === index
                     ? "border-primary bg-primary/5"
                     : "border-border hover:border-primary/50"
@@ -815,10 +961,27 @@ export function PortfolioReviewView({
 
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-baseline gap-x-2">
-                        <span className="font-bold text-base">{holding.symbol || "—"}</span>
-                        <span className="text-xs text-muted-foreground truncate block">
+                        <span
+                          className={cn(
+                            "font-bold text-base",
+                            holding.pending_delete && "line-through text-muted-foreground"
+                          )}
+                        >
+                          {holding.symbol || "—"}
+                        </span>
+                        <span
+                          className={cn(
+                            "text-xs text-muted-foreground truncate block",
+                            holding.pending_delete && "line-through"
+                          )}
+                        >
                           {holding.name}
                         </span>
+                        {holding.pending_delete && (
+                          <Badge variant="secondary" className="text-[10px] mt-1">
+                            Pending removal
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-[11px] sm:text-xs">
                         <span className="text-muted-foreground whitespace-nowrap">
@@ -844,6 +1007,11 @@ export function PortfolioReviewView({
                         >
                           {holding.unrealized_gain_loss >= 0 ? "+" : ""}
                           {formatCurrency(holding.unrealized_gain_loss)}
+                          {holding.unrealized_gain_loss_pct !== undefined && (
+                            <span className="ml-1">
+                              ({_formatPercent(holding.unrealized_gain_loss_pct)})
+                            </span>
+                          )}
                         </p>
                       )}
                     </div>
@@ -852,7 +1020,10 @@ export function PortfolioReviewView({
                         <MorphyButton
                           variant="muted"
                           size="icon"
-                          className="h-10 w-10 text-muted-foreground hover:text-primary transition-all duration-300 rounded-xl"
+                          className={cn(
+                            "h-10 w-10 text-muted-foreground hover:text-primary transition-all duration-300 rounded-xl",
+                            holding.pending_delete && "pointer-events-none opacity-50"
+                          )}
                           onClick={() => setEditingHoldingIndex(index)}
                           icon={{ icon: Pencil }}
                         />
@@ -862,11 +1033,18 @@ export function PortfolioReviewView({
                         <MorphyButton
                           variant="muted"
                           size="icon"
-                          className="h-10 w-10 text-red-400 hover:text-red-500 hover:bg-red-50 transition-all duration-300 rounded-xl"
+                          className={cn(
+                            "h-10 w-10 transition-all duration-300 rounded-xl",
+                            holding.pending_delete
+                              ? "text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50"
+                              : "text-red-400 hover:text-red-500 hover:bg-red-50"
+                          )}
                           onClick={() => handleDeleteHolding(index)}
-                          icon={{ icon: Trash2 }}
+                          icon={{ icon: holding.pending_delete ? Undo2 : Trash2 }}
                         />
-                        <Kbd className="text-[8px] px-1 h-3.5">DEL</Kbd>
+                        <Kbd className="text-[8px] px-1 h-3.5">
+                          {holding.pending_delete ? "UNDO" : "DEL"}
+                        </Kbd>
                       </div>
                     </div>
 
@@ -884,7 +1062,7 @@ export function PortfolioReviewView({
 
   {/* Save Button - Refined Floating Action */}
   {/* Save Button - Refined Floating Action with Safe Area Support */}
-  <div className="fixed bottom-0 left-0 right-0 px-10 sm:px-16 pb-[calc(5rem+env(safe-area-inset-bottom))] z-110 pointer-events-none">
+  <div className="fixed left-0 right-0 bottom-[calc(96px+env(safe-area-inset-bottom))] px-10 sm:px-16 pb-2 z-[145] pointer-events-none">
     <div className="max-w-xs mx-auto pointer-events-auto">
       <MorphyButton
         variant="morphy"
@@ -892,7 +1070,7 @@ export function PortfolioReviewView({
         size="default"
         className="w-full font-black shadow-xl border-none"
         onClick={handleSave}
-        disabled={isSaving || holdings.length === 0}
+        disabled={isSaving || activeHoldings.length === 0}
         icon={{ 
           icon: isSaving ? SpinningLoader : Save,
           gradient: false 

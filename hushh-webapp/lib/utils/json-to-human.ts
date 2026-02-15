@@ -431,6 +431,15 @@ export function formatJsonChunk(
     lines.push("");
     lines.push(...extractedValues);
   }
+
+  // Always surface the latest readable fragment so users see active stream movement.
+  const compactChunk = cleanMarkdown(chunk.replace(/\s+/g, " ").trim());
+  if (compactChunk && /[A-Za-z0-9]/.test(compactChunk)) {
+    const preview =
+      compactChunk.length > 180 ? `${compactChunk.slice(0, 180)}...` : compactChunk;
+    lines.push("");
+    lines.push(`Live chunk: ${preview}`);
+  }
   
   let text = lines.join("\n");
   if (!text.trim()) {

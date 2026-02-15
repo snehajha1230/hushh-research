@@ -45,6 +45,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
 
   // Debug: Check if Authorization header is present
   const authHeader = request.headers.get("authorization");
+  const acceptHeader = request.headers.get("accept");
   const contentType = request.headers.get("content-type") || "";
   console.log(`[Kai API] Proxying ${request.method} ${path}`);
   console.log(`[Kai API] Authorization header present: ${!!authHeader}`);
@@ -56,6 +57,9 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     // Copy authorization header
     if (authHeader) {
       headers.set("Authorization", authHeader);
+    }
+    if (acceptHeader) {
+      headers.set("Accept", acceptHeader);
     }
 
     let body: BodyInit | undefined;

@@ -43,6 +43,31 @@ export interface AnalysisHistoryEntry {
 
 export type AnalysisHistoryMap = Record<string, AnalysisHistoryEntry[]>;
 
+function buildHistorySummary(
+  historyMap: AnalysisHistoryMap,
+  lastTicker?: string,
+  lastTimestamp?: string
+): Record<string, unknown> {
+  const tickers = Object.keys(historyMap);
+  const totalAnalyses = Object.values(historyMap).reduce((sum, arr) => sum + arr.length, 0);
+
+  const summary: Record<string, unknown> = {
+    domain_intent: "kai_analysis_history",
+    total_analyses: totalAnalyses,
+    tickers_analyzed: tickers,
+    last_updated: new Date().toISOString(),
+  };
+
+  if (lastTicker) {
+    summary.last_analysis_ticker = lastTicker;
+  }
+  if (lastTimestamp) {
+    summary.last_analysis_date = lastTimestamp;
+  }
+
+  return summary;
+}
+
 // ============================================================================
 // Service
 // ============================================================================
@@ -63,32 +88,24 @@ export class KaiHistoryService {
     const { userId, vaultKey, vaultOwnerToken, entry } = params;
 
     try {
-      const { HushhVault } = await import("@/lib/capacitor");
-      const { decryptData } = await import("@/lib/vault/encrypt");
-
       // 1. Fetch existing encrypted blob
-      let fullBlob: Record<string, any> = {};
-      try {
-        const existing = await WorldModelService.getDomainData(userId, DOMAIN, vaultOwnerToken);
-        if (existing) {
-          const decrypted = await decryptData(
-            {
-              ciphertext: existing.ciphertext,
-              iv: existing.iv,
-              tag: existing.tag,
-              encoding: "base64",
-              algorithm: (existing.algorithm || "aes-256-gcm") as "aes-256-gcm",
-            },
-            vaultKey
-          );
-          fullBlob = JSON.parse(decrypted);
-        }
-      } catch (e) {
+      const fullBlob = await WorldModelService.loadFullBlob({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+      }).catch((e) => {
         console.warn("[KaiHistory] Could not fetch/decrypt existing blob, starting fresh:", e);
-      }
+        return {} as Record<string, unknown>;
+      });
 
       // 2. Get or create the history map
-      const historyMap: AnalysisHistoryMap = fullBlob[DOMAIN] || {};
+      const existingHistory = fullBlob[DOMAIN];
+      const historyMap: AnalysisHistoryMap =
+        existingHistory &&
+        typeof existingHistory === "object" &&
+        !Array.isArray(existingHistory)
+          ? (existingHistory as AnalysisHistoryMap)
+          : {};
 
       // 3. Get or create the ticker array
       const tickerHistory = historyMap[entry.ticker] || [];
@@ -103,34 +120,14 @@ export class KaiHistoryService {
 
       // 6. Update the map
       historyMap[entry.ticker] = tickerHistory;
-      fullBlob[DOMAIN] = historyMap;
+      const summary = buildHistorySummary(historyMap, entry.ticker, entry.timestamp);
 
-      // 7. Re-encrypt and store
-      const encrypted = await HushhVault.encryptData({
-        plaintext: JSON.stringify(fullBlob),
-        keyHex: vaultKey,
-      });
-
-      // 8. Build non-sensitive summary for index
-      const tickers = Object.keys(historyMap);
-      const totalAnalyses = Object.values(historyMap).reduce((sum, arr) => sum + arr.length, 0);
-      const summary = {
-        total_analyses: totalAnalyses,
-        tickers_analyzed: tickers,
-        last_analysis_ticker: entry.ticker,
-        last_analysis_date: entry.timestamp,
-        last_updated: new Date().toISOString(),
-      };
-
-      const result = await WorldModelService.storeDomainData({
+      // 7. Re-encrypt and store merged domain
+      const result = await WorldModelService.storeMergedDomain({
         userId,
+        vaultKey,
         domain: DOMAIN,
-        encryptedBlob: {
-          ciphertext: encrypted.ciphertext,
-          iv: encrypted.iv,
-          tag: encrypted.tag,
-          algorithm: "aes-256-gcm",
-        },
+        domainData: historyMap as unknown as Record<string, unknown>,
         summary,
         vaultOwnerToken,
       });
@@ -180,24 +177,16 @@ export class KaiHistoryService {
     const { userId, vaultKey, vaultOwnerToken } = params;
 
     try {
-      const { decryptData } = await import("@/lib/vault/encrypt");
-
-      const existing = await WorldModelService.getDomainData(userId, DOMAIN, vaultOwnerToken);
-      if (!existing) return {};
-
-      const decrypted = await decryptData(
-        {
-          ciphertext: existing.ciphertext,
-          iv: existing.iv,
-          tag: existing.tag,
-          encoding: "base64",
-          algorithm: (existing.algorithm || "aes-256-gcm") as "aes-256-gcm",
-        },
-        vaultKey
-      );
-
-      const fullBlob = JSON.parse(decrypted);
-      return fullBlob[DOMAIN] || {};
+      const fullBlob = await WorldModelService.loadFullBlob({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      const history = fullBlob[DOMAIN];
+      if (!history || typeof history !== "object" || Array.isArray(history)) {
+        return {};
+      }
+      return history as AnalysisHistoryMap;
     } catch (error) {
       console.error("[KaiHistory] Failed to get history:", error);
       return {};
@@ -217,28 +206,21 @@ export class KaiHistoryService {
     const { userId, vaultKey, vaultOwnerToken, ticker, timestamp } = params;
 
     try {
-      const { HushhVault } = await import("@/lib/capacitor");
-      const { decryptData } = await import("@/lib/vault/encrypt");
-
       // 1. Fetch & Decrypt
-      let fullBlob: Record<string, any> = {};
-      const existing = await WorldModelService.getDomainData(userId, DOMAIN, vaultOwnerToken);
-      if (existing) {
-        const decrypted = await decryptData(
-          {
-            ciphertext: existing.ciphertext,
-            iv: existing.iv,
-            tag: existing.tag,
-            encoding: "base64",
-            algorithm: (existing.algorithm || "aes-256-gcm") as "aes-256-gcm",
-          },
-          vaultKey
-        );
-        fullBlob = JSON.parse(decrypted);
-      }
+      const fullBlob = await WorldModelService.loadFullBlob({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+      }).catch(() => ({} as Record<string, unknown>));
 
       // 2. Modify
-      const historyMap: AnalysisHistoryMap = fullBlob[DOMAIN] || {};
+      const existingHistory = fullBlob[DOMAIN];
+      const historyMap: AnalysisHistoryMap =
+        existingHistory &&
+        typeof existingHistory === "object" &&
+        !Array.isArray(existingHistory)
+          ? (existingHistory as AnalysisHistoryMap)
+          : {};
       if (!historyMap[ticker]) return false;
 
       const originalLen = historyMap[ticker].length;
@@ -252,31 +234,13 @@ export class KaiHistoryService {
         return false; // No change
       }
 
-      fullBlob[DOMAIN] = historyMap;
-
       // 3. Encrypt & Save
-      const encrypted = await HushhVault.encryptData({
-        plaintext: JSON.stringify(fullBlob),
-        keyHex: vaultKey,
-      });
-
-      const tickers = Object.keys(historyMap);
-      const totalAnalyses = Object.values(historyMap).reduce((sum, arr) => sum + arr.length, 0);
-
-      const result = await WorldModelService.storeDomainData({
+      const result = await WorldModelService.storeMergedDomain({
         userId,
+        vaultKey,
         domain: DOMAIN,
-        encryptedBlob: {
-          ciphertext: encrypted.ciphertext,
-          iv: encrypted.iv,
-          tag: encrypted.tag,
-          algorithm: "aes-256-gcm",
-        },
-        summary: {
-          total_analyses: totalAnalyses,
-          tickers_analyzed: tickers,
-          last_updated: new Date().toISOString(),
-        },
+        domainData: historyMap as unknown as Record<string, unknown>,
+        summary: buildHistorySummary(historyMap),
         vaultOwnerToken,
       });
 
@@ -304,56 +268,31 @@ export class KaiHistoryService {
     const { userId, vaultKey, vaultOwnerToken, ticker } = params;
 
     try {
-      const { HushhVault } = await import("@/lib/capacitor");
-      const { decryptData } = await import("@/lib/vault/encrypt");
-
       // 1. Fetch & Decrypt
-      let fullBlob: Record<string, any> = {};
-      const existing = await WorldModelService.getDomainData(userId, DOMAIN, vaultOwnerToken);
-      if (existing) {
-        const decrypted = await decryptData(
-          {
-            ciphertext: existing.ciphertext,
-            iv: existing.iv,
-            tag: existing.tag,
-            encoding: "base64",
-            algorithm: (existing.algorithm || "aes-256-gcm") as "aes-256-gcm",
-          },
-          vaultKey
-        );
-        fullBlob = JSON.parse(decrypted);
-      }
+      const fullBlob = await WorldModelService.loadFullBlob({
+        userId,
+        vaultKey,
+        vaultOwnerToken,
+      }).catch(() => ({} as Record<string, unknown>));
 
       // 2. Modify
-      const historyMap: AnalysisHistoryMap = fullBlob[DOMAIN] || {};
+      const existingHistory = fullBlob[DOMAIN];
+      const historyMap: AnalysisHistoryMap =
+        existingHistory &&
+        typeof existingHistory === "object" &&
+        !Array.isArray(existingHistory)
+          ? (existingHistory as AnalysisHistoryMap)
+          : {};
       if (!historyMap[ticker]) return false;
 
       delete historyMap[ticker];
-      fullBlob[DOMAIN] = historyMap;
-
       // 3. Encrypt & Save
-      const encrypted = await HushhVault.encryptData({
-        plaintext: JSON.stringify(fullBlob),
-        keyHex: vaultKey,
-      });
-
-      const tickers = Object.keys(historyMap);
-      const totalAnalyses = Object.values(historyMap).reduce((sum, arr) => sum + arr.length, 0);
-
-      const result = await WorldModelService.storeDomainData({
+      const result = await WorldModelService.storeMergedDomain({
         userId,
+        vaultKey,
         domain: DOMAIN,
-        encryptedBlob: {
-          ciphertext: encrypted.ciphertext,
-          iv: encrypted.iv,
-          tag: encrypted.tag,
-          algorithm: "aes-256-gcm",
-        },
-        summary: {
-          total_analyses: totalAnalyses,
-          tickers_analyzed: tickers,
-          last_updated: new Date().toISOString(),
-        },
+        domainData: historyMap as unknown as Record<string, unknown>,
+        summary: buildHistorySummary(historyMap),
         vaultOwnerToken,
       });
 

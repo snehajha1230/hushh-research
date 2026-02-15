@@ -150,7 +150,9 @@ export function CacheProvider({ children }: CacheProviderProps) {
   // Portfolio Data
   const setPortfolioData = useCallback(
     (userId: string, data: PortfolioData) => {
-      cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), data, CACHE_TTL.MEDIUM);
+      // Portfolio data should remain stable for the active session unless explicitly changed.
+      cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), data, CACHE_TTL.SESSION);
+      cache.set(CACHE_KEYS.DOMAIN_DATA(userId, "financial"), data, CACHE_TTL.SESSION);
       setPortfolioDataState(data);
     },
     [cache]
@@ -159,10 +161,14 @@ export function CacheProvider({ children }: CacheProviderProps) {
   const getPortfolioData = useCallback(
     (userId: string): PortfolioData | null => {
       // Check CacheService (synchronous, always up-to-date)
-      const cached = cache.get<PortfolioData>(CACHE_KEYS.PORTFOLIO_DATA(userId));
+      const cached =
+        cache.get<PortfolioData>(CACHE_KEYS.PORTFOLIO_DATA(userId)) ??
+        cache.get<PortfolioData>(CACHE_KEYS.DOMAIN_DATA(userId, "financial"));
 
       // Update React state if we found data (for reactivity in consuming components)
       if (cached) {
+        // Keep canonical portfolio key fresh when data came from domain mirror.
+        cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), cached, CACHE_TTL.SESSION);
         setPortfolioDataState(cached);
       }
       return cached;

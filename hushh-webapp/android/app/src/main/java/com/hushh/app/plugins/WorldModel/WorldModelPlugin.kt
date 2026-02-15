@@ -529,6 +529,28 @@ class WorldModelPlugin : Plugin() {
     }
 
     /**
+     * Get full encrypted world-model blob for a user.
+     */
+    @PluginMethod
+    fun getEncryptedData(call: PluginCall) {
+        val userId = call.getString("userId") ?: run {
+            call.reject("Missing userId")
+            return
+        }
+
+        val authToken = getAuthToken(call)
+        val backendUrl = getBackendUrl(call)
+        val url = "$backendUrl/api/world-model/data/$userId"
+
+        val requestBuilder = Request.Builder().url(url).get()
+        if (authToken != null) {
+            requestBuilder.addHeader("Authorization", "Bearer $authToken")
+        }
+
+        executeRequest(requestBuilder.build(), call)
+    }
+
+    /**
      * Store encrypted domain blob.
      */
     @PluginMethod

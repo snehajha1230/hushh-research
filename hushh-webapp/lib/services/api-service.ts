@@ -1016,6 +1016,7 @@ export class ApiService {
   }): Promise<Response> {
     const headers: HeadersInit = {
       Authorization: `Bearer ${params.vaultOwnerToken}`,
+      Accept: "text/event-stream",
     };
 
     // Native: use Kai plugin for real-time SSE (WKWebView buffers fetch() response body)
@@ -1031,68 +1032,86 @@ export class ApiService {
         }
         const fileBase64 = await this.fileToBase64(file);
         const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
+        const stream = new ReadableStream<Uint8Array>({
+          async start(controller) {
             let sawTerminalEvent = false;
-            Kai.addListener(
-              PORTFOLIO_STREAM_EVENT,
-              (event: Record<string, unknown>) => {
-                const eventType =
-                  typeof event.event === "string" ? event.event : null;
-                const envelopeCandidate = event.data;
-                if (!eventType || !isKaiStreamEnvelope(envelopeCandidate)) {
-                  controller.error(new Error("Invalid native portfolio stream event"));
-                  return;
-                }
+            let closed = false;
+            let listener: { remove: () => void } | null = null;
 
-                const envelope = envelopeCandidate as KaiStreamEnvelope;
-                if (envelope.event !== eventType) {
-                  controller.error(new Error("Native SSE event mismatch"));
-                  return;
-                }
-
-                controller.enqueue(
-                  encoder.encode(
-                    `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
-                  )
-                );
-
-                if (envelope.terminal) {
-                  sawTerminalEvent = true;
-                }
+            const cleanup = () => {
+              if (listener) {
+                listener.remove();
+                listener = null;
               }
-            ).then((listener) => {
-              Kai.streamPortfolioImport({
+            };
+            const close = () => {
+              if (closed) return;
+              closed = true;
+              cleanup();
+              controller.close();
+            };
+            const fail = (error: unknown) => {
+              if (closed) return;
+              closed = true;
+              cleanup();
+              controller.error(
+                error instanceof Error ? error : new Error(String(error))
+              );
+            };
+            const handleAbort = () => {
+              fail(new DOMException("Aborted", "AbortError"));
+            };
+
+            try {
+              params.signal?.addEventListener("abort", handleAbort, { once: true });
+              listener = await Kai.addListener(
+                PORTFOLIO_STREAM_EVENT,
+                (event: Record<string, unknown>) => {
+                  if (closed) return;
+                  const eventType =
+                    typeof event.event === "string" ? event.event : null;
+                  const envelopeCandidate = event.data;
+                  if (!eventType || !isKaiStreamEnvelope(envelopeCandidate)) {
+                    fail(new Error("Invalid native portfolio stream event"));
+                    return;
+                  }
+
+                  const envelope = envelopeCandidate as KaiStreamEnvelope;
+                  if (envelope.event !== eventType) {
+                    fail(new Error("Native SSE event mismatch"));
+                    return;
+                  }
+
+                  controller.enqueue(
+                    encoder.encode(
+                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
+                    )
+                  );
+
+                  if (envelope.terminal) {
+                    sawTerminalEvent = true;
+                  }
+                }
+              );
+
+              await Kai.streamPortfolioImport({
                 userId,
                 fileBase64,
                 fileName: file.name,
                 mimeType: file.type || "application/octet-stream",
                 vaultOwnerToken: params.vaultOwnerToken,
-              })
-                .then(() => {
-                  // Wait until we see a terminal event, otherwise allow a short
-                  // fallback delay (some servers may end stream without explicit complete).
-                  const close = () => {
-                    try {
-                      listener.remove();
-                    } finally {
-                      controller.close();
-                    }
-                  };
+              });
 
-                  const fallbackMs = 300;
-                  if (sawTerminalEvent) {
-                    // Give the reader a tick to drain queued events.
-                    setTimeout(close, 100);
-                  } else {
-                    setTimeout(close, fallbackMs);
-                  }
-                })
-                .catch((e) => {
-                  listener.remove();
-                  controller.error(e);
-                });
-            });
+              if (!sawTerminalEvent) {
+                fail(new Error("Native import stream ended without terminal event"));
+                return;
+              }
+              close();
+            } catch (error) {
+              fail(error);
+            } finally {
+              params.signal?.removeEventListener("abort", handleAbort);
+            }
           },
         });
         return new Response(stream, {
@@ -1298,6 +1317,7 @@ export class ApiService {
       asset_type?: string;
     }>;
     forceOptimize?: boolean;
+    userPreferences?: Record<string, unknown>;
   }): Promise<Response> {
     const body = {
       user_id: data.userId,
@@ -1306,6 +1326,7 @@ export class ApiService {
       max_positions: data.maxPositions ?? 10,
       holdings: data.holdings,
       force_optimize: data.forceOptimize,
+      user_preferences: data.userPreferences,
     };
 
     if (Capacitor.isNativePlatform()) {
@@ -1381,6 +1402,8 @@ export class ApiService {
       asset_type?: string;
     }>;
     forceOptimize?: boolean;
+    userPreferences?: Record<string, unknown>;
+    signal?: AbortSignal;
   }): Promise<Response> {
     const body = {
       user_id: data.userId,
@@ -1389,6 +1412,7 @@ export class ApiService {
       max_positions: data.maxPositions ?? 10,
       holdings: data.holdings,
       force_optimize: data.forceOptimize,
+      user_preferences: data.userPreferences,
     };
 
     // Native: use Kai plugin for real-time SSE (WKWebView buffers fetch() response body)
@@ -1403,62 +1427,83 @@ export class ApiService {
         }
 
         const encoder = new TextEncoder();
-        const stream = new ReadableStream({
-          start(controller) {
+        const stream = new ReadableStream<Uint8Array>({
+          async start(controller) {
             let sawTerminalEvent = false;
-            Kai.addListener(
-              PORTFOLIO_STREAM_EVENT,
-              (event: Record<string, unknown>) => {
-                const eventType =
-                  typeof event.event === "string" ? event.event : null;
-                const envelopeCandidate = event.data;
-                if (!eventType || !isKaiStreamEnvelope(envelopeCandidate)) {
-                  controller.error(new Error("Invalid native optimize stream event"));
-                  return;
-                }
+            let closed = false;
+            let listener: { remove: () => void } | null = null;
 
-                const envelope = envelopeCandidate as KaiStreamEnvelope;
-                if (envelope.event !== eventType) {
-                  controller.error(new Error("Native SSE event mismatch"));
-                  return;
-                }
-
-                controller.enqueue(
-                  encoder.encode(
-                    `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
-                  )
-                );
-
-                if (envelope.terminal) {
-                  sawTerminalEvent = true;
-                }
+            const cleanup = () => {
+              if (listener) {
+                listener.remove();
+                listener = null;
               }
-            ).then((listener) => {
-              Kai.streamPortfolioAnalyzeLosers({
+            };
+            const close = () => {
+              if (closed) return;
+              closed = true;
+              cleanup();
+              controller.close();
+            };
+            const fail = (error: unknown) => {
+              if (closed) return;
+              closed = true;
+              cleanup();
+              controller.error(
+                error instanceof Error ? error : new Error(String(error))
+              );
+            };
+            const handleAbort = () => {
+              fail(new DOMException("Aborted", "AbortError"));
+            };
+
+            try {
+              data.signal?.addEventListener("abort", handleAbort, { once: true });
+              listener = await Kai.addListener(
+                PORTFOLIO_STREAM_EVENT,
+                (event: Record<string, unknown>) => {
+                  if (closed) return;
+                  const eventType =
+                    typeof event.event === "string" ? event.event : null;
+                  const envelopeCandidate = event.data;
+                  if (!eventType || !isKaiStreamEnvelope(envelopeCandidate)) {
+                    fail(new Error("Invalid native optimize stream event"));
+                    return;
+                  }
+
+                  const envelope = envelopeCandidate as KaiStreamEnvelope;
+                  if (envelope.event !== eventType) {
+                    fail(new Error("Native SSE event mismatch"));
+                    return;
+                  }
+
+                  controller.enqueue(
+                    encoder.encode(
+                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
+                    )
+                  );
+
+                  if (envelope.terminal) {
+                    sawTerminalEvent = true;
+                  }
+                }
+              );
+
+              await Kai.streamPortfolioAnalyzeLosers({
                 body: body as Record<string, unknown>,
                 vaultOwnerToken,
-              })
-                .then(() => {
-                  const close = () => {
-                    try {
-                      listener.remove();
-                    } finally {
-                      controller.close();
-                    }
-                  };
+              });
 
-                  const fallbackMs = 300;
-                  if (sawTerminalEvent) {
-                    setTimeout(close, 100);
-                  } else {
-                    setTimeout(close, fallbackMs);
-                  }
-                })
-                .catch((e) => {
-                  listener.remove();
-                  controller.error(e);
-                });
-            });
+              if (!sawTerminalEvent) {
+                fail(new Error("Native optimize stream ended without terminal event"));
+                return;
+              }
+              close();
+            } catch (error) {
+              fail(error);
+            } finally {
+              data.signal?.removeEventListener("abort", handleAbort);
+            }
           },
         });
         return new Response(stream, {
@@ -1480,6 +1525,7 @@ export class ApiService {
         Authorization: `Bearer ${data.vaultOwnerToken}`,
       },
       body: JSON.stringify(body),
+      signal: data.signal,
     });
   }
 
@@ -1569,6 +1615,7 @@ export class ApiService {
     riskProfile: string;
     userContext?: any;
     vaultOwnerToken: string;
+    signal?: AbortSignal;
   }): Promise<Response> {
     const body = {
       user_id: data.userId,
@@ -1589,60 +1636,83 @@ export class ApiService {
         }
 
         const encoder = new TextEncoder();
-        let sawTerminalEvent = false;
-
         const stream = new ReadableStream<Uint8Array>({
-          start(controller) {
-            Kai.addListener(KAI_STREAM_EVENT, (event: Record<string, unknown>) => {
-              const eventType =
-                typeof event.event === "string" ? event.event : null;
-              const envelopeCandidate = event.data;
-              if (!eventType || !isKaiStreamEnvelope(envelopeCandidate)) {
-                controller.error(new Error("Invalid native analyze stream event"));
-                return;
-              }
+          async start(controller) {
+            let sawTerminalEvent = false;
+            let closed = false;
+            let listener: { remove: () => void } | null = null;
 
-              const envelope = envelopeCandidate as KaiStreamEnvelope;
-              if (envelope.event !== eventType) {
-                controller.error(new Error("Native SSE event mismatch"));
-                return;
+            const cleanup = () => {
+              if (listener) {
+                listener.remove();
+                listener = null;
               }
-
-              if (envelope.terminal) {
-                sawTerminalEvent = true;
-              }
-
-              controller.enqueue(
-                encoder.encode(
-                  `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
-                )
+            };
+            const close = () => {
+              if (closed) return;
+              closed = true;
+              cleanup();
+              controller.close();
+            };
+            const fail = (error: unknown) => {
+              if (closed) return;
+              closed = true;
+              cleanup();
+              controller.error(
+                error instanceof Error ? error : new Error(String(error))
               );
-            }).then((listener) => {
-              Kai.streamKaiAnalysis({
+            };
+            const handleAbort = () => {
+              fail(new DOMException("Aborted", "AbortError"));
+            };
+
+            try {
+              data.signal?.addEventListener("abort", handleAbort, { once: true });
+              listener = await Kai.addListener(
+                KAI_STREAM_EVENT,
+                (event: Record<string, unknown>) => {
+                  if (closed) return;
+                  const eventType =
+                    typeof event.event === "string" ? event.event : null;
+                  const envelopeCandidate = event.data;
+                  if (!eventType || !isKaiStreamEnvelope(envelopeCandidate)) {
+                    fail(new Error("Invalid native analyze stream event"));
+                    return;
+                  }
+
+                  const envelope = envelopeCandidate as KaiStreamEnvelope;
+                  if (envelope.event !== eventType) {
+                    fail(new Error("Native SSE event mismatch"));
+                    return;
+                  }
+
+                  if (envelope.terminal) {
+                    sawTerminalEvent = true;
+                  }
+
+                  controller.enqueue(
+                    encoder.encode(
+                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
+                    )
+                  );
+                }
+              );
+
+              await Kai.streamKaiAnalysis({
                 body: body as Record<string, unknown>,
                 vaultOwnerToken,
-              })
-                .then(() => {
-                  const close = () => {
-                    try {
-                      listener.remove();
-                    } finally {
-                      controller.close();
-                    }
-                  };
+              });
 
-                  const fallbackMs = 300;
-                  if (sawTerminalEvent) {
-                    setTimeout(close, 100);
-                  } else {
-                    setTimeout(close, fallbackMs);
-                  }
-                })
-                .catch((e) => {
-                  listener.remove();
-                  controller.error(e);
-                });
-            });
+              if (!sawTerminalEvent) {
+                fail(new Error("Native analyze stream ended without terminal event"));
+                return;
+              }
+              close();
+            } catch (error) {
+              fail(error);
+            } finally {
+              data.signal?.removeEventListener("abort", handleAbort);
+            }
           },
         });
 
@@ -1665,6 +1735,7 @@ export class ApiService {
         Authorization: `Bearer ${data.vaultOwnerToken}`,
       },
       body: JSON.stringify(body),
+      signal: data.signal,
     });
   }
 }
