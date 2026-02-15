@@ -32,6 +32,13 @@ import { toast } from "sonner";
 import { ApiService } from "@/lib/services/api-service";
 import { getStockContext } from "@/lib/services/kai-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
+import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
+import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
+import {
+  KaiIntroService,
+  type KaiIntroProfile,
+} from "@/lib/services/kai-intro-service";
+import { KaiIntroModal } from "@/components/kai/onboarding/kai-intro-modal";
 
 // =============================================================================
 // TYPES
@@ -41,6 +48,7 @@ export type FlowState =
   | "checking"
   | "import_required"
   | "importing"       // Streaming progress view
+  | "import_complete" // Stream complete, waits for explicit user action
   | "reviewing"       // Review parsed data before saving
   | "dashboard"       // Main view with KPIs and prime assets
   | "analysis";       // Stock analysis results
@@ -71,6 +79,14 @@ interface FlowData {
   parsedPortfolio?: ReviewPortfolioData; // Parsed but not yet saved
 }
 
+interface QualityReport {
+  raw?: number;
+  validated?: number;
+  dropped?: number;
+  reconciled?: number;
+  mismatch_detected?: number;
+}
+
 // Streaming state
 interface StreamingState {
   stage: ImportStage;
@@ -79,6 +95,7 @@ interface StreamingState {
   chunkCount: number;
   thoughts: string[];  // Array of thought summaries from Gemini thinking mode
   thoughtCount: number;
+  qualityReport?: QualityReport;
   errorMessage?: string;
 }
 
@@ -91,6 +108,30 @@ interface StreamingState {
  * Handles field name differences between backend (Python) and frontend (TypeScript).
  * Also handles Gemini's raw response format (account_metadata, detailed_holdings, etc.)
  */
+function parseMaybeNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+
+  const text = String(value).trim();
+  if (!text || ["n/a", "na", "null", "none", "--", "-"].includes(text.toLowerCase())) {
+    return undefined;
+  }
+
+  const negative = text.startsWith("(") && text.endsWith(")");
+  const sanitized = text
+    .replace(/[,$\s]/g, "")
+    .replace(/%/g, "")
+    .replace(/[()]/g, "");
+  const maybe = Number(negative ? `-${sanitized}` : sanitized);
+  return Number.isFinite(maybe) ? maybe : undefined;
+}
+
+function parseNumberOrZero(value: unknown): number {
+  return parseMaybeNumber(value) ?? 0;
+}
+
 function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPortfolioData {
   console.log("[KaiFlow] Raw backend data:", JSON.stringify(backendData, null, 2).slice(0, 2000));
   
@@ -103,14 +144,14 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
   
   // Normalize holdings - handle various field name formats
   const normalizedHoldings = rawHoldings.map((h) => {
-    const marketValue = h.market_value !== undefined ? Number(h.market_value) : 0;
-    const costBasis = h.cost_basis !== undefined ? Number(h.cost_basis) : undefined;
+    const marketValue = parseNumberOrZero(h.market_value);
+    const costBasis = parseMaybeNumber(h.cost_basis);
     const unrealized = h.unrealized_gain_loss !== undefined
-      ? Number(h.unrealized_gain_loss)
+      ? parseMaybeNumber(h.unrealized_gain_loss)
       : undefined;
     let unrealizedPct =
       h.unrealized_gain_loss_pct !== undefined
-        ? Number(h.unrealized_gain_loss_pct)
+        ? parseMaybeNumber(h.unrealized_gain_loss_pct)
         : undefined;
 
     // If percentage is missing but we have P/L and a reasonable denominator,
@@ -132,8 +173,8 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
     return {
       symbol: String(h.symbol || h.symbol_cusip || ""),
       name: String(h.name || h.description || "Unknown"),
-      quantity: Number(h.quantity || 0),
-      price: Number(h.price || h.price_per_unit || 0),
+      quantity: parseNumberOrZero(h.quantity),
+      price: parseNumberOrZero(h.price ?? h.price_per_unit),
       market_value: marketValue,
       cost_basis: costBasis,
       unrealized_gain_loss: unrealized,
@@ -170,46 +211,42 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
   ) as Record<string, unknown> | undefined;
   
   const normalizedAccountSummary = accountSummary ? {
-    beginning_value: accountSummary.beginning_value !== undefined ? Number(accountSummary.beginning_value) : undefined,
-    ending_value: accountSummary.ending_value !== undefined ? Number(accountSummary.ending_value) : undefined,
-    cash_balance: accountSummary.cash_balance !== undefined ? Number(accountSummary.cash_balance) : 
-      (backendData.cash_balance !== undefined ? Number(backendData.cash_balance) : undefined),
-    equities_value: accountSummary.equities_value !== undefined ? Number(accountSummary.equities_value) : undefined,
-    change_in_value: accountSummary.change_in_value !== undefined ? Number(accountSummary.change_in_value) : 
-      (accountSummary.total_change !== undefined ? Number(accountSummary.total_change) : undefined),
+    beginning_value: parseMaybeNumber(accountSummary.beginning_value),
+    ending_value: parseMaybeNumber(accountSummary.ending_value),
+    cash_balance: parseMaybeNumber(accountSummary.cash_balance) ?? parseMaybeNumber(backendData.cash_balance),
+    equities_value: parseMaybeNumber(accountSummary.equities_value),
+    change_in_value: parseMaybeNumber(accountSummary.change_in_value) ?? parseMaybeNumber(accountSummary.total_change),
   } : undefined;
 
   // Normalize asset_allocation
   const assetAllocation = backendData.asset_allocation as Record<string, unknown> | undefined;
   const normalizedAssetAllocation = assetAllocation ? {
-    cash_pct: assetAllocation.cash_pct !== undefined ? Number(assetAllocation.cash_pct) : undefined,
-    cash_value: assetAllocation.cash_value !== undefined ? Number(assetAllocation.cash_value) : undefined,
-    equities_pct: assetAllocation.equities_pct !== undefined ? Number(assetAllocation.equities_pct) : undefined,
-    equities_value: assetAllocation.equities_value !== undefined ? Number(assetAllocation.equities_value) : undefined,
-    bonds_pct: assetAllocation.bonds_pct !== undefined ? Number(assetAllocation.bonds_pct) : undefined,
-    bonds_value: assetAllocation.bonds_value !== undefined ? Number(assetAllocation.bonds_value) : undefined,
+    cash_pct: parseMaybeNumber(assetAllocation.cash_pct),
+    cash_value: parseMaybeNumber(assetAllocation.cash_value),
+    equities_pct: parseMaybeNumber(assetAllocation.equities_pct),
+    equities_value: parseMaybeNumber(assetAllocation.equities_value),
+    bonds_pct: parseMaybeNumber(assetAllocation.bonds_pct),
+    bonds_value: parseMaybeNumber(assetAllocation.bonds_value),
   } : undefined;
 
   // Normalize income_summary
   const incomeSummary = backendData.income_summary as Record<string, unknown> | undefined;
   const normalizedIncomeSummary = incomeSummary ? {
-    dividends_taxable: incomeSummary.dividends_taxable !== undefined ? Number(incomeSummary.dividends_taxable) : 
-      (incomeSummary.taxable_dividends !== undefined ? Number(incomeSummary.taxable_dividends) : undefined),
-    interest_income: incomeSummary.interest_income !== undefined ? Number(incomeSummary.interest_income) : 
-      (incomeSummary.taxable_interest !== undefined ? Number(incomeSummary.taxable_interest) : undefined),
-    total_income: incomeSummary.total_income !== undefined ? Number(incomeSummary.total_income) : undefined,
+    dividends_taxable: parseMaybeNumber(incomeSummary.dividends_taxable) ?? parseMaybeNumber(incomeSummary.taxable_dividends),
+    interest_income: parseMaybeNumber(incomeSummary.interest_income) ?? parseMaybeNumber(incomeSummary.taxable_interest),
+    total_income: parseMaybeNumber(incomeSummary.total_income),
   } : undefined;
 
   // Normalize realized_gain_loss
   const realizedGainLoss = backendData.realized_gain_loss as Record<string, unknown> | undefined;
   const normalizedRealizedGainLoss = realizedGainLoss ? {
-    short_term_gain: realizedGainLoss.short_term_gain !== undefined ? Number(realizedGainLoss.short_term_gain) : undefined,
-    long_term_gain: realizedGainLoss.long_term_gain !== undefined ? Number(realizedGainLoss.long_term_gain) : undefined,
-    net_realized: realizedGainLoss.net_realized !== undefined ? Number(realizedGainLoss.net_realized) : undefined,
+    short_term_gain: parseMaybeNumber(realizedGainLoss.short_term_gain),
+    long_term_gain: parseMaybeNumber(realizedGainLoss.long_term_gain),
+    net_realized: parseMaybeNumber(realizedGainLoss.net_realized),
   } : undefined;
 
   // Calculate total_value if not provided
-  let totalValue = backendData.total_value !== undefined ? Number(backendData.total_value) : undefined;
+  let totalValue = parseMaybeNumber(backendData.total_value);
   if (totalValue === undefined || totalValue === 0) {
     // Try to derive from account_summary.ending_value
     if (normalizedAccountSummary?.ending_value) {
@@ -221,7 +258,7 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
   }
 
   // Get cash_balance from multiple sources
-  const cashBalance = backendData.cash_balance !== undefined ? Number(backendData.cash_balance) : 
+  const cashBalance = parseMaybeNumber(backendData.cash_balance) ??
     (normalizedAccountSummary?.cash_balance !== undefined ? normalizedAccountSummary.cash_balance : undefined);
 
   const result: ReviewPortfolioData = {
@@ -307,6 +344,8 @@ export function KaiFlow({
     hasFinancialData: false,
   });
   const [error, setError] = useState<string | null>(null);
+  const [introProfile, setIntroProfile] = useState<KaiIntroProfile | null>(null);
+  const [introModalOpen, setIntroModalOpen] = useState(false);
   
   // Streaming state for real-time progress
   const [streaming, setStreaming] = useState<StreamingState>({
@@ -338,20 +377,20 @@ export function KaiFlow({
     }>;
 
     const totalValue = rawHoldings.reduce(
-      (sum, h) => sum + (h.market_value !== undefined ? Number(h.market_value) : 0),
+      (sum, h) => sum + (h.market_value !== undefined ? parseNumberOrZero(h.market_value) : 0),
       0
     );
 
     const holdingsForOptimize = rawHoldings
       .map((h) => {
-        const mv = h.market_value !== undefined ? Number(h.market_value) : undefined;
+        const mv = h.market_value !== undefined ? parseMaybeNumber(h.market_value) : undefined;
         const gainLoss =
           h.unrealized_gain_loss !== undefined
-            ? Number(h.unrealized_gain_loss)
+            ? parseMaybeNumber(h.unrealized_gain_loss)
             : undefined;
         const gainLossPct =
           h.unrealized_gain_loss_pct !== undefined
-            ? Number(h.unrealized_gain_loss_pct)
+            ? parseMaybeNumber(h.unrealized_gain_loss_pct)
             : undefined;
 
         const symbol = String(h.symbol || "").toUpperCase().trim();
@@ -540,6 +579,75 @@ export function KaiFlow({
     }
   }, [flowData.holdings, onHoldingsLoaded]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadIntroProfile() {
+      if (!vaultKey || !vaultOwnerToken) {
+        setIntroProfile(null);
+        setIntroModalOpen(false);
+        return;
+      }
+
+      try {
+        const profile = await KaiIntroService.getProfile({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+        });
+        if (cancelled) {
+          return;
+        }
+        setIntroProfile(profile);
+        if (!profile.intro_seen) {
+          setIntroModalOpen(true);
+        }
+      } catch (introError) {
+        if (!cancelled) {
+          console.warn("[KaiFlow] Failed to load Kai intro profile:", introError);
+        }
+      }
+    }
+
+    loadIntroProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, vaultKey, vaultOwnerToken]);
+
+  const handleIntroComplete = useCallback(
+    async (update: {
+      intro_seen: boolean;
+      investment_horizon: string | null;
+      investment_style: string | null;
+    }) => {
+      if (!vaultKey || !vaultOwnerToken) {
+        toast.error("Unlock your vault to personalize Kai.");
+        return;
+      }
+
+      try {
+        const profile = await KaiIntroService.saveProfile({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          patch: update,
+        });
+        setIntroProfile(profile);
+        setIntroModalOpen(false);
+      } catch (introSaveError) {
+        console.error("[KaiFlow] Failed to save Kai intro profile:", introSaveError);
+        toast.error("Couldn't save Kai personalization. Please retry.");
+      }
+    },
+    [userId, vaultKey, vaultOwnerToken]
+  );
+
+  const handleOpenPersonalizeKai = useCallback(() => {
+    setIntroModalOpen(true);
+  }, []);
+
   // Production-grade disconnect: abort active streams on force-close, mobile swipe-away
   useEffect(() => {
     const abortStream = () => abortControllerRef.current?.abort();
@@ -599,19 +707,20 @@ export function KaiFlow({
           chunkCount: 0,
           thoughts: [],
           thoughtCount: 0,
+          qualityReport: undefined,
         });
 
         // Create abort controller for cancellation with timeout
         abortControllerRef.current = new AbortController();
         
-        // Set a timeout for the entire operation (5 minutes for large PDFs)
+        // Strict user-facing timeout for import streaming.
         const timeoutId = setTimeout(() => {
           if (abortControllerRef.current) {
             abortControllerRef.current.abort();
-            setError("Import timed out. Please try again with a smaller file.");
+            setError("Import timed out after 120 seconds. Please retry.");
             toast.error("Import timed out. Please try again.");
           }
-        }, 5 * 60 * 1000);
+        }, 120 * 1000);
 
         // Build form data
         const formData = new FormData();
@@ -647,130 +756,140 @@ export function KaiFlow({
           throw new Error(`Upload failed: ${response.status} - ${errorText}`);
         }
 
-        // Read SSE stream
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error("No response stream available");
-        }
-
-        const decoder = new TextDecoder();
-        let buffer = "";
         let fullStreamedText = "";
         let parsedPortfolio: ReviewPortfolioData | null = null;
-        let lastActivityTime = Date.now();
-        const STREAM_TIMEOUT = 120000; // 2 minutes without activity
+        const validStages = new Set<ImportStage>([
+          "idle",
+          "uploading",
+          "analyzing",
+          "thinking",
+          "extracting",
+          "parsing",
+          "complete",
+          "error",
+        ]);
+        const readNumber = (value: unknown): number | undefined =>
+          typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
-        while (true) {
-          // Check for stream timeout (no activity)
-          if (Date.now() - lastActivityTime > STREAM_TIMEOUT) {
-            reader.cancel();
-            throw new Error("Stream timeout - no data received. Please try again.");
-          }
+        await consumeCanonicalKaiStream(
+          response,
+          (envelope: KaiStreamEnvelope) => {
+            const payload = envelope.payload as Record<string, unknown>;
 
-          const { done, value } = await reader.read();
-          if (done) break;
+            switch (envelope.event) {
+              case "stage": {
+                const stageValue = typeof payload.stage === "string" ? payload.stage : undefined;
+                const stage =
+                  stageValue && validStages.has(stageValue as ImportStage)
+                    ? (stageValue as ImportStage)
+                    : undefined;
+                if (!stage) return;
 
-          lastActivityTime = Date.now();
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(6));
-
-                // Handle different stages
-                if (data.stage === "uploading") {
-                  setStreaming((prev) => ({
-                    ...prev,
-                    stage: "uploading",
-                  }));
-                } else if (data.stage === "analyzing") {
-                  setStreaming((prev) => ({
-                    ...prev,
-                    stage: "analyzing",
-                  }));
-                } else if (data.stage === "thinking") {
-                  // Handle thinking stage with thought summaries
-                  setStreaming((prev) => {
-                    const newThoughts = data.thought 
-                      ? [...prev.thoughts, data.thought]
-                      : prev.thoughts;
-                    return {
-                      ...prev,
-                      stage: "thinking",
-                      thoughts: newThoughts,
-                      thoughtCount: data.thought_count || newThoughts.length,
-                    };
-                  });
-                } else if (data.stage === "extracting" || data.stage === "streaming") {
-                  // Handle extraction stage (JSON streaming)
-                  if (data.text && !data.is_thought) {
-                    fullStreamedText += data.text;
-                  }
-                  setStreaming((prev) => ({
-                    ...prev,
-                    stage: "extracting",
-                    streamedText: fullStreamedText,
-                    totalChars: data.total_chars || prev.totalChars,
-                    chunkCount: data.chunk_count || prev.chunkCount,
-                    thoughtCount: data.thought_count || prev.thoughtCount,
-                  }));
-                } else if (data.stage === "parsing") {
-                  setStreaming((prev) => ({
-                    ...prev,
-                    stage: "parsing",
-                  }));
-                } else if (data.stage === "complete" && data.portfolio_data) {
-                  // Store parsed portfolio for review - normalize backend data to frontend format
-                  parsedPortfolio = normalizePortfolioData(data.portfolio_data);
-                  console.log("[KaiFlow] Normalized portfolio data:", {
-                    holdings: parsedPortfolio.holdings?.length || 0,
-                    hasAccountInfo: !!parsedPortfolio.account_info,
-                    hasAccountSummary: !!parsedPortfolio.account_summary,
-                    totalValue: parsedPortfolio.total_value,
-                  });
-                  setStreaming((prev) => ({
-                    ...prev,
-                    stage: "complete",
-                    thoughtCount: data.thought_count || prev.thoughtCount,
-                  }));
-                } else if (data.stage === "error") {
-                  setStreaming((prev) => ({
-                    ...prev,
-                    stage: "error",
-                    errorMessage: data.message,
-                  }));
-                  throw new Error(data.message);
-                }
-              } catch (parseError) {
-                // Ignore JSON parse errors for incomplete chunks
-                if (parseError instanceof SyntaxError) continue;
-                throw parseError;
+                setStreaming((prev) => ({
+                  ...prev,
+                  stage,
+                  totalChars: readNumber(payload.total_chars) ?? prev.totalChars,
+                  chunkCount: readNumber(payload.chunk_count) ?? prev.chunkCount,
+                  thoughtCount: readNumber(payload.thought_count) ?? prev.thoughtCount,
+                }));
+                break;
               }
+              case "thinking": {
+                const thought = typeof payload.thought === "string" ? payload.thought : undefined;
+                setStreaming((prev) => {
+                  const thoughts = thought ? [...prev.thoughts, thought] : prev.thoughts;
+                  return {
+                    ...prev,
+                    stage: "thinking",
+                    thoughts,
+                    thoughtCount: readNumber(payload.count) ?? thoughts.length,
+                  };
+                });
+                break;
+              }
+              case "chunk": {
+                const text = typeof payload.text === "string" ? payload.text : "";
+                if (text) {
+                  fullStreamedText += text;
+                }
+                setStreaming((prev) => ({
+                  ...prev,
+                  stage: "extracting",
+                  streamedText: fullStreamedText,
+                  totalChars: readNumber(payload.total_chars) ?? fullStreamedText.length,
+                  chunkCount: readNumber(payload.chunk_count) ?? prev.chunkCount,
+                }));
+                break;
+              }
+              case "complete": {
+                const rawPortfolioData = payload.portfolio_data;
+                if (
+                  !rawPortfolioData ||
+                  typeof rawPortfolioData !== "object" ||
+                  Array.isArray(rawPortfolioData)
+                ) {
+                  throw new Error("Missing portfolio_data in complete event");
+                }
+                parsedPortfolio = normalizePortfolioData(rawPortfolioData as Record<string, unknown>);
+
+                const qualityReportRaw = (rawPortfolioData as Record<string, unknown>).quality_report;
+                const qualityReport =
+                  qualityReportRaw &&
+                  typeof qualityReportRaw === "object" &&
+                  !Array.isArray(qualityReportRaw)
+                    ? (qualityReportRaw as QualityReport)
+                    : undefined;
+
+                setStreaming((prev) => ({
+                  ...prev,
+                  stage: "complete",
+                  thoughtCount: readNumber(payload.thought_count) ?? prev.thoughtCount,
+                  qualityReport,
+                }));
+                break;
+              }
+              case "error": {
+                const message =
+                  typeof payload.message === "string"
+                    ? payload.message
+                    : "Import failed while parsing the statement";
+                setStreaming((prev) => ({
+                  ...prev,
+                  stage: "error",
+                  errorMessage: message,
+                }));
+                throw new Error(message);
+              }
+              default:
+                break;
             }
+          },
+          {
+            signal: abortControllerRef.current.signal,
+            idleTimeoutMs: 120000,
+            requireTerminal: true,
           }
-        }
+        );
 
         // Check if we got portfolio data
         if (!parsedPortfolio) {
           throw new Error("No portfolio data received from parser");
         }
+        const parsedPortfolioData: ReviewPortfolioData = parsedPortfolio;
 
         console.log("[KaiFlow] Portfolio parsed via streaming:", {
-          holdings: parsedPortfolio.holdings?.length || 0,
+          holdings: parsedPortfolioData.holdings?.length || 0,
         });
 
         // Store parsed portfolio and transition to review state
         setFlowData((prev) => ({
           ...prev,
-          parsedPortfolio,
+          parsedPortfolio: parsedPortfolioData,
         }));
 
-        // Go to review screen instead of directly to dashboard
-        setState("reviewing");
-        toast.success("Portfolio parsed! Please review before saving.");
+        // Persist completion state until user explicitly continues to review.
+        setState("import_complete");
+        toast.success("Portfolio parsed successfully. Review when ready.");
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
           console.log("[KaiFlow] Import cancelled by user");
@@ -800,7 +919,7 @@ export function KaiFlow({
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
-    setState("import_required");
+    setState(flowData.portfolioData ? "dashboard" : "import_required");
     setStreaming({
       stage: "idle",
       streamedText: "",
@@ -808,8 +927,9 @@ export function KaiFlow({
       chunkCount: 0,
       thoughts: [],
       thoughtCount: 0,
+      qualityReport: undefined,
     });
-  }, []);
+  }, [flowData.portfolioData]);
 
   // Handle retry import after error
   const _handleRetryImport = useCallback(() => {
@@ -821,9 +941,27 @@ export function KaiFlow({
       chunkCount: 0,
       thoughts: [],
       thoughtCount: 0,
+      qualityReport: undefined,
     });
     setState("import_required");
   }, []);
+
+  const handleReviewParsedPortfolio = useCallback(() => {
+    if (!flowData.parsedPortfolio) {
+      toast.error("Parsed portfolio not available. Please import again.");
+      setState("import_required");
+      return;
+    }
+    setState("reviewing");
+  }, [flowData.parsedPortfolio]);
+
+  const handleBackToDashboardFromImport = useCallback(() => {
+    if (flowData.portfolioData) {
+      setState("dashboard");
+    } else {
+      setState("import_required");
+    }
+  }, [flowData.portfolioData]);
 
   // Handle save complete from review screen
   const handleSaveComplete = useCallback((savedData: ReviewPortfolioData) => {
@@ -1029,13 +1167,35 @@ export function KaiFlow({
         <ImportProgressView
           stage={streaming.stage}
           streamedText={streaming.streamedText}
-          isStreaming={streaming.stage === "uploading" || streaming.stage === "analyzing" || streaming.stage === "thinking"}
+          isStreaming={
+            streaming.stage === "uploading" ||
+            streaming.stage === "analyzing" ||
+            streaming.stage === "thinking" ||
+            streaming.stage === "extracting" ||
+            streaming.stage === "parsing"
+          }
           totalChars={streaming.totalChars}
           chunkCount={streaming.chunkCount}
           thoughts={streaming.thoughts}
           thoughtCount={streaming.thoughtCount}
+          qualityReport={streaming.qualityReport}
           errorMessage={streaming.errorMessage}
           onCancel={handleCancelImport}
+        />
+      )}
+
+      {state === "import_complete" && (
+        <ImportProgressView
+          stage="complete"
+          streamedText={streaming.streamedText}
+          isStreaming={false}
+          totalChars={streaming.totalChars}
+          chunkCount={streaming.chunkCount}
+          thoughts={streaming.thoughts}
+          thoughtCount={streaming.thoughtCount}
+          qualityReport={streaming.qualityReport}
+          onContinue={handleReviewParsedPortfolio}
+          onBackToDashboard={handleBackToDashboardFromImport}
         />
       )}
 
@@ -1057,6 +1217,7 @@ export function KaiFlow({
           onManagePortfolio={handleManagePortfolio}
           onAnalyzeStock={handleAnalyzeStock}
           onAnalyzeLosers={handleAnalyzeLosers}
+          onPersonalizeKai={handleOpenPersonalizeKai}
           onReupload={handleReimport}
           onClearData={handleClearData}
           onViewHistory={handleViewHistory}
@@ -1109,6 +1270,13 @@ export function KaiFlow({
           </p>
         </div>
       )}
+
+      <KaiIntroModal
+        open={introModalOpen}
+        profile={introProfile}
+        onComplete={handleIntroComplete}
+        onOpenChange={setIntroModalOpen}
+      />
     </div>
   );
 }

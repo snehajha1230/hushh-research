@@ -32,6 +32,9 @@ For repo-level setup instructions, see the root [`README.md`](../README.md) and 
 | Understand FCM notifications | [fcm-notifications.md](../consent-protocol/docs/reference/fcm-notifications.md) |
 | Review the design system | [reference/design-system.md](./reference/design-system.md) |
 | Review CI pipeline | [reference/ci.md](./reference/ci.md) |
+| Use canonical stream events everywhere | [reference/streaming-contract.md](./reference/streaming-contract.md) |
+| Implement a new stream feature | [reference/streaming-implementation-guide.md](./reference/streaming-implementation-guide.md) |
+| Check Vertex streaming constraints | [reference/vertex-ai-streaming-notes.md](./reference/vertex-ai-streaming-notes.md) |
 | Check plugin parity status | [audits/plugins-parity.md](./audits/plugins-parity.md) |
 | Read the product vision | [vision/README.md](./vision/README.md) |
 | Deep-dive Agent Kai vision | [vision/kai/README.md](./vision/kai/README.md) |
@@ -59,6 +62,9 @@ docs/
     design-system.md                 # Morphy-UX + Shadcn design system
     env-and-secrets.md               # All environment variables and GCP secrets
     ci.md                            # CI/CD pipeline
+    streaming-contract.md            # Canonical SSE schema and event contract
+    streaming-implementation-guide.md # Reusable implementation pattern
+    vertex-ai-streaming-notes.md     # Vertex streaming constraints and anti-patterns
 
   guides/                            # How do I DO something
     getting-started.md               # Prerequisites, setup, run, deploy

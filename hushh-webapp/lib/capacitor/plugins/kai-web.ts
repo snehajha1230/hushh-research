@@ -10,7 +10,7 @@
  */
 
 import { WebPlugin } from "@capacitor/core";
-import type { KaiEncryptedPreference, KaiPlugin } from "../kai";
+import type { KaiPlugin } from "../kai";
 
 export class KaiWeb extends WebPlugin implements KaiPlugin {
   async grantConsent(options: {
@@ -92,123 +92,6 @@ export class KaiWeb extends WebPlugin implements KaiPlugin {
     }
 
     // Return the full response directly, matching native plugin behavior
-    return response.json();
-  }
-
-  async storePreferences(options: {
-    userId: string;
-    preferences?: KaiEncryptedPreference[];
-    preferencesEncrypted?: string;
-    vaultOwnerToken?: string;
-  }): Promise<{ success: boolean }> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    // Use VAULT_OWNER token for consent-gated access
-    if (options.vaultOwnerToken) {
-      headers["Authorization"] = `Bearer ${options.vaultOwnerToken}`;
-    }
-
-    const preferences: KaiEncryptedPreference[] | undefined =
-      options.preferences ||
-      (options.preferencesEncrypted
-        ? (JSON.parse(options.preferencesEncrypted) as KaiEncryptedPreference[])
-        : undefined);
-
-    if (!preferences || !Array.isArray(preferences)) {
-      throw new Error("Missing preferences payload");
-    }
-
-    const response = await fetch("/api/kai/preferences/store", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        user_id: options.userId,
-        preferences,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to store preferences");
-    }
-
-    return response.json();
-  }
-
-  async getPreferences(options: {
-    userId: string;
-    vaultOwnerToken?: string;
-  }): Promise<{ preferences: any[] }> {
-    // Debug logging
-    console.log("[KaiWeb] getPreferences called with:", {
-      userId: options.userId,
-      hasVaultOwnerToken: !!options.vaultOwnerToken,
-      vaultOwnerTokenPrefix: options.vaultOwnerToken?.substring(0, 20),
-    });
-
-    // Safety check: This should NOT be called on native platforms
-    if (typeof window !== "undefined") {
-      const Capacitor = (window as any).Capacitor;
-      if (Capacitor?.isNativePlatform?.()) {
-        console.error(
-          "[KaiWeb] ⚠️ Web plugin called on native platform! This is a bug."
-        );
-        console.error("[KaiWeb] Platform:", Capacitor.getPlatform?.());
-        console.error(
-          "[KaiWeb] This will fail because there's no Next.js server on native."
-        );
-      }
-    }
-
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    // Use VAULT_OWNER token for consent-gated access
-    console.log(
-      "[KaiWeb] Using token:",
-      options.vaultOwnerToken
-        ? "YES (length=" + options.vaultOwnerToken.length + ")"
-        : "NO"
-    );
-    if (options.vaultOwnerToken) {
-      headers["Authorization"] = `Bearer ${options.vaultOwnerToken}`;
-    }
-
-    const url = `/api/kai/preferences/${options.userId}`;
-    console.log("[KaiWeb] Fetching:", url, "Headers:", Object.keys(headers));
-
-    const response = await fetch(url, {
-      method: "GET",
-      headers,
-    });
-
-    console.log("[KaiWeb] Response status:", response.status);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      console.error("[KaiWeb] Error response:", errorText);
-      throw new Error("Failed to get preferences");
-    }
-
-    return response.json();
-  }
-
-  async resetPreferences(options: {
-    userId: string;
-    vaultOwnerToken: string;
-  }): Promise<{ success: boolean }> {
-    const response = await fetch(`/api/kai/preferences/${options.userId}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${options.vaultOwnerToken}`,
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to reset preferences");
-    }
-
     return response.json();
   }
 

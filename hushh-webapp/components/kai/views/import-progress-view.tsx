@@ -37,10 +37,17 @@ export type ImportStage =
   | "analyzing"
   | "thinking"
   | "extracting"
-  | "streaming" // Legacy - maps to extracting
   | "parsing"
   | "complete"
   | "error";
+
+interface QualityReport {
+  raw?: number;
+  validated?: number;
+  dropped?: number;
+  reconciled?: number;
+  mismatch_detected?: number;
+}
 
 export interface ImportProgressViewProps {
   /** Current processing stage */
@@ -57,10 +64,16 @@ export interface ImportProgressViewProps {
   thoughts?: string[];
   /** Total thought count */
   thoughtCount?: number;
+  /** Quality reconciliation summary from backend parser */
+  qualityReport?: QualityReport;
   /** Error message if stage is 'error' */
   errorMessage?: string;
   /** Cancel handler */
   onCancel?: () => void;
+  /** Continue from completed import to review screen */
+  onContinue?: () => void;
+  /** Return to dashboard after completed import */
+  onBackToDashboard?: () => void;
   /** Additional CSS classes */
   className?: string;
 }
@@ -73,7 +86,6 @@ const stageToIndex: Record<ImportStage, number> = {
   analyzing: 1,
   thinking: 2,
   extracting: 3,
-  streaming: 3, // Legacy mapping
   parsing: 3,
   complete: 4,
   error: -1,
@@ -85,7 +97,6 @@ const stageMessages: Record<ImportStage, string> = {
   analyzing: "AI analyzing document structure...",
   thinking: "AI reasoning about your portfolio...",
   extracting: "Extracting financial data...",
-  streaming: "Extracting financial data...",
   parsing: "Processing extracted data...",
   complete: "Import complete!",
   error: "Import failed",
@@ -99,15 +110,18 @@ export function ImportProgressView({
   chunkCount,
   thoughts = [],
   thoughtCount = 0,
+  qualityReport,
   errorMessage,
   onCancel,
+  onContinue,
+  onBackToDashboard,
   className,
 }: ImportProgressViewProps) {
   const currentStageIndex = stageToIndex[stage];
 
   // Determine if we're in a thinking or extracting phase
   const isThinking = stage === "thinking";
-  const isExtracting = stage === "extracting" || stage === "streaming" || stage === "parsing";
+  const isExtracting = stage === "extracting" || stage === "parsing";
   const isComplete = stage === "complete";
 
   // Format thoughts into a single text string for the accordion
@@ -130,11 +144,13 @@ export function ImportProgressView({
           {onCancel && stage !== "complete" && (
             <MorphyButton
               variant="muted"
-              size="icon"
+              size="sm"
               onClick={onCancel}
-              className="h-8 w-8 rounded-lg"
+              className="h-8 rounded-lg"
               icon={{ icon: X }}
-            />
+            >
+              Back to Dashboard
+            </MorphyButton>
           )}
 
         </div>
@@ -173,29 +189,40 @@ export function ImportProgressView({
 
 
 
-        {/* Data Extraction Accordion - Shows during extraction phase, persists when complete */}
+        {/* Data Extraction Panels - Interpreted + Raw */}
         {(isExtracting || (streamedText && !isComplete) || (isComplete && streamedText)) && (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
               <span className="flex items-center gap-1.5">
                 <Database className="w-3.5 h-3.5 text-primary" />
-                Data Extraction
+                Live Extraction Stream
               </span>
               <span>
                 {totalChars.toLocaleString()} chars • {chunkCount} chunks
               </span>
             </div>
             <StreamingAccordion
-              id="data-extraction"
-              title="Extracted Portfolio Data"
+              id="data-extraction-human"
+              title="Interpreted Stream"
               text={streamedText}
               isStreaming={isStreaming && isExtracting}
               isComplete={isComplete}
               formatAsHuman={true}
               icon={isComplete ? "database" : "spinner"}
               iconClassName="w-6 h-6"
-              maxHeight="300px"
+              maxHeight="220px"
               defaultExpanded={true}
+            />
+            <StreamingAccordion
+              id="data-extraction-raw"
+              title="Raw Stream"
+              text={streamedText}
+              isStreaming={isStreaming && isExtracting}
+              isComplete={isComplete}
+              formatAsHuman={false}
+              icon={isComplete ? "database" : "spinner"}
+              iconClassName="w-6 h-6"
+              maxHeight="180px"
             />
           </div>
         )}
@@ -220,6 +247,38 @@ export function ImportProgressView({
               {totalChars.toLocaleString()} characters processed
               {thoughtCount > 0 && ` • ${thoughtCount} AI reasoning steps`}
             </p>
+            {qualityReport && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Validated {qualityReport.validated ?? 0}
+                {qualityReport.reconciled !== undefined
+                  ? ` • Reconciled ${qualityReport.reconciled}`
+                  : ""}
+                {qualityReport.dropped !== undefined ? ` • Dropped ${qualityReport.dropped}` : ""}
+                {qualityReport.mismatch_detected !== undefined
+                  ? ` • Mismatches ${qualityReport.mismatch_detected}`
+                  : ""}
+              </p>
+            )}
+            {onContinue && (
+              <MorphyButton
+                variant="gradient"
+                size="sm"
+                className="mt-3"
+                onClick={onContinue}
+              >
+                Review Extracted Portfolio
+              </MorphyButton>
+            )}
+            {onBackToDashboard && (
+              <MorphyButton
+                variant="muted"
+                size="sm"
+                className="mt-2 ml-2"
+                onClick={onBackToDashboard}
+              >
+                Back to Dashboard
+              </MorphyButton>
+            )}
           </div>
         )}
       </CardContent>

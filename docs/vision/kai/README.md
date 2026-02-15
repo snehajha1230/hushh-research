@@ -340,7 +340,7 @@ Kai provides a **live streaming interface** that shows the debate as it happens:
 │ │           ▋     │  │           ▋     │  │           ▋     │           │
 │ └─────────────────┘  └─────────────────┘  └─────────────────┘           │
 │                                                                          │
-│ ← Live streaming tokens from Gemini 2.5 Flash                            │
+│ ← Live streaming tokens from Gemini 3 Flash                              │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -349,7 +349,7 @@ Kai provides a **live streaming interface** that shows the debate as it happens:
 - **Persistent tabs**: Round 1, Round 2, and Decision Card tabs remain visible throughout
 - **Live token streaming**: Watch each agent's reasoning unfold in real-time
 - **Embedded KPI report**: Decision Card tab includes full analysis (Executive Summary, Bull/Bear Cases, Business Moat)
-- **Powered by Gemini 2.5 Flash**: Fast, streaming responses with advanced reasoning
+- **Powered by Gemini 3 Flash**: Fast, streaming responses with advanced reasoning
 
 **Technical Implementation:**
 
@@ -828,4 +828,3 @@ Kai becomes the trust layer between investors and fund managers. The consent pro
 > _"An agent should work for the person whose life it touches."_
 
 Kai is successful when investors trust it more than a single analyst -- not to replace human judgment, but to augment it with perfect memory, tireless analysis, and explainable intelligence.
-

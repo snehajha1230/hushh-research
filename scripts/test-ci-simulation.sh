@@ -103,6 +103,26 @@ fi
 echo ""
 
 # ============================================================================
+# Test 1b: Gemini model policy guard
+# ============================================================================
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "TEST 1b: Gemini 3-only Policy"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+TEST_COUNT=$((TEST_COUNT + 1))
+
+LEGACY_GEMINI_PATTERN="gemini-2\\.[0-9]|Gemini [0-9]\\.[0-9]"
+if rg -n "$LEGACY_GEMINI_PATTERN" docs consent-protocol hushh-webapp config scripts > /tmp/gemini-policy.log 2>&1; then
+  echo "✗ [FAIL] Legacy Gemini reference(s) found:"
+  head -20 /tmp/gemini-policy.log | sed 's/^/    /'
+  FAIL=1
+else
+  echo "✓ [PASS] No legacy Gemini references found"
+  PASS_COUNT=$((PASS_COUNT + 1))
+fi
+
+echo ""
+
+# ============================================================================
 # Test 2: Version Validation Edge Cases
 # ============================================================================
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

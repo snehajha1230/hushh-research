@@ -432,7 +432,13 @@ export function formatJsonChunk(
     lines.push(...extractedValues);
   }
   
-  const text = lines.join("\n");
+  let text = lines.join("\n");
+  if (!text.trim()) {
+    const compact = chunk.replace(/\s+/g, " ").trim();
+    const preview = compact.length > 180 ? `${compact.slice(0, 180)}...` : compact;
+    text = preview ? `Streaming extract: ${preview}` : "Streaming extract in progress...";
+  }
+  context.lastOutput = text;
   
   return {
     text,

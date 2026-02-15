@@ -122,7 +122,6 @@ export default [
       "lib/auth/**/*",
       // SSE streaming components use fetch() for EventSource polyfill
       "components/kai/debate-stream-view.tsx",
-      "components/kai/kai-agent-streaming-view.tsx",
     ],
     rules: {
       "no-restricted-syntax": "off",

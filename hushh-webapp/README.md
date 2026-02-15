@@ -171,7 +171,7 @@ Content-Type: application/json
 
 - **Base URL:** `https://hushh-kai-demo-832747646411.us-central1.run.app`
 - **Protocol:** A2A (Agent-to-Agent)
-- **Model:** Gemini 2.5 Flash
+- **Model:** Gemini 3 Flash
 
 ---
 

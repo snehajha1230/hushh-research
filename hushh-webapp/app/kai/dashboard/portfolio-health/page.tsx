@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
+import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
+import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
 import { HushhLoader } from "@/components/ui/hushh-loader";
@@ -79,14 +80,6 @@ type AnalysisResult = {
   };
 };
 
-// SSE event types
-type SSEEvent = 
-  | { type: "stage"; stage: string; message: string }
-  | { type: "thinking"; thought: string; count: number }
-  | { type: "chunk"; text: string; count: number }
-  | { type: "complete"; data: AnalysisResult }
-  | { type: "error"; message: string; raw?: string };
-
 const chartConfig = {
   current: {
     label: "Current",
@@ -121,7 +114,6 @@ function useThemeAware() {
 
 export default function PortfolioHealthPage() {
   const theme = useThemeAware();
-  const _router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { vaultOwnerToken } = useVault();
   
@@ -180,25 +172,6 @@ export default function PortfolioHealthPage() {
     return result?.analytics?.sector_shift || [];
   }, [result]);
 
-  // Parse SSE events from text
-  const parseSSEEvents = useCallback((text: string): SSEEvent[] => {
-    const events: SSEEvent[] = [];
-    const lines = text.split("\n");
-    
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const data = JSON.parse(line.slice(6));
-          events.push(data as SSEEvent);
-        } catch {
-          // Ignore parse errors for incomplete chunks
-        }
-      }
-    }
-    
-    return events;
-  }, []);
-
   // Run streaming analysis
   useEffect(() => {
     async function runStreamingAnalysis() {
@@ -210,11 +183,7 @@ export default function PortfolioHealthPage() {
         return;
       }
 
-      const sessionToken =
-        typeof window !== "undefined"
-          ? ApiService.getVaultOwnerToken?.()
-          : null;
-      const effectiveToken = vaultOwnerToken || sessionToken;
+      const effectiveToken = vaultOwnerToken;
 
       if (!user || !effectiveToken) {
         setLoading(false);
@@ -257,76 +226,62 @@ export default function PortfolioHealthPage() {
           );
         }
 
-        // Read the SSE stream
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error("No response body");
-        }
+        const readNumber = (value: unknown): number | undefined =>
+          typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
-        const decoder = new TextDecoder();
-        let buffer = "";
+        await consumeCanonicalKaiStream(
+          response,
+          (envelope: KaiStreamEnvelope) => {
+            const payload = envelope.payload as Record<string, unknown>;
 
-        while (true) {
-          const { done, value } = await reader.read();
-          
-          if (value) {
-            buffer += decoder.decode(value, { stream: true });
-          }
-          
-          // Process events from buffer
-          const events = parseSSEEvents(buffer);
-          
-          for (const event of events) {
-            switch (event.type) {
-              case "stage":
-                setCurrentStage(event.stage);
-                setIsThinking(event.stage === "thinking");
-                setIsExtracting(event.stage === "extracting");
+            switch (envelope.event) {
+              case "stage": {
+                const stage = typeof payload.stage === "string" ? payload.stage : "analyzing";
+                setCurrentStage(stage);
+                setIsThinking(stage === "thinking");
+                setIsExtracting(stage === "extracting");
                 break;
-              case "thinking":
-                setThoughts(prev => [...prev, event.thought]);
-                setThoughtCount(event.count);
+              }
+              case "thinking": {
+                const thought = typeof payload.thought === "string" ? payload.thought : "";
+                if (thought) {
+                  setThoughts((prev) => [...prev, thought]);
+                }
+                setThoughtCount((prev) => readNumber(payload.count) ?? prev + (thought ? 1 : 0));
                 break;
-              case "chunk":
-                setStreamedText(prev => prev + event.text);
+              }
+              case "chunk": {
+                const text = typeof payload.text === "string" ? payload.text : "";
+                if (text) {
+                  setStreamedText((prev) => prev + text);
+                }
                 break;
-              case "complete":
-                setResult(event.data);
+              }
+              case "complete": {
+                setResult(payload as unknown as AnalysisResult);
                 setIsComplete(true);
                 setIsStreaming(false);
                 setIsThinking(false);
                 setIsExtracting(false);
                 break;
-              case "error":
-                throw new Error(event.message);
-            }
-          }
-          
-          // Clear processed events from buffer
-          const lastNewline = buffer.lastIndexOf("\n\n");
-          if (lastNewline !== -1) {
-            buffer = buffer.slice(lastNewline + 2);
-          }
-          
-          if (done) {
-            // Process any remaining buffer before exiting
-            if (buffer.trim()) {
-              const finalEvents = parseSSEEvents(buffer);
-              for (const event of finalEvents) {
-                if (event.type === "complete") {
-                  setResult(event.data);
-                  setIsComplete(true);
-                  setIsStreaming(false);
-                  setIsThinking(false);
-                  setIsExtracting(false);
-                } else if (event.type === "error") {
-                  throw new Error(event.message);
-                }
               }
+              case "error": {
+                const message =
+                  typeof payload.message === "string"
+                    ? payload.message
+                    : "Portfolio health analysis failed";
+                throw new Error(message);
+              }
+              default:
+                break;
             }
-            break;
+          },
+          {
+            signal: abortControllerRef.current.signal,
+            idleTimeoutMs: 120000,
+            requireTerminal: true,
           }
-        }
+        );
 
       } catch (e) {
         if ((e as Error).name === "AbortError") {
@@ -348,7 +303,7 @@ export default function PortfolioHealthPage() {
       // Cleanup: abort any in-flight request
       abortControllerRef.current?.abort();
     };
-  }, [authLoading, input, user, vaultOwnerToken, parseSSEEvents]);
+  }, [authLoading, input, user, vaultOwnerToken]);
 
   const thresholdLabel =
     input?.thresholdPct !== undefined ? `${input.thresholdPct}%` : "-5%";

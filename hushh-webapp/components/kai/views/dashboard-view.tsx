@@ -175,6 +175,7 @@ interface DashboardViewProps {
   onManagePortfolio: () => void;
   onAnalyzeStock?: (symbol: string) => void;
   onAnalyzeLosers?: () => void;
+  onPersonalizeKai?: () => void;
   onReupload?: () => void;
   onClearData?: () => void;
   onViewHistory?: () => void;
@@ -214,6 +215,7 @@ export function DashboardView({
   onManagePortfolio,
   onAnalyzeStock,
   onAnalyzeLosers,
+  onPersonalizeKai,
   onReupload,
   onClearData,
   onViewHistory,
@@ -528,6 +530,12 @@ export function DashboardView({
                 <Settings className="w-4 h-4 mr-2" />
                 Manage Portfolio
               </DropdownMenuItem>
+              {onPersonalizeKai && (
+                <DropdownMenuItem onClick={onPersonalizeKai} className="cursor-pointer">
+                  <Shield className="w-4 h-4 mr-2" />
+                  Personalize Kai
+                </DropdownMenuItem>
+              )}
               {onViewHistory && (
                 <DropdownMenuItem onClick={onViewHistory} className="cursor-pointer">
                   <History className="w-4 h-4 mr-2" />

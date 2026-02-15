@@ -23,11 +23,12 @@
           "/chat/initial-state/{user_id}",
           "/consent/grant",
           "/analyze",
-          "/preferences/store",
-          "/preferences/{user_id}",
+          "/analyze/stream",
           "/portfolio/import",
+          "/portfolio/import/stream",
           "/portfolio/summary/{user_id}",
-          "/portfolio/analyze-losers"
+          "/portfolio/analyze-losers",
+          "/portfolio/analyze-losers/stream"
         ]
       },
       "native": {
@@ -37,10 +38,13 @@
         "requiredMethodNames": [
           "grantConsent",
           "analyze",
+          "importPortfolio",
           "analyzePortfolioLosers",
-          "storePreferences",
-          "getPreferences",
-          "resetPreferences"
+          "streamPortfolioImport",
+          "streamPortfolioAnalyzeLosers",
+          "streamKaiAnalysis",
+          "chat",
+          "getInitialChatState"
         ]
       }
     },

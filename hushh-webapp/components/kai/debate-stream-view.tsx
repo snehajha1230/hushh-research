@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckCircle2, ArrowDown } from "lucide-react";
 import { setKaiVaultOwnerToken } from "@/lib/services/kai-service";
 import { KaiHistoryService } from "@/lib/services/kai-history-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
@@ -16,6 +16,8 @@ import { HushhLoader } from "@/components/ui/hushh-loader";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ApiService } from "@/lib/services/api-service";
+import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
+import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 
 // ============================================================================
 // Types
@@ -154,6 +156,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
 
   // Rounds
   const [activeRound, setActiveRound] = useState<1 | 2>(1);
+  const activeRoundRef = useRef<1 | 2>(1);
   const [round1States, setRound1States] = useState<Record<string, AgentState>>(
     JSON.parse(JSON.stringify(INITIAL_ROUND_STATE))
   );
@@ -164,6 +167,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
   // Live Insights State
   const [insights, setInsights] = useState<Insight[]>([]);
   const insightsRef = useRef<Insight[]>([]); // Ref for stream safety
+  const intelScrollRef = useRef<HTMLDivElement | null>(null);
 
   // Refs for robust state tracking inside async stream
   const round1StatesRef = useRef<Record<string, AgentState>>(JSON.parse(JSON.stringify(INITIAL_ROUND_STATE)));
@@ -269,6 +273,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
     setError(null);
     setErrorType("unknown");
     setKaiThinking("Initializing...");
+    activeRoundRef.current = 1;
     setActiveRound(1);
     setRound1States(JSON.parse(JSON.stringify(INITIAL_ROUND_STATE)));
     setRound2States(JSON.parse(JSON.stringify(INITIAL_ROUND_STATE)));
@@ -395,240 +400,224 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
         setLoading(false);
         setRetryCountdown(null);
 
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error("No stream content");
+        const resolveRound = (data: Record<string, any>): 1 | 2 => {
+          if (data.round === 2 || data.round === "2") return 2;
+          if (data.round === 1 || data.round === "1") return 1;
+          const phase = typeof data.phase === "string" ? data.phase.toLowerCase() : "";
+          if (phase === "debate" || phase === "round2" || phase === "decision") return 2;
+          if (phase === "analysis" || phase === "round1") return 1;
+          return activeRoundRef.current;
+        };
 
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let currentEventType = "message";
-        let currentPhase = "analysis";
+        await consumeCanonicalKaiStream(
+          response,
+          (envelope: KaiStreamEnvelope) => {
+            const resolvedEventType = envelope.event;
+            const data = envelope.payload as Record<string, any>;
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-
-            if (line.startsWith("event:")) {
-              currentEventType = line.slice(6).trim();
-            } else if (line.startsWith("data:")) {
-              try {
-                const jsonStr = line.slice(5).trim();
-                if (!jsonStr) continue;
-
-                const data = JSON.parse(jsonStr);
-
-                switch (currentEventType) {
-                  case "kai_thinking":
-                    setKaiThinking(data.message || data.data?.message);
-
-                    // Detect Phase Change for Round Switching
-                    if (data.phase === "debate" && currentPhase !== "debate") {
-                      currentPhase = "debate";
-                      setActiveRound(2);
-                      setCollapsedRounds({ 1: true, 2: false });
-                      toast.info("Entering Round 2: Debate & Rebuttal");
-                    }
-                    break;
-
-                  case "agent_start":
-                    setActiveAgent(data.agent);
-                    {
-                      const targetRound: 1 | 2 = currentPhase === "debate" || data.phase === "round2" ? 2 : 1;
-                      updateAgentState(targetRound, data.agent, { stage: "active" });
-                    }
-                    break;
-
-                  case "agent_token":
-                    {
-                      // Backend streams tokens as: { agent: "fundamental"|..., text: "...", phase?: "analysis"|"debate"|"round2" }
-                      // Some emitters may use agent_name; normalize.
-                      const ag = (data.agent || data.agent_name || "").toString().toLowerCase();
-                      const txt = (data.text || data.token || "").toString();
-                      if (!ag || !txt) break;
-
-                      const r: 1 | 2 = currentPhase === "debate" || data.phase === "round2" ? 2 : 1;
-
-                      // Update Ref
-                      const ref = r === 1 ? round1StatesRef : round2StatesRef;
-                      const runRef = ref.current;
-                      if (runRef?.[ag]) {
-                        runRef[ag] = {
-                          ...runRef[ag],
-                          stage: runRef[ag].stage === "idle" ? "active" : runRef[ag].stage,
-                          text: (runRef[ag].text || "") + txt,
-                        };
-                      }
-
-                      // Update React State
-                      const setter = r === 1 ? setRound1States : setRound2States;
-                      setter((prev) => ({
-                        ...prev,
-                        [ag]: {
-                          ...prev[ag],
-                          stage: prev[ag]?.stage === "idle" ? "active" : prev[ag]?.stage,
-                          text: (prev[ag]?.text || "") + txt,
-                        },
-                      }));
-                    }
-                    break;
-
-                  case "agent_complete":
-                    {
-                      const r: 1 | 2 = currentPhase === "debate" ? 2 : 1;
-                      updateAgentState(r, data.agent, {
-                        stage: "complete",
-                        text: data.summary || "",
-                        thoughts: [],
-                        // Common fields
-                        recommendation: data.recommendation,
-                        confidence: data.confidence,
-                        sources: data.sources,
-                        // Fundamental-specific
-                        keyMetrics: data.key_metrics,
-                        quantMetrics: data.quant_metrics,
-                        businessMoat: data.business_moat,
-                        financialResilience: data.financial_resilience,
-                        growthEfficiency: data.growth_efficiency,
-                        bullCase: data.bull_case,
-                        bearCase: data.bear_case,
-                        // Sentiment-specific
-                        sentimentScore: data.sentiment_score,
-                        keyCatalysts: data.key_catalysts,
-                        // Valuation-specific
-                        valuationMetrics: data.valuation_metrics,
-                        peerComparison: data.peer_comparison,
-                        priceTargets: data.price_targets,
-                      });
-                    }
-                    break;
-
-                  case "debate_round":
-                    // Round metadata -- handled structurally by phase switching
-                    break;
-
-                  case "agent_error":
-                    {
-                      const r: 1 | 2 = currentPhase === "debate" ? 2 : 1;
-                      const errMsg = data.error || "Agent analysis failed";
-                      updateAgentState(r, data.agent, {
-                        stage: "error",
-                        error: errMsg,
-                      });
-                      toast.error(`${data.agent} encountered an error`, {
-                        description: errMsg.length > 100 ? errMsg.slice(0, 100) + "..." : errMsg,
-                      });
-                    }
-                    break;
-
-                  case "insight_extracted":
-                    {
-                      const newInsight: Insight = {
-                        ...data,
-                        timestamp: new Date().toISOString(),
-                      };
-                      
-                      // Dedup based on ID and content hash if needed, but backend sends unique events
-                      // We use Ref for immediate updates if we had other logic, but setState is fine here
-                      // Handle Trinity Events
-                      if (data.type === "bull_case_personalized") {
-                        setTrinityState(prev => ({ ...prev, bull: data.content }));
-                      }
-                      if (data.type === "bear_case_personalized") {
-                        setTrinityState(prev => ({ ...prev, bear: data.content }));
-                      }
-                      if (data.type === "renaissance_verdict") {
-                        setTrinityState(prev => ({ ...prev, renaissance: data.content }));
-                      }
-
-                      setInsights(prev => [...prev, newInsight]);
-                      insightsRef.current.push(newInsight);
-                      
-                      // Toast for high impact items
-                      if (data.type === "impact" && (data.magnitude === "high" || data.score >= 8)) {
-                         toast(data.classification === "risk" ? "⚠️ Portfolio Risk Detected" : "🚀 Portfolio Opportunity", {
-                           description: data.content,
-                           action: { label: "View", onClick: () => {} }
-                         });
-                      }
-                    }
-                    break;
-
-                  case "decision":
-                    setDecision(data);
-                    setKaiThinking("Analysis Complete.");
-                    // Auto-collapse Round 2 when decision arrives
-                    setCollapsedRounds({ 1: true, 2: true });
-                    // Save to analysis history (fire-and-forget)
-                    if (vaultKey && userId) {
-                      KaiHistoryService.saveAnalysis({
-                        userId,
-                        vaultKey,
-                        vaultOwnerToken,
-                        entry: {
-                          ticker: ticker.toUpperCase(),
-                          timestamp: new Date().toISOString(),
-                          decision: data.decision || "hold",
-                          confidence: data.confidence || 0,
-                          consensus_reached: data.consensus_reached ?? false,
-                          agent_votes: data.agent_votes || {},
-                          final_statement: data.final_statement || "",
-                          raw_card: data.raw_card || {},
-                          debate_transcript: {
-                             round1: round1StatesRef.current,
-                             round2: round2StatesRef.current,
-                          },
-                        },
-                      }).then(() => {
-                        // Invalidate caches after decision is persisted
-                        const cache = CacheService.getInstance();
-                        cache.invalidate(CACHE_KEYS.STOCK_CONTEXT(userId, ticker.toUpperCase()));
-                        cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, "kai_analysis_history"));
-                      }).catch((e) => console.warn("[DebateStreamView] History save failed:", e));
-                    }
-                    break;
-
-                  case "error":
-                    {
-                      const errMsg = data.message || "Analysis failed";
-                      const errType = classifyError(null, errMsg);
-
-                      // Attempt retry for server-side errors
-                      if ((errType === "rate_limit" || errType === "server_error") && retryCountRef.current < MAX_RETRIES) {
-                        const delay = RETRY_DELAYS[retryCountRef.current] || 8000;
-                        retryCountRef.current++;
-                        const seconds = Math.ceil(delay / 1000);
-                        setRetryCountdown(seconds);
-                        setErrorType(errType);
-                        setKaiThinking(`Error encountered. Retrying in ${seconds}s...`);
-
-                        retryTimerRef.current = setTimeout(() => {
-                          setRetryCountdown(null);
-                          resetState();
-                          hasStartedRef.current = false;
-                          startStream(true);
-                        }, delay);
-                        return;
-                      }
-
-                      setError(errMsg);
-                      setErrorType(errType);
-                    }
-                    break;
+            switch (resolvedEventType) {
+              case "kai_thinking": {
+                setKaiThinking(
+                  (typeof data.message === "string" && data.message) ||
+                    (typeof data.text === "string" ? data.text : "")
+                );
+                const phase = typeof data.phase === "string" ? data.phase : "";
+                if (phase === "debate" && activeRoundRef.current !== 2) {
+                  activeRoundRef.current = 2;
+                  setActiveRound(2);
+                  setCollapsedRounds({ 1: true, 2: false });
+                  toast.info("Entering Round 2: Debate & Rebuttal");
                 }
-              } catch (e) {
-                // Gracefully skip malformed JSON events
-                console.warn("[DebateStreamView] JSON Parse Error on line:", line, e);
+                break;
               }
+              case "debate_round": {
+                const r = resolveRound(data);
+                if (r === 2 && activeRoundRef.current !== 2) {
+                  activeRoundRef.current = 2;
+                  setActiveRound(2);
+                  setCollapsedRounds({ 1: true, 2: false });
+                }
+                break;
+              }
+              case "agent_start": {
+                const r = resolveRound(data);
+                if (r === 2 && activeRoundRef.current !== 2) {
+                  activeRoundRef.current = 2;
+                  setActiveRound(2);
+                }
+                setActiveAgent((data.agent || "").toString());
+                updateAgentState(r, (data.agent || "").toString(), { stage: "active" });
+                break;
+              }
+              case "agent_token": {
+                const ag = (data.agent || data.agent_name || "").toString().toLowerCase();
+                const txt = (data.text || data.token || "").toString();
+                if (!ag || !txt) break;
+                const r = resolveRound(data);
+                if (r === 2 && activeRoundRef.current !== 2) {
+                  activeRoundRef.current = 2;
+                  setActiveRound(2);
+                }
+
+                const ref = r === 1 ? round1StatesRef : round2StatesRef;
+                const runRef = ref.current;
+                if (runRef?.[ag]) {
+                  runRef[ag] = {
+                    ...runRef[ag],
+                    stage: runRef[ag].stage === "idle" ? "active" : runRef[ag].stage,
+                    text: (runRef[ag].text || "") + txt,
+                  };
+                }
+
+                const setter = r === 1 ? setRound1States : setRound2States;
+                setter((prev) => ({
+                  ...prev,
+                  [ag]: {
+                    ...prev[ag],
+                    stage: prev[ag]?.stage === "idle" ? "active" : prev[ag]?.stage,
+                    text: (prev[ag]?.text || "") + txt,
+                  },
+                }));
+                break;
+              }
+              case "agent_complete": {
+                const r = resolveRound(data);
+                updateAgentState(r, (data.agent || "").toString(), {
+                  stage: "complete",
+                  text: data.summary || "",
+                  thoughts: [],
+                  recommendation: data.recommendation,
+                  confidence: data.confidence,
+                  sources: data.sources,
+                  keyMetrics: data.key_metrics,
+                  quantMetrics: data.quant_metrics,
+                  businessMoat: data.business_moat,
+                  financialResilience: data.financial_resilience,
+                  growthEfficiency: data.growth_efficiency,
+                  bullCase: data.bull_case,
+                  bearCase: data.bear_case,
+                  sentimentScore: data.sentiment_score,
+                  keyCatalysts: data.key_catalysts,
+                  valuationMetrics: data.valuation_metrics,
+                  peerComparison: data.peer_comparison,
+                  priceTargets: data.price_targets,
+                });
+                break;
+              }
+              case "agent_error": {
+                const r = resolveRound(data);
+                const errMsg = data.error || "Agent analysis failed";
+                updateAgentState(r, (data.agent || "").toString(), {
+                  stage: "error",
+                  error: errMsg,
+                });
+                toast.error(`${data.agent} encountered an error`, {
+                  description: errMsg.length > 100 ? errMsg.slice(0, 100) + "..." : errMsg,
+                });
+                break;
+              }
+              case "insight_extracted": {
+                const insightType = (data.type || "claim") as Insight["type"];
+                const newInsight: Insight = {
+                  type: insightType,
+                  agent: (data.agent || "kai").toString(),
+                  content: (data.content || "").toString(),
+                  id: data.id ? data.id.toString() : undefined,
+                  classification: data.classification ? data.classification.toString() : undefined,
+                  confidence: typeof data.confidence === "number" ? data.confidence : undefined,
+                  source: data.source ? data.source.toString() : undefined,
+                  magnitude: data.magnitude ? data.magnitude.toString() : undefined,
+                  score: typeof data.score === "number" ? data.score : undefined,
+                  target_claim_id: data.target_claim_id ? data.target_claim_id.toString() : undefined,
+                  timestamp: new Date().toISOString(),
+                };
+
+                if (data.type === "bull_case_personalized") {
+                  setTrinityState((prev) => ({ ...prev, bull: data.content }));
+                }
+                if (data.type === "bear_case_personalized") {
+                  setTrinityState((prev) => ({ ...prev, bear: data.content }));
+                }
+                if (data.type === "renaissance_verdict") {
+                  setTrinityState((prev) => ({ ...prev, renaissance: data.content }));
+                }
+
+                setInsights((prev) => [...prev, newInsight]);
+                insightsRef.current.push(newInsight);
+                if (data.type === "impact" && (data.magnitude === "high" || data.score >= 8)) {
+                  toast(data.classification === "risk" ? "⚠️ Portfolio Risk Detected" : "🚀 Portfolio Opportunity", {
+                    description: data.content,
+                    action: { label: "View", onClick: () => {} },
+                  });
+                }
+                break;
+              }
+              case "decision": {
+                setDecision(data);
+                setKaiThinking("Analysis Complete.");
+                setCollapsedRounds({ 1: true, 2: true });
+                if (vaultKey && userId) {
+                  KaiHistoryService.saveAnalysis({
+                    userId,
+                    vaultKey,
+                    vaultOwnerToken,
+                    entry: {
+                      ticker: ticker.toUpperCase(),
+                      timestamp: new Date().toISOString(),
+                      decision: data.decision || "hold",
+                      confidence: data.confidence || 0,
+                      consensus_reached: data.consensus_reached ?? false,
+                      agent_votes: data.agent_votes || {},
+                      final_statement: data.final_statement || "",
+                      raw_card: data.raw_card || {},
+                      debate_transcript: {
+                        round1: round1StatesRef.current,
+                        round2: round2StatesRef.current,
+                      },
+                    },
+                  })
+                    .then(() => {
+                      const cache = CacheService.getInstance();
+                      cache.invalidate(CACHE_KEYS.STOCK_CONTEXT(userId, ticker.toUpperCase()));
+                      cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, "kai_analysis_history"));
+                    })
+                    .catch((e) => console.warn("[DebateStreamView] History save failed:", e));
+                }
+                break;
+              }
+              case "error": {
+                const errMsg = data.message || "Analysis failed";
+                const errType = classifyError(null, errMsg);
+                if ((errType === "rate_limit" || errType === "server_error") && retryCountRef.current < MAX_RETRIES) {
+                  const delay = RETRY_DELAYS[retryCountRef.current] || 8000;
+                  retryCountRef.current++;
+                  const seconds = Math.ceil(delay / 1000);
+                  setRetryCountdown(seconds);
+                  setErrorType(errType);
+                  setKaiThinking(`Error encountered. Retrying in ${seconds}s...`);
+
+                  retryTimerRef.current = setTimeout(() => {
+                    setRetryCountdown(null);
+                    resetState();
+                    hasStartedRef.current = false;
+                    startStream(true);
+                  }, delay);
+                  return;
+                }
+                setError(errMsg);
+                setErrorType(errType);
+                break;
+              }
+              default:
+                break;
             }
+          },
+          {
+            signal: abortControllerRef.current.signal,
+            idleTimeoutMs: 120000,
+            requireTerminal: true,
           }
-        }
+        );
       } catch (err: any) {
         if (err.name === "AbortError") {
           console.log("Stream aborted by user");
@@ -774,7 +763,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                 </Badge>
               ) : null}
             </div>
-            {/* Right: History button */}
+            {/* Right: Back button */}
             <div className="flex justify-end">
               <Button 
                 variant="ghost" 
@@ -782,7 +771,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                 onClick={handleClose} 
                 className="shrink-0 h-8 gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
               >
-                <span>History</span>
+                <span>Back to Hub</span>
                 <X className="w-3.5 h-3.5" />
               </Button>
             </div>
@@ -815,118 +804,140 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
       {/* Content - Scrollable */}
       {/* Content - Scrollable split view */}
       <ScrollArea className="flex-1 p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto px-4 sm:px-6 pb-10">
-          
-          {/* Main Debate Column (2/3 width) */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Round 1 */}
-          <RoundTabsCard
-            roundNumber={1}
-            title="Initial Deep Analysis"
-            description="Agents analyze raw data independently."
-            isCollapsed={collapsedRounds[1] || false}
-            onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
-            activeAgent={activeRound === 1 ? activeAgent : undefined}
-            agentStates={round1States}
-            onTabChange={setActiveAgent}
-          />
-
-          {/* Round 2 - Only show if started */}
-          {(activeRound >= 2 || decision) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto px-4 sm:px-6 pb-10">
+          <div className="space-y-6">
             <RoundTabsCard
-              roundNumber={2}
-              title="Strategic Debate"
-              description="Agents challenge and refine positions."
-              isCollapsed={collapsedRounds[2] || false}
-              onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 2: !prev[2] }))}
-              activeAgent={activeRound === 2 ? activeAgent : undefined}
-              agentStates={round2States}
+              roundNumber={1}
+              title="Initial Deep Analysis"
+              description="Agents analyze raw data independently."
+              isCollapsed={collapsedRounds[1] || false}
+              onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
+              activeAgent={activeRound === 1 ? activeAgent : undefined}
+              agentStates={round1States}
               onTabChange={setActiveAgent}
             />
-          )}
 
-          {/* TRINITY CARDS - The New Scientist-Level Layer */}
-          <div className="mb-6">
-            <TrinityCards 
+            {(activeRound >= 2 || decision) && (
+              <RoundTabsCard
+                roundNumber={2}
+                title="Strategic Debate"
+                description="Agents challenge and refine positions."
+                isCollapsed={collapsedRounds[2] || false}
+                onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 2: !prev[2] }))}
+                activeAgent={activeRound === 2 ? activeAgent : undefined}
+                agentStates={round2States}
+                onTabChange={setActiveAgent}
+              />
+            )}
+          </div>
+
+          <div className="space-y-6 lg:sticky lg:top-4 h-fit">
+            <TrinityCards
               bullCase={trinityState.bull}
               bearCase={trinityState.bear}
               renaissanceVerdict={trinityState.renaissance}
             />
-          </div>
 
-          {/* Decision Card (Final Result) */}
-          {decision && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-              <DecisionCard result={decision} />
-            </div>
-          )}
+            {decision ? (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+                <DecisionCard result={decision} />
+              </div>
+            ) : (
+              <Card variant="none" className="p-5 border-dashed">
+                <CardContent className="p-0">
+                  <p className="text-sm font-medium">Final recommendation is building...</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Debate rounds are streaming on the left. Decision card appears here as soon as a terminal decision event arrives.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
 
-          {/* Spacer for bottom */}
-          <div className="h-10" />
-          </div>
-          
-          {/* Live Intel Panel (1/3 width) - Sticky on desktop, Hidden on mobile */}
-          <div className="hidden lg:block lg:col-span-1">
-             <div className="sticky top-4 space-y-4">
+            <Card variant="none" className="p-4">
+              <CardContent className="p-0 space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-sm flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                     Live Intel Graph
                   </h3>
-                  <Badge variant="outline" className="text-[10px] h-5">
-                    {insights.length} Nodes
-                  </Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="text-[10px] h-5">
+                      {insights.length} Nodes
+                    </Badge>
+                    {insights.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 px-2 text-[10px]"
+                        onClick={() =>
+                          intelScrollRef.current?.scrollTo({
+                            top: intelScrollRef.current.scrollHeight,
+                            behavior: "smooth",
+                          })
+                        }
+                      >
+                        <ArrowDown className="w-3 h-3 mr-1" />
+                        Jump to latest
+                      </Button>
+                    )}
+                  </div>
                 </div>
-                
+
                 {insights.length === 0 ? (
-                  <Card variant="none" className="p-6 border-dashed">
-                    <div className="text-center text-xs text-muted-foreground">
-                      <div className="mb-2">Scanning stream for insights...</div>
-                      <Loader2 className="w-4 h-4 animate-spin mx-auto opacity-50" />
-                    </div>
-                  </Card>
+                  <div className="text-center text-xs text-muted-foreground py-6 border border-dashed rounded-lg">
+                    <div className="mb-2">Scanning stream for insights...</div>
+                    <Loader2 className="w-4 h-4 animate-spin mx-auto opacity-50" />
+                  </div>
                 ) : (
-                  <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-1 custom-scrollbar">
+                  <div
+                    ref={intelScrollRef}
+                    className="space-y-3 max-h-[420px] overflow-y-auto pr-1 custom-scrollbar"
+                  >
                     {insights.map((insight, i) => (
                       <div key={i} className="group animate-in slide-in-from-right-2 duration-500 fade-in">
-                        <Card variant="muted" className={`p-3 text-xs border-l-2 ${
-                           insight.type === 'impact' ? (insight.classification === 'risk' ? 'border-l-red-500 bg-red-500/5' : 'border-l-green-500 bg-green-500/5') :
-                           insight.type === 'claim' ? 'border-l-blue-500' :  
-                           'border-l-zinc-500'
-                        }`}>
-                           <div className="flex items-center gap-2 mb-1">
-                             <Badge variant="secondary" className="text-[9px] h-4 px-1 rounded-sm uppercase tracking-wider">
-                               {insight.type.replace('_', ' ')}
-                             </Badge>
-                             <span className="text-[10px] text-muted-foreground uppercase">{insight.agent}</span>
-                           </div>
-                           <p className="leading-relaxed">{insight.content}</p>
-                           
-                           {insight.type === 'impact' && (
-                             <div className="mt-2 flex items-center gap-2">
-                               <Progress value={(insight.score || 0) * 10} className={`h-1 w-16 ${insight.classification === 'risk' ? 'bg-red-100 [&>div]:bg-red-500' : 'bg-green-100 [&>div]:bg-green-500'}`} />
-                               <span className="text-[9px] font-mono">{insight.score}/10 Impact</span>
-                             </div>
-                           )}
-                           
-                           {insight.type === 'evidence' && (
-                             <div className="mt-1 text-[9px] text-muted-foreground/80 flex items-center gap-1">
-                               <ShieldAlert className="w-3 h-3" />
-                               Source: {insight.source}
-                             </div>
-                           )}
+                        <Card
+                          variant="muted"
+                          className={`p-3 text-xs border-l-2 ${
+                            insight.type === "impact"
+                              ? insight.classification === "risk"
+                                ? "border-l-red-500 bg-red-500/5"
+                                : "border-l-green-500 bg-green-500/5"
+                              : insight.type === "claim"
+                                ? "border-l-blue-500"
+                                : "border-l-zinc-500"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <Badge variant="secondary" className="text-[9px] h-4 px-1 rounded-sm uppercase tracking-wider">
+                              {insight.type.replace("_", " ")}
+                            </Badge>
+                            <span className="text-[10px] text-muted-foreground uppercase">{insight.agent}</span>
+                          </div>
+                          <p className="leading-relaxed">{insight.content}</p>
+
+                          {insight.type === "impact" && (
+                            <div className="mt-2 flex items-center gap-2">
+                              <Progress
+                                value={(insight.score || 0) * 10}
+                                className={`h-1 w-16 ${insight.classification === "risk" ? "bg-red-100 [&>div]:bg-red-500" : "bg-green-100 [&>div]:bg-green-500"}`}
+                              />
+                              <span className="text-[9px] font-mono">{insight.score}/10 Impact</span>
+                            </div>
+                          )}
+
+                          {insight.type === "evidence" && (
+                            <div className="mt-1 text-[9px] text-muted-foreground/80 flex items-center gap-1">
+                              <ShieldAlert className="w-3 h-3" />
+                              Source: {insight.source}
+                            </div>
+                          )}
                         </Card>
                       </div>
-                     ))}
-                     {/* Auto-scroll disabled for mobile/passive reading */}
-                     <div ref={(el) => {
-                        if (el && window.innerWidth >= 1024) { // Only auto-scroll on desktop
-                           el.scrollIntoView({ behavior: "smooth" });
-                        }
-                     }} />
+                    ))}
                   </div>
                 )}
-             </div>
+              </CardContent>
+            </Card>
           </div>
 
         </div>

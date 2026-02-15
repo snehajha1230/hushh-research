@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-List available Gemini models and save to file.
+List available Gemini 3 models and save to file.
 Uses google.generativeai SDK (deprecated but still works).
 """
 
@@ -24,7 +24,10 @@ config_file = repo_root / "config" / "available_models.txt"
 
 with open(config_file, "w") as f:
     for m in genai.list_models():
-        if "generateContent" in m.supported_generation_methods:
+        if (
+            "generateContent" in m.supported_generation_methods
+            and "gemini-3" in m.name.lower()
+        ):
             f.write(m.name + "\n")
 
 print(f"Models saved to {config_file}")

@@ -77,6 +77,8 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 **Test env (CI):**  
 `TESTING=true`, `SECRET_KEY`, and `VAULT_ENCRYPTION_KEY` are set in the workflow (see [ci.yml](../../.github/workflows/ci.yml)).
 
+**Consent-token rule for automated tests:** Use fixture-issued VAULT_OWNER tokens from `consent-protocol/tests/conftest.py`. `consent-protocol/tests/dev_test_token.py` is debug-only and must not be required by CI.
+
 **Config files:**
 
 - **Ruff:** [consent-protocol/pyproject.toml](../../consent-protocol/pyproject.toml) â€” `[tool.ruff]` and `[tool.ruff.lint]`. Target Python 3.13, line-length 100, selected rules (E, F, B, I, S), per-file ignores for tests and routes.
@@ -102,6 +104,22 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 | Verify | `npm run verify:routes` (script: `scripts/verify-route-contracts.cjs`) | Yes |
 
 Route contracts must stay in sync between frontend expectations and backend (or proxy) routes. See [API Contracts](api-contracts.md). If you add or change API routes, update the contract and run `npm run verify:routes` (or full local CI).
+
+---
+
+## Streaming Contract Gates
+
+Canonical streaming is a production contract, not an implementation detail.
+
+- Contract source: [Streaming Contract](./streaming-contract.md)
+- Runtime pattern: [Streaming Implementation Guide](./streaming-implementation-guide.md)
+- Vertex constraints: [Vertex AI Streaming Notes](./vertex-ai-streaming-notes.md)
+
+Minimum checks for streaming changes:
+
+- Frontend parser tests: `cd hushh-webapp && npm test -- __tests__/streaming`
+- Frontend stream proxy tests: `cd hushh-webapp && npm test -- __tests__/api/kai`
+- Backend stream/auth tests: `cd consent-protocol && pytest tests/test_kai_auth_matrix.py`
 
 ---
 
@@ -144,6 +162,7 @@ If it exits 0, CI should pass. If it fails, fix the reported step before committ
 - [Getting Started](../guides/getting-started.md) -- Setup and local CI instructions.
 - [API Contracts](api-contracts.md) -- API contract verification.
 - [Architecture](./architecture.md) -- Tri-Flow and service-layer rules.
+- [Streaming Contract](./streaming-contract.md) -- Canonical SSE contract.
 
 ---
 

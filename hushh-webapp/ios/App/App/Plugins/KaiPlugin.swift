@@ -26,13 +26,11 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "grantConsent", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "analyze", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "storePreferences", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "getPreferences", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "resetPreferences", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "importPortfolio", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "analyzePortfolioLosers", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "streamPortfolioImport", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "streamPortfolioAnalyzeLosers", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "streamKaiAnalysis", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "chat", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getInitialChatState", returnType: CAPPluginReturnPromise)
     ]
@@ -50,7 +48,7 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
     private var streamCall: CAPPluginCall?
     private var streamBuffer = ""
     private var streamTask: URLSessionDataTask?
-        private var activeStreamKind: String = "portfolio"
+    private var activeStreamKind: String = "portfolio"
     
     // MARK: - Configuration
     
@@ -270,230 +268,6 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
         }.resume()
     }
     
-    @objc func storePreferences(_ call: CAPPluginCall) {
-        print("[\(TAG)] 🔍 storePreferences called")
-        guard let userId = call.getString("userId") else {
-            print("[\(TAG)] ❌ Missing required parameters")
-            call.reject("Missing required parameters")
-            return
-        }
-
-        // Canonical payload: preferences array (preferred)
-        var preferencesPayload: Any? = nil
-        if let preferences = call.getArray("preferences", JSObject.self) {
-            preferencesPayload = preferences
-        } else if let preferencesEncrypted = call.getString("preferencesEncrypted") {
-            // Legacy payload: stringified JSON array
-            if let data = preferencesEncrypted.data(using: .utf8) {
-                preferencesPayload = try? JSONSerialization.jsonObject(with: data)
-            }
-        }
-
-        guard preferencesPayload != nil else {
-            call.reject("Missing preferences payload")
-            return
-        }
-        
-        // Consent-gated: requires VAULT_OWNER token
-        guard let vaultOwnerToken = call.getString("vaultOwnerToken"), !vaultOwnerToken.isEmpty else {
-            call.reject("Missing required parameter: vaultOwnerToken")
-            return
-        }
-        let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/kai/preferences/store"
-        print("[\(TAG)] 🌐 URL: \(urlStr)")
-        
-        guard let url = URL(string: urlStr) else {
-            call.reject("Invalid URL: \(urlStr)")
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(vaultOwnerToken)", forHTTPHeaderField: "Authorization")
-        
-        let body: [String: Any] = [
-            "user_id": userId,
-            "preferences": preferencesPayload as Any
-        ]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        
-        urlSession.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                let errorMsg = "Network error: \(error.localizedDescription) | backendUrl: \(backendUrl)"
-                print("[\(self.TAG)] ❌ \(errorMsg)")
-                call.reject(errorMsg)
-                return
-            }
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                print("[\(self.TAG)] 📡 Response status: \(httpResponse.statusCode)")
-                if !(200...299).contains(httpResponse.statusCode) {
-                    let bodyStr = data.flatMap { String(data: $0, encoding: .utf8) } ?? "no body"
-                    let truncatedBody = bodyStr.count > 200 ? String(bodyStr.prefix(200)) + "..." : bodyStr
-                    let errorMsg = "HTTP Error \(httpResponse.statusCode) | backendUrl: \(backendUrl) | body: \(truncatedBody)"
-                    print("[\(self.TAG)] ❌ \(errorMsg)")
-                    call.reject(errorMsg)
-                    return
-                }
-            }
-            
-            guard let data = data else {
-                print("[\(self.TAG)] ❌ No data received")
-                call.reject("No data received")
-                return
-            }
-            
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("[\(self.TAG)] ✅ storePreferences success")
-                    call.resolve(json)
-                } else {
-                    print("[\(self.TAG)] ❌ Invalid response format")
-                    call.reject("Invalid response format")
-                }
-            } catch {
-                print("[\(self.TAG)] ❌ JSON parsing error: \(error.localizedDescription)")
-                call.reject("JSON parsing error: \(error.localizedDescription)")
-            }
-        }.resume()
-    }
-    
-    @objc func getPreferences(_ call: CAPPluginCall) {
-        print("[\(TAG)] 🔍 getPreferences called")
-        guard let userId = call.getString("userId") else {
-            print("[\(TAG)] ❌ Missing required parameter: userId")
-            call.reject("Missing required parameter: userId")
-            return
-        }
-        
-        // Consent-gated: requires VAULT_OWNER token
-        guard let vaultOwnerToken = call.getString("vaultOwnerToken"), !vaultOwnerToken.isEmpty else {
-            call.reject("Missing required parameter: vaultOwnerToken")
-            return
-        }
-        let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/kai/preferences/\(userId)"
-        print("[\(TAG)] 🌐 URL: \(urlStr)")
-        
-        guard let url = URL(string: urlStr) else {
-            call.reject("Invalid URL: \(urlStr)")
-            return
-        }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(vaultOwnerToken)", forHTTPHeaderField: "Authorization")
-        
-        urlSession.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                let errorMsg = "Network error: \(error.localizedDescription) | backendUrl: \(backendUrl)"
-                print("[\(self.TAG)] ❌ \(errorMsg)")
-                call.reject(errorMsg)
-                return
-            }
-            
-            if let httpResponse = response as? HTTPURLResponse {
-                print("[\(self.TAG)] 📡 Response status: \(httpResponse.statusCode)")
-                if !(200...299).contains(httpResponse.statusCode) {
-                    let bodyStr = data.flatMap { String(data: $0, encoding: .utf8) } ?? "no body"
-                    let truncatedBody = bodyStr.count > 200 ? String(bodyStr.prefix(200)) + "..." : bodyStr
-                    let errorMsg = "HTTP Error \(httpResponse.statusCode) | backendUrl: \(backendUrl) | body: \(truncatedBody)"
-                    print("[\(self.TAG)] ❌ \(errorMsg)")
-                    call.reject(errorMsg)
-                    return
-                }
-            }
-            
-            guard let data = data else {
-                print("[\(self.TAG)] ❌ No data received")
-                call.reject("No data received")
-                return
-            }
-            
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("[\(self.TAG)] ✅ getPreferences success")
-                    call.resolve(json)
-                } else {
-                    print("[\(self.TAG)] ❌ Invalid response format")
-                    call.reject("Invalid response format")
-                }
-            } catch {
-                print("[\(self.TAG)] ❌ JSON parsing error: \(error.localizedDescription)")
-                call.reject("JSON parsing error: \(error.localizedDescription)")
-            }
-        }.resume()
-    }
-
-    @objc func resetPreferences(_ call: CAPPluginCall) {
-        print("[\(TAG)] 🔍 resetPreferences called")
-        guard let userId = call.getString("userId"),
-              let vaultOwnerToken = call.getString("vaultOwnerToken") else {
-            call.reject("Missing required parameters: userId, vaultOwnerToken")
-            return
-        }
-
-        let backendUrl = getBackendUrl(call)
-        let urlStr = "\(backendUrl)/api/kai/preferences/\(userId)"
-        print("[\(TAG)] 🌐 URL: \(urlStr)")
-
-        guard let url = URL(string: urlStr) else {
-            call.reject("Invalid URL: \(urlStr)")
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(vaultOwnerToken)", forHTTPHeaderField: "Authorization")
-
-        urlSession.dataTask(with: request) { [weak self] data, response, error in
-            guard let self = self else { return }
-            
-            if let error = error {
-                print("[\(self.TAG)] ❌ Network error: \(error.localizedDescription)")
-                call.reject("Network error: \(error.localizedDescription)")
-                return
-            }
-
-            if let httpResponse = response as? HTTPURLResponse {
-                print("[\(self.TAG)] 📡 Response status: \(httpResponse.statusCode)")
-                if !(200...299).contains(httpResponse.statusCode) {
-                    let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? "no body"
-                    print("[\(self.TAG)] ❌ HTTP Error \(httpResponse.statusCode): \(body)")
-                    call.reject("HTTP Error \(httpResponse.statusCode): \(body)")
-                    return
-                }
-            }
-
-            guard let data = data else {
-                print("[\(self.TAG)] ❌ No data received")
-                call.reject("No data received")
-                return
-            }
-
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    print("[\(self.TAG)] ✅ resetPreferences success")
-                    call.resolve(json)
-                } else {
-                    print("[\(self.TAG)] ✅ resetPreferences success (no body)")
-                    call.resolve(["success": true])
-                }
-            } catch {
-                print("[\(self.TAG)] ❌ JSON parsing error: \(error.localizedDescription)")
-                call.reject("JSON parsing error: \(error.localizedDescription)")
-            }
-        }.resume()
-    }
-    
     // MARK: - Portfolio Import
     
     @objc func importPortfolio(_ call: CAPPluginCall) {
@@ -697,61 +471,84 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
     
-    private func emitSSEEvent(_ data: [String: Any]) {
+    private func emitPortfolioEvent(_ data: [String: Any]) {
         DispatchQueue.main.async { [weak self] in
             self?.notifyListeners(KaiPlugin.kPortfolioStreamEvent, data: data)
         }
     }
 
-    private func emitKaiSSEEvent(_ data: [String: Any]) {
+    private func emitKaiEvent(_ data: [String: Any]) {
         DispatchQueue.main.async { [weak self] in
             self?.notifyListeners(KaiPlugin.kKaiStreamEvent, data: data)
         }
     }
     
-    private func parseSSELinesAndEmit() {
-        let lines = streamBuffer.split(separator: "\n", omittingEmptySubsequences: false)
-        guard !lines.isEmpty else { return }
-        let fullLines = lines.dropLast(1).map { String($0) }
-        let last = String(lines.last ?? "")
-        streamBuffer = last
-        
-        for line in fullLines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("data: ") else { continue }
-            let jsonStr = String(trimmed.dropFirst(6))
-            guard let jsonData = jsonStr.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else { continue }
-            // Default to portfolio stream event for existing streaming flows.
-            emitSSEEvent(obj)
+    private func parseJSONObject(_ rawData: String) -> [String: Any]? {
+        guard let data = rawData.data(using: .utf8) else { return nil }
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return object
         }
+        if let jsonValue = try? JSONSerialization.jsonObject(with: data) as? String,
+           let nested = jsonValue.data(using: .utf8),
+           let nestedObject = try? JSONSerialization.jsonObject(with: nested) as? [String: Any] {
+            return nestedObject
+        }
+        return nil
     }
 
-    private func parseSSELinesAndEmitKai() {
-        let lines = streamBuffer.split(separator: "\n", omittingEmptySubsequences: false)
-        guard !lines.isEmpty else { return }
-        let fullLines = lines.dropLast(1).map { String($0) }
-        let last = String(lines.last ?? "")
-        streamBuffer = last
+    private func parseSSEBlock(_ block: String) -> (eventName: String?, eventId: String?, payload: [String: Any]?) {
+        var eventName: String?
+        var eventId: String?
+        var dataLines: [String] = []
 
-        for line in fullLines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            guard trimmed.hasPrefix("data: ") else { continue }
-            let jsonStr = String(trimmed.dropFirst(6))
-            guard let jsonData = jsonStr.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] else { continue }
-            emitKaiSSEEvent(obj)
+        for raw in block.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(raw).trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("event:") {
+                eventName = line.dropFirst(6).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("id:") {
+                eventId = line.dropFirst(3).trimmingCharacters(in: .whitespaces)
+            } else if line.hasPrefix("data:") {
+                dataLines.append(line.dropFirst(5).trimmingCharacters(in: .whitespaces))
+            }
+        }
+
+        let dataText = dataLines.joined(separator: "\n")
+        guard !dataText.isEmpty else { return (eventName, eventId, nil) }
+        return (eventName, eventId, parseJSONObject(dataText))
+    }
+
+    private func parseSSEBlocksAndEmit(isKai: Bool) {
+        while let range = streamBuffer.range(of: "\n\n") {
+            let block = String(streamBuffer[..<range.lowerBound])
+            streamBuffer = String(streamBuffer[range.upperBound...])
+            let parsed = parseSSEBlock(block)
+            guard let payload = parsed.payload else { continue }
+            let eventType = parsed.eventName ?? "message"
+
+            if isKai {
+                emitKaiEvent([
+                    "event": eventType,
+                    "data": payload,
+                    "id": parsed.eventId ?? "",
+                ])
+            } else {
+                emitPortfolioEvent([
+                    "event": eventType,
+                    "data": payload,
+                    "id": parsed.eventId ?? "",
+                ])
+            }
         }
     }
     
     public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         if let str = String(data: data, encoding: .utf8) {
-            streamBuffer += str
+            streamBuffer += str.replacingOccurrences(of: "\r\n", with: "\n")
             // The active stream decides which parser to use.
             if activeStreamKind == "kai" {
-                parseSSELinesAndEmitKai()
+                parseSSEBlocksAndEmit(isKai: true)
             } else {
-                parseSSELinesAndEmit()
+                parseSSEBlocksAndEmit(isKai: false)
             }
         }
     }
@@ -763,10 +560,11 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
         
         // Process any remaining buffer before clearing
         if !streamBuffer.isEmpty {
+            streamBuffer += "\n\n"
             if activeStreamKind == "kai" {
-                parseSSELinesAndEmitKai()
+                parseSSEBlocksAndEmit(isKai: true)
             } else {
-                parseSSELinesAndEmit()
+                parseSSEBlocksAndEmit(isKai: false)
             }
         }
         streamBuffer = ""
@@ -880,6 +678,7 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
             call.reject("A stream is already in progress")
             return
         }
+        activeStreamKind = "portfolio"
         
         let backendUrl = getBackendUrl(call)
         let urlStr = "\(backendUrl)/api/kai/portfolio/analyze-losers/stream"

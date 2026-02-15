@@ -4,7 +4,7 @@ This directory contains configuration files and data lists used across the proje
 
 ## Contents
 
-- `available_models.txt` - List of available Gemini models
+- `available_models.txt` - List of available Gemini 3 models
 
 ## Usage
 
@@ -12,6 +12,9 @@ These files are typically referenced by:
 - Development scripts (`scripts/`)
 - Documentation
 - CI/CD workflows
+
+Model policy:
+- `available_models.txt` is intentionally Gemini 3 only.
 
 ## Adding New Config Files
 

@@ -97,6 +97,22 @@ if [ $FAIL -ne 0 ]; then
   exit 1
 fi
 
+echo "▶ Enforcing Gemini 3-only policy..."
+LEGACY_GEMINI_PATTERN="gemini-2\\.[0-9]|Gemini [0-9]\\.[0-9]"
+if rg -n "$LEGACY_GEMINI_PATTERN" docs consent-protocol hushh-webapp config scripts > /dev/null 2>&1; then
+  echo "❌ ERROR: Legacy Gemini reference detected. Remove all pre-3.x mentions."
+  rg -n "$LEGACY_GEMINI_PATTERN" docs consent-protocol hushh-webapp config scripts | head -20
+  FAIL=1
+else
+  echo "  ✓ No legacy Gemini references found"
+fi
+
+if [ $FAIL -ne 0 ]; then
+  echo ""
+  echo "❌ Policy checks failed. Fix the errors above before continuing."
+  exit 1
+fi
+
 echo ""
 
 # ============================================================================

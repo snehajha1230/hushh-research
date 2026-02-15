@@ -7,7 +7,7 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import org.json.JSONArray
+import org.json.JSONTokener
 import java.io.BufferedReader
 import java.io.IOException
 import java.io.InputStreamReader
@@ -298,177 +298,6 @@ class KaiPlugin : Plugin() {
     }
     
     @PluginMethod
-    fun storePreferences(call: PluginCall) {
-        val userId = call.getString("userId") ?: run {
-            call.reject("Missing userId")
-            return
-        }
-
-        // Canonical payload: preferences array (preferred)
-        val preferencesArray = call.getArray("preferences")
-        val preferencesEncrypted = call.getString("preferencesEncrypted") // legacy
-        if (preferencesArray == null && preferencesEncrypted == null) {
-            call.reject("Missing preferences payload")
-            return
-        }
-        
-        // Use VAULT_OWNER token for consent-gated access
-        val vaultOwnerToken = call.getString("vaultOwnerToken")
-        val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/kai/preferences/store"
-        
-        val json = JSONObject().apply {
-            put("user_id", userId)
-            when {
-                preferencesArray != null -> put("preferences", preferencesArray)
-                else -> {
-                    // Legacy: parse stringified JSON array
-                    val parsed = JSONArray(preferencesEncrypted)
-                    put("preferences", parsed)
-                }
-            }
-        }
-        
-        val body = json.toString().toRequestBody("application/json".toMediaType())
-        
-        val requestBuilder = Request.Builder().url(url).post(body)
-        
-        if (vaultOwnerToken != null) {
-            requestBuilder.addHeader("Authorization", "Bearer $vaultOwnerToken")
-        }
-        
-        val request = requestBuilder.build()
-        val pluginCall = call
-        
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: okhttp3.Call, e: IOException) {
-                val errorMsg = "Network error: ${e.message} | backendUrl: $backendUrl"
-                android.util.Log.e(TAG, "❌ [analyze] $errorMsg")
-                pluginCall.reject(errorMsg)
-            }
-            
-            override fun onResponse(call: okhttp3.Call, response: Response) {
-                val responseBody = response.body?.string()
-                
-                if (!response.isSuccessful || responseBody == null) {
-                    pluginCall.reject("Request failed: ${response.code}")
-                    return
-                }
-                
-                try {
-                    val result = JSObject(responseBody)
-                    pluginCall.resolve(result)
-                } catch (e: Exception) {
-                    pluginCall.reject("JSON parsing error: ${e.message}")
-                }
-            }
-        })
-    }
-    
-    @PluginMethod
-    fun getPreferences(call: PluginCall) {
-        val userId = call.getString("userId") ?: run {
-            call.reject("Missing userId")
-            return
-        }
-        
-        // Use VAULT_OWNER token for consent-gated access
-        val vaultOwnerToken = call.getString("vaultOwnerToken")
-        val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/kai/preferences/$userId"
-        
-        android.util.Log.d("KaiPlugin", "🔍 getPreferences called for userId: $userId")
-        android.util.Log.d("KaiPlugin", "🌐 URL: $url")
-        
-        val requestBuilder = Request.Builder().url(url).get()
-        
-        if (vaultOwnerToken != null) {
-            requestBuilder.addHeader("Authorization", "Bearer $vaultOwnerToken")
-            android.util.Log.d("KaiPlugin", "🔑 VAULT_OWNER token added")
-        }
-        
-        val request = requestBuilder.build()
-        val pluginCall = call
-        
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: okhttp3.Call, e: IOException) {
-                android.util.Log.e("KaiPlugin", "❌ Network error getting preferences: ${e.message}")
-                pluginCall.reject("Network error: ${e.message}")
-            }
-            
-            override fun onResponse(call: okhttp3.Call, response: Response) {
-                val responseBody = response.body?.string()
-                
-                android.util.Log.d("KaiPlugin", "📡 Response code: ${response.code}")
-                android.util.Log.d("KaiPlugin", "📦 Response body: ${responseBody?.take(200)}")
-                
-                if (!response.isSuccessful || responseBody == null) {
-                    android.util.Log.e("KaiPlugin", "❌ Failed to get preferences: HTTP ${response.code}")
-                    pluginCall.reject("Request failed: ${response.code}")
-                    return
-                }
-                
-                try {
-                    val result = JSObject(responseBody)
-                    android.util.Log.d("KaiPlugin", "✅ Preferences retrieved successfully")
-                    pluginCall.resolve(result)
-                } catch (e: Exception) {
-                    android.util.Log.e("KaiPlugin", "❌ JSON parsing error: ${e.message}")
-                    pluginCall.reject("JSON parsing error: ${e.message}")
-                }
-            }
-        })
-    }
-
-    @PluginMethod
-    fun resetPreferences(call: PluginCall) {
-        val userId = call.getString("userId") ?: run {
-            call.reject("Missing userId")
-            return
-        }
-        val vaultOwnerToken = call.getString("vaultOwnerToken") ?: run {
-            call.reject("Missing vaultOwnerToken")
-            return
-        }
-
-        val backendUrl = getBackendUrl(call)
-        val url = "$backendUrl/api/kai/preferences/$userId"
-
-        val request = Request.Builder()
-            .url(url)
-            .delete()
-            .addHeader("Authorization", "Bearer $vaultOwnerToken")
-            .build()
-
-        val pluginCall = call
-        httpClient.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: okhttp3.Call, e: IOException) {
-                val errorMsg = "Network error: ${e.message} | backendUrl: $backendUrl"
-                android.util.Log.e(TAG, "❌ [analyze] $errorMsg")
-                pluginCall.reject(errorMsg)
-            }
-
-            override fun onResponse(call: okhttp3.Call, response: Response) {
-                val responseBody = response.body?.string()
-                if (!response.isSuccessful) {
-                    pluginCall.reject("Request failed: ${response.code}")
-                    return
-                }
-                try {
-                    val result = if (responseBody.isNullOrBlank()) {
-                        JSObject().put("success", true)
-                    } else {
-                        JSObject(responseBody)
-                    }
-                    pluginCall.resolve(result)
-                } catch (e: Exception) {
-                    pluginCall.resolve(JSObject().put("success", true))
-                }
-            }
-        })
-    }
-
-    @PluginMethod
     fun importPortfolio(call: PluginCall) {
         android.util.Log.d(TAG, "🔍 importPortfolio called")
         
@@ -576,18 +405,92 @@ class KaiPlugin : Plugin() {
         private const val KAI_STREAM_EVENT = "kaiStreamEvent"
     }
 
-    /** Emit one SSE event to JS (same shape as iOS: event.data = parsed object). */
-    private fun emitPortfolioStreamEvent(parsed: JSObject) {
-        val wrap = JSObject()
-        wrap.put("data", parsed)
-        notifyListeners(PORTFOLIO_STREAM_EVENT, wrap)
+    /** Emit one canonical SSE envelope to JS. */
+    private fun emitPortfolioStreamEvent(envelope: JSObject) {
+        notifyListeners(PORTFOLIO_STREAM_EVENT, envelope)
     }
 
-    /** Emit one Kai SSE event to JS (same shape: event.data = parsed object). */
-    private fun emitKaiStreamEvent(parsed: JSObject) {
-        val wrap = JSObject()
-        wrap.put("data", parsed)
-        notifyListeners(KAI_STREAM_EVENT, wrap)
+    /** Emit one canonical SSE envelope to JS. */
+    private fun emitKaiStreamEvent(envelope: JSObject) {
+        notifyListeners(KAI_STREAM_EVENT, envelope)
+    }
+
+    private fun parseSsePayloadObject(dataText: String): JSObject? {
+        return try {
+            val parsed = JSONTokener(dataText).nextValue()
+            when (parsed) {
+                is JSONObject -> JSObject(parsed.toString())
+                is String -> {
+                    val nested = parsed.trim()
+                    if (nested.startsWith("{") && nested.endsWith("}")) JSObject(nested) else null
+                }
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun emitPortfolioSseBlock(eventName: String?, eventId: String?, dataText: String) {
+        val payload = parseSsePayloadObject(dataText) ?: JSObject().apply { put("raw", dataText) }
+        val eventType = eventName ?: "message"
+        val envelope = JSObject()
+        envelope.put("event", eventType)
+        envelope.put("id", eventId ?: "")
+        envelope.put("data", payload)
+        emitPortfolioStreamEvent(envelope)
+    }
+
+    private fun emitKaiSseBlock(eventName: String?, eventId: String?, dataText: String) {
+        val payload = parseSsePayloadObject(dataText) ?: JSObject().apply { put("message", dataText) }
+        val eventType = eventName ?: "message"
+
+        val envelope = JSObject()
+        envelope.put("event", eventType)
+        envelope.put("id", eventId ?: "")
+        envelope.put("data", payload)
+        emitKaiStreamEvent(envelope)
+    }
+
+    private fun processSseBlock(block: String, onBlock: (String?, String?, String) -> Unit) {
+        var eventName: String? = null
+        var eventId: String? = null
+        val dataLines = mutableListOf<String>()
+        for (line in block.split('\n')) {
+            val trimmed = line.trim()
+            when {
+                trimmed.startsWith("event:") -> {
+                    eventName = trimmed.removePrefix("event:").trim().ifEmpty { null }
+                }
+                trimmed.startsWith("id:") -> {
+                    eventId = trimmed.removePrefix("id:").trim().ifEmpty { null }
+                }
+                trimmed.startsWith("data:") -> {
+                    dataLines.add(trimmed.removePrefix("data:").trim())
+                }
+            }
+        }
+        if (dataLines.isEmpty()) return
+        onBlock(eventName, eventId, dataLines.joinToString("\n"))
+    }
+
+    private fun processSseStream(reader: BufferedReader, onBlock: (String?, String?, String) -> Unit) {
+        val block = StringBuilder()
+        var line: String?
+        while (reader.readLine().also { line = it } != null) {
+            val current = line ?: continue
+            if (current.isBlank()) {
+                if (block.isNotEmpty()) {
+                    processSseBlock(block.toString(), onBlock)
+                    block.setLength(0)
+                }
+                continue
+            }
+            block.append(current).append('\n')
+        }
+        if (block.isNotEmpty()) {
+            processSseBlock(block.toString(), onBlock)
+        }
     }
 
     @PluginMethod
@@ -624,18 +527,9 @@ class KaiPlugin : Plugin() {
                     return@Thread
                 }
                 body.byteStream().use { stream ->
-                    BufferedReader(InputStreamReader(stream)).use { reader ->
-                        var line: String?
-                        while (reader.readLine().also { line = it } != null) {
-                            val l = line!!
-                            if (l.startsWith("data: ")) {
-                                try {
-                                    val jsonStr = l.substring(6)
-                                    emitKaiStreamEvent(JSObject(jsonStr))
-                                } catch (_: Exception) {
-                                    /* skip */
-                                }
-                            }
+                    BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+                        processSseStream(reader) { eventName, eventId, dataText ->
+                            emitKaiSseBlock(eventName, eventId, dataText)
                         }
                     }
                 }
@@ -701,16 +595,9 @@ class KaiPlugin : Plugin() {
                     return@Thread
                 }
                 body.byteStream().use { stream ->
-                    BufferedReader(InputStreamReader(stream)).use { reader ->
-                        var line: String?
-                        while (reader.readLine().also { line = it } != null) {
-                            val l = line!!
-                            if (l.startsWith("data: ")) {
-                                try {
-                                    val jsonStr = l.substring(6)
-                                    emitPortfolioStreamEvent(JSObject(jsonStr))
-                                } catch (_: Exception) { /* skip parse error */ }
-                            }
+                    BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+                        processSseStream(reader) { eventName, eventId, dataText ->
+                            emitPortfolioSseBlock(eventName, eventId, dataText)
                         }
                     }
                 }
@@ -754,16 +641,9 @@ class KaiPlugin : Plugin() {
                     return@Thread
                 }
                 body.byteStream().use { stream ->
-                    BufferedReader(InputStreamReader(stream)).use { reader ->
-                        var line: String?
-                        while (reader.readLine().also { line = it } != null) {
-                            val l = line!!
-                            if (l.startsWith("data: ")) {
-                                try {
-                                    val jsonStr = l.substring(6)
-                                    emitPortfolioStreamEvent(JSObject(jsonStr))
-                                } catch (_: Exception) { /* skip */ }
-                            }
+                    BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
+                        processSseStream(reader) { eventName, eventId, dataText ->
+                            emitPortfolioSseBlock(eventName, eventId, dataText)
                         }
                     }
                 }

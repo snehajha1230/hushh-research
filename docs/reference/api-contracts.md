@@ -118,13 +118,11 @@ POST /api/consent/vault-owner-token  (Firebase Bearer)
 | ------ | ---- | ----------- |
 | GET | `/api/kai/decisions/{user_id}` | Decision history from domain summaries |
 
-#### Kai Preferences
+#### Kai Personalization
 
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| POST | `/api/kai/preferences/store` | Store user preferences |
-| GET | `/api/kai/preferences/{user_id}` | Retrieve user preferences |
-| DELETE | `/api/kai/preferences/{user_id}` | Delete Kai preferences |
+Kai personalization no longer uses dedicated `/api/kai/preferences/*` endpoints.
+Optional intro fields are persisted in encrypted world-model domain `kai_profile`.
+Frontend path: first entry auto-opens optional intro modal on `/kai/dashboard`; reopen anytime via dashboard 3-dot menu -> `Personalize Kai`.
 
 #### Account & Sync
 

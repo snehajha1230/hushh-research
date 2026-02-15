@@ -294,29 +294,8 @@ Agent Kai stock analysis plugin.
 
 **Returns:** Full analysis response object.
 
-### storePreferences
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| userId | string | Yes | User ID |
-| preferences | KaiEncryptedPreference[] | No | Encrypted preferences array |
-| authToken | string | No | Firebase ID token |
-
-### getPreferences
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| userId | string | Yes | User ID |
-| authToken | string | No | Firebase ID token |
-
-**Returns:**
-| Field | Type | Description |
-|-------|------|-------------|
-| preferences | any[] | Encrypted preferences |
-
-### resetPreferences
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| userId | string | Yes | User ID |
-| vaultOwnerToken | string | Yes | VAULT_OWNER consent token |
+Kai no longer exposes plugin methods for `/api/kai/preferences/*`.
+Optional onboarding profile data is stored in encrypted world-model domain `kai_profile`.
 
 ---
 

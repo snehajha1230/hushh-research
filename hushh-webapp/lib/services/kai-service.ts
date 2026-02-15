@@ -13,8 +13,7 @@
  * SECURITY: Token is NEVER read from sessionStorage (XSS protection).
  */
 
-import { Capacitor } from "@capacitor/core";
-import { Kai, type KaiEncryptedPreference } from "@/lib/capacitor/kai";
+import { Kai } from "@/lib/capacitor/kai";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
@@ -136,80 +135,6 @@ export async function analyzeTicker(params: {
 }
 
 /**
- * Store Encrypted Preferences
- * Requires VAULT_OWNER token for consent-gated data access.
- */
-export async function storePreferences(
-  userId: string,
-  preferences: KaiEncryptedPreference[],
-  vaultOwnerToken?: string
-): Promise<{ success: boolean }> {
-  // Use provided token or get from sessionStorage
-  const token = vaultOwnerToken || requireVaultOwnerToken();
-
-  return Kai.storePreferences({
-    userId,
-    preferences,
-    vaultOwnerToken: token,
-  });
-}
-
-/**
- * Get Encrypted Preferences
- * Requires VAULT_OWNER token for consent-gated data access.
- */
-export async function getPreferences(
-  userId: string,
-  vaultOwnerToken?: string
-): Promise<{ preferences: any[] }> {
-  const isNative = Capacitor.isNativePlatform();
-  console.log(
-    "[KaiService] getPreferences - Platform:",
-    isNative ? "NATIVE" : "WEB"
-  );
-  console.log("[KaiService] Capacitor platform:", Capacitor.getPlatform());
-  console.log("[KaiService] userId:", userId);
-
-  // Use provided token or get from sessionStorage
-  const token = vaultOwnerToken || requireVaultOwnerToken();
-  console.log("[KaiService] vaultOwnerToken present:", !!token);
-
-  try {
-    const result = await Kai.getPreferences({
-      userId,
-      vaultOwnerToken: token,
-    });
-    console.log(
-      "[KaiService] getPreferences success, preferences count:",
-      result.preferences?.length || 0
-    );
-    return result;
-  } catch (error: any) {
-    console.error("[KaiService] getPreferences error:", error);
-    console.error("[KaiService] Error details:", {
-      message: error.message,
-      stack: error.stack,
-      platform: isNative ? "native" : "web",
-    });
-    throw error;
-  }
-}
-
-/**
- * Reset (delete) all Kai encrypted preferences for a user.
- * Requires VAULT_OWNER token.
- */
-export async function resetPreferences(
-  userId: string,
-  vaultOwnerToken: string
-): Promise<{ success: boolean }> {
-  return Kai.resetPreferences({
-    userId,
-    vaultOwnerToken,
-  });
-}
-
-/**
  * Get User's Encrypted Investor Profile (Ciphertext)
  *
  * NOTE: `/api/identity/profile` has been removed from the product flow.
@@ -236,7 +161,7 @@ export async function analyzeFundamental(params: {
   context: any;
   token: string;
 }): Promise<any> {
-  // Use provided token or get from sessionStorage
+  // Use explicit token or memory token from useVault()-fed setter.
   const vaultOwnerToken = params.token || requireVaultOwnerToken();
 
   // Use Kai plugin (platform-aware)

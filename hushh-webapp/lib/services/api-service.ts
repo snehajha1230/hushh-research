@@ -23,6 +23,7 @@
 import { Capacitor } from "@capacitor/core";
 import { HushhVault, HushhAuth, HushhConsent, HushhNotifications } from "@/lib/capacitor";
 import { Kai, PORTFOLIO_STREAM_EVENT, KAI_STREAM_EVENT } from "@/lib/capacitor/kai";
+import { isKaiStreamEnvelope, type KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { AuthService } from "@/lib/services/auth-service";
 
 // API Base URL configuration
@@ -948,92 +949,6 @@ export class ApiService {
   }
 
   /**
-   * Store Kai preferences
-   */
-  static async kaiStorePreferences(data: {
-    userId: string;
-    preferences: any[];
-  }): Promise<Response> {
-    if (Capacitor.isNativePlatform()) {
-      try {
-        const vaultOwnerToken = this.getVaultOwnerToken() || undefined;
-        const result = await Kai.storePreferences({
-          userId: data.userId,
-          preferences: data.preferences as any,
-          vaultOwnerToken,
-        });
-
-        return new Response(JSON.stringify(result), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (error) {
-        console.error("[ApiService] Native kaiStorePreferences error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
-          status: 500,
-        });
-      }
-    }
-
-    const vaultOwnerToken = this.getVaultOwnerToken();
-    if (!vaultOwnerToken) {
-      return new Response(JSON.stringify({ error: "Vault must be unlocked" }), {
-        status: 401,
-      });
-    }
-
-    return apiFetch("/api/kai/preferences/store", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${vaultOwnerToken}`,
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        preferences: data.preferences,
-      }),
-    });
-  }
-
-  /**
-   * Get Kai preferences
-   */
-  static async kaiGetPreferences(data: { userId: string }): Promise<Response> {
-    if (Capacitor.isNativePlatform()) {
-      try {
-        const vaultOwnerToken = this.getVaultOwnerToken() || undefined;
-        const result = await Kai.getPreferences({
-          userId: data.userId,
-          vaultOwnerToken,
-        });
-
-        return new Response(JSON.stringify(result), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (error) {
-        console.error("[ApiService] Native kaiGetPreferences error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
-          status: 500,
-        });
-      }
-    }
-
-    const vaultOwnerToken = this.getVaultOwnerToken();
-    if (!vaultOwnerToken) {
-      return new Response(JSON.stringify({ error: "Vault must be unlocked" }), {
-        status: 401,
-      });
-    }
-
-    return apiFetch(`/api/kai/preferences/${data.userId}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${vaultOwnerToken}`,
-      },
-    });
-  }
-
-  /**
    * Send message to Kai chat agent
    *
    * This is the primary method for conversational interaction with Kai.
@@ -1121,26 +1036,28 @@ export class ApiService {
             let sawTerminalEvent = false;
             Kai.addListener(
               PORTFOLIO_STREAM_EVENT,
-              (event: { data?: Record<string, unknown> }) => {
-                // Android wrapper shape: { data: { type, ... } }
-                // iOS direct shape: { type, ... , data: <analysis> }
-                // If `type` exists at top-level, it's the SSE event itself.
-                const data =
-                  (event as any)?.type !== undefined
-                    ? (event as any)
-                    : event?.data !== undefined
-                      ? event.data
-                      : (event as any);
-                // Emit standard SSE frame terminator so consumers that split on
-                // double-newlines behave consistently on native.
+              (event: Record<string, unknown>) => {
+                const eventType =
+                  typeof event.event === "string" ? event.event : null;
+                const envelopeCandidate = event.data;
+                if (!eventType || !isKaiStreamEnvelope(envelopeCandidate)) {
+                  controller.error(new Error("Invalid native portfolio stream event"));
+                  return;
+                }
+
+                const envelope = envelopeCandidate as KaiStreamEnvelope;
+                if (envelope.event !== eventType) {
+                  controller.error(new Error("Native SSE event mismatch"));
+                  return;
+                }
+
                 controller.enqueue(
-                  encoder.encode("data: " + JSON.stringify(data) + "\n\n")
+                  encoder.encode(
+                    `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
+                  )
                 );
 
-                // Terminal-event gate: only close once the UI has had a chance
-                // to observe a complete/error event.
-                const type = (data as any)?.type;
-                if (type === "complete" || type === "error") {
+                if (envelope.terminal) {
                   sawTerminalEvent = true;
                 }
               }
@@ -1163,7 +1080,7 @@ export class ApiService {
                     }
                   };
 
-                  const fallbackMs = 1500;
+                  const fallbackMs = 300;
                   if (sawTerminalEvent) {
                     // Give the reader a tick to drain queued events.
                     setTimeout(close, 100);
@@ -1269,7 +1186,7 @@ export class ApiService {
   }): Promise<Response> {
     if (Capacitor.isNativePlatform()) {
       try {
-        const vaultOwnerToken = data.vaultOwnerToken || this.getVaultOwnerToken();
+        const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
@@ -1318,7 +1235,7 @@ export class ApiService {
 
     if (Capacitor.isNativePlatform()) {
       try {
-        const vaultOwnerToken = data.vaultOwnerToken || this.getVaultOwnerToken();
+        const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
@@ -1477,7 +1394,7 @@ export class ApiService {
     // Native: use Kai plugin for real-time SSE (WKWebView buffers fetch() response body)
     if (Capacitor.isNativePlatform()) {
       try {
-        const vaultOwnerToken = data.vaultOwnerToken || this.getVaultOwnerToken();
+        const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
@@ -1491,19 +1408,28 @@ export class ApiService {
             let sawTerminalEvent = false;
             Kai.addListener(
               PORTFOLIO_STREAM_EVENT,
-              (event: { data?: Record<string, unknown> }) => {
-                const payload =
-                  (event as any)?.type !== undefined
-                    ? (event as any)
-                    : event?.data !== undefined
-                      ? event.data
-                      : (event as any);
+              (event: Record<string, unknown>) => {
+                const eventType =
+                  typeof event.event === "string" ? event.event : null;
+                const envelopeCandidate = event.data;
+                if (!eventType || !isKaiStreamEnvelope(envelopeCandidate)) {
+                  controller.error(new Error("Invalid native optimize stream event"));
+                  return;
+                }
+
+                const envelope = envelopeCandidate as KaiStreamEnvelope;
+                if (envelope.event !== eventType) {
+                  controller.error(new Error("Native SSE event mismatch"));
+                  return;
+                }
+
                 controller.enqueue(
-                  encoder.encode("data: " + JSON.stringify(payload) + "\n\n")
+                  encoder.encode(
+                    `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
+                  )
                 );
 
-                const type = (payload as any)?.type;
-                if (type === "complete" || type === "error") {
+                if (envelope.terminal) {
                   sawTerminalEvent = true;
                 }
               }
@@ -1521,7 +1447,7 @@ export class ApiService {
                     }
                   };
 
-                  const fallbackMs = 1500;
+                  const fallbackMs = 300;
                   if (sawTerminalEvent) {
                     setTimeout(close, 100);
                   } else {
@@ -1579,7 +1505,7 @@ export class ApiService {
 
     if (Capacitor.isNativePlatform()) {
       try {
-        const vaultOwnerToken = data.vaultOwnerToken || this.getVaultOwnerToken();
+        const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
@@ -1654,7 +1580,7 @@ export class ApiService {
     // Native: use Kai plugin and expose a ReadableStream of SSE text
     if (Capacitor.isNativePlatform()) {
       try {
-        const vaultOwnerToken = data.vaultOwnerToken || this.getVaultOwnerToken();
+        const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
@@ -1667,18 +1593,29 @@ export class ApiService {
 
         const stream = new ReadableStream<Uint8Array>({
           start(controller) {
-            Kai.addListener(KAI_STREAM_EVENT, (event: { data?: Record<string, unknown> }) => {
-              const payload = event?.data !== undefined ? event.data : (event as unknown as Record<string, unknown>);
-              try {
-                const maybeType = (payload as any)?.event || (payload as any)?.type;
-                if (maybeType === "decision" || maybeType === "complete" || maybeType === "error") {
-                  sawTerminalEvent = true;
-                }
-              } catch {
-                // ignore
+            Kai.addListener(KAI_STREAM_EVENT, (event: Record<string, unknown>) => {
+              const eventType =
+                typeof event.event === "string" ? event.event : null;
+              const envelopeCandidate = event.data;
+              if (!eventType || !isKaiStreamEnvelope(envelopeCandidate)) {
+                controller.error(new Error("Invalid native analyze stream event"));
+                return;
               }
+
+              const envelope = envelopeCandidate as KaiStreamEnvelope;
+              if (envelope.event !== eventType) {
+                controller.error(new Error("Native SSE event mismatch"));
+                return;
+              }
+
+              if (envelope.terminal) {
+                sawTerminalEvent = true;
+              }
+
               controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify(payload)}\n`)
+                encoder.encode(
+                  `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
+                )
               );
             }).then((listener) => {
               Kai.streamKaiAnalysis({
@@ -1694,7 +1631,7 @@ export class ApiService {
                     }
                   };
 
-                  const fallbackMs = 1500;
+                  const fallbackMs = 300;
                   if (sawTerminalEvent) {
                     setTimeout(close, 100);
                   } else {
