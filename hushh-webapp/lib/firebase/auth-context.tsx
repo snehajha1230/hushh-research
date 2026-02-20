@@ -33,6 +33,8 @@ import {
 import { auth, getRecaptchaVerifier, resetRecaptcha } from "./config";
 import { Capacitor } from "@capacitor/core";
 import { AuthService } from "@/lib/services/auth-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { ROUTES } from "@/lib/navigation/routes";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -232,6 +234,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const { AuthService } = await import("@/lib/services/auth-service");
       await AuthService.signOut(); // Handles Native + Firebase
+      CacheSyncService.onAuthSignedOut(currentUid ?? null);
 
       setUser(null);
       setPhoneNumber(null);
@@ -244,7 +247,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       localStorage.removeItem("user_id");
       sessionStorage.clear();
 
-      router.push("/");
+      router.push(ROUTES.HOME);
     } catch (e) {
       console.error("Sign out error", e);
     }

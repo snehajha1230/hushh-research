@@ -35,10 +35,11 @@ import { useVault } from "@/lib/vault/vault-context";
 import { useAuth } from "@/lib/firebase";
 import { WorldModelService } from "@/lib/services/world-model-service";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
-import { useCache } from "@/lib/cache/cache-context";
-import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import { useCache, type PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
+import { ROUTES } from "@/lib/navigation/routes";
 
 // =============================================================================
 // TYPES
@@ -342,12 +343,14 @@ export default function ManagePortfolioPage() {
 
       if (result.success) {
         setCachePortfolioData(user.uid, updatedPortfolioData);
-        const cache = CacheService.getInstance();
-        cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(user.uid));
+        CacheSyncService.onPortfolioUpserted(
+          user.uid,
+          updatedPortfolioData as unknown as CachedPortfolioData
+        );
 
         toast.success("Portfolio saved securely");
         setHasChanges(false);
-        router.push("/kai/dashboard");
+        router.push(ROUTES.KAI_DASHBOARD);
       } else {
         throw new Error("Failed to save portfolio");
       }

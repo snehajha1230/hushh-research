@@ -2,6 +2,7 @@ package com.hushh.app.plugins.HushhVault
 
 import android.util.Base64
 import android.util.Log
+import com.getcapacitor.JSArray
 import com.getcapacitor.JSObject
 import com.getcapacitor.Plugin
 import com.getcapacitor.PluginCall
@@ -12,6 +13,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
@@ -305,17 +307,33 @@ class HushhVaultPlugin : Plugin() {
                 if (response.isSuccessful) {
                     val json = JSONObject(body)
                     Log.d(TAG, "⚡ [getVault] Parsing success response...")
+                    val wrappersJson = json.optJSONArray("wrappers") ?: JSONArray()
+                    val wrappers = JSArray()
+                    for (index in 0 until wrappersJson.length()) {
+                        val raw = wrappersJson.optJSONObject(index) ?: continue
+                        val normalized = JSObject().apply {
+                            put("method", raw.optString("method", "passphrase"))
+                            put("encryptedVaultKey", raw.optString("encryptedVaultKey", raw.optString("encrypted_vault_key", "")))
+                            put("salt", raw.optString("salt", ""))
+                            put("iv", raw.optString("iv", ""))
+                            val passkeyCredentialId = raw.optString("passkeyCredentialId", raw.optString("passkey_credential_id", ""))
+                            if (passkeyCredentialId.isNotBlank() && passkeyCredentialId.lowercase() != "null") {
+                                put("passkeyCredentialId", passkeyCredentialId)
+                            }
+                            val passkeyPrfSalt = raw.optString("passkeyPrfSalt", raw.optString("passkey_prf_salt", ""))
+                            if (passkeyPrfSalt.isNotBlank() && passkeyPrfSalt.lowercase() != "null") {
+                                put("passkeyPrfSalt", passkeyPrfSalt)
+                            }
+                        }
+                        wrappers.put(normalized)
+                    }
                     val result = JSObject().apply {
-                        put("authMethod", json.optString("authMethod", "passphrase"))
-                        put("keyMode", json.optString("keyMode", null))
-                        put("encryptedVaultKey", json.optString("encryptedVaultKey", ""))
-                        put("salt", json.optString("salt", ""))
-                        put("iv", json.optString("iv", ""))
+                        put("vaultKeyHash", json.optString("vaultKeyHash", ""))
+                        put("primaryMethod", json.optString("primaryMethod", "passphrase"))
                         put("recoveryEncryptedVaultKey", json.optString("recoveryEncryptedVaultKey", ""))
                         put("recoverySalt", json.optString("recoverySalt", ""))
                         put("recoveryIv", json.optString("recoveryIv", ""))
-                        put("passkeyCredentialId", json.optString("passkeyCredentialId", null))
-                        put("passkeyPrfSalt", json.optString("passkeyPrfSalt", null))
+                        put("wrappers", wrappers)
                     }
                     
                     activity.runOnUiThread {
@@ -340,39 +358,60 @@ class HushhVaultPlugin : Plugin() {
     @PluginMethod
     fun setupVault(call: PluginCall) {
         val userId = call.getString("userId")
-        val encryptedVaultKey = call.getString("encryptedVaultKey")
-        val salt = call.getString("salt")
-        val iv = call.getString("iv")
+        val vaultKeyHash = call.getString("vaultKeyHash")
+        val primaryMethod = call.getString("primaryMethod")
         val recoveryEncryptedVaultKey = call.getString("recoveryEncryptedVaultKey")
         val recoverySalt = call.getString("recoverySalt")
         val recoveryIv = call.getString("recoveryIv")
+        val wrappers = call.getArray("wrappers")
 
-        if (userId == null || encryptedVaultKey == null || salt == null || iv == null) {
+        if (userId == null || vaultKeyHash == null || primaryMethod == null || wrappers == null) {
             call.reject("Missing required parameters")
             return
         }
 
         val authToken = call.getString("authToken")
         val backendUrl = getBackendUrl(call)
-        val authMethod = call.getString("authMethod") ?: "passphrase"
-        val keyMode = call.getString("keyMode")
-        val passkeyCredentialId = call.getString("passkeyCredentialId")
-        val passkeyPrfSalt = call.getString("passkeyPrfSalt")
 
         Thread {
             try {
+                val normalizedWrappers = JSONArray()
+                for (index in 0 until wrappers.length()) {
+                    val raw = wrappers.optJSONObject(index) ?: continue
+                    val method = raw.optString("method", "passphrase")
+                    val encryptedVaultKey =
+                        raw.optString("encryptedVaultKey", raw.optString("encrypted_vault_key", ""))
+                    val salt = raw.optString("salt", "")
+                    val iv = raw.optString("iv", "")
+                    if (encryptedVaultKey.isBlank() || salt.isBlank() || iv.isBlank()) continue
+
+                    val normalized = JSONObject().apply {
+                        put("method", method)
+                        put("encryptedVaultKey", encryptedVaultKey)
+                        put("salt", salt)
+                        put("iv", iv)
+                        val passkeyCredentialId =
+                            raw.optString("passkeyCredentialId", raw.optString("passkey_credential_id", ""))
+                        if (passkeyCredentialId.isNotBlank() && passkeyCredentialId.lowercase() != "null") {
+                            put("passkeyCredentialId", passkeyCredentialId)
+                        }
+                        val passkeyPrfSalt =
+                            raw.optString("passkeyPrfSalt", raw.optString("passkey_prf_salt", ""))
+                        if (passkeyPrfSalt.isNotBlank() && passkeyPrfSalt.lowercase() != "null") {
+                            put("passkeyPrfSalt", passkeyPrfSalt)
+                        }
+                    }
+                    normalizedWrappers.put(normalized)
+                }
+
                 val json = JSONObject().apply {
                     put("userId", userId)
-                    put("authMethod", authMethod)
-                    put("encryptedVaultKey", encryptedVaultKey)
-                    put("salt", salt)
-                    put("iv", iv)
+                    put("vaultKeyHash", vaultKeyHash)
+                    put("primaryMethod", primaryMethod)
                     put("recoveryEncryptedVaultKey", recoveryEncryptedVaultKey ?: "")
                     put("recoverySalt", recoverySalt ?: "")
                     put("recoveryIv", recoveryIv ?: "")
-                    if (keyMode != null) put("keyMode", keyMode)
-                    if (passkeyCredentialId != null) put("passkeyCredentialId", passkeyCredentialId)
-                    if (passkeyPrfSalt != null) put("passkeyPrfSalt", passkeyPrfSalt)
+                    put("wrappers", normalizedWrappers)
                 }
 
                 val requestBody = json.toString().toRequestBody("application/json".toMediaType())
@@ -387,13 +426,128 @@ class HushhVaultPlugin : Plugin() {
 
                 val response = httpClient.newCall(requestBuilder.build()).execute()
                 val success = response.isSuccessful
+                val responseBody = response.body?.string().orEmpty()
+                val errorSnippet = responseBody.take(300)
 
                 activity.runOnUiThread {
-                    call.resolve(JSObject().put("success", success))
+                    if (!success) {
+                        val detail = if (errorSnippet.isBlank()) "no response body" else errorSnippet
+                        call.reject("Failed to setup vault: HTTP ${response.code} - ${detail}")
+                        return@runOnUiThread
+                    }
+                    call.resolve(JSObject().put("success", true))
                 }
             } catch (e: Exception) {
                 activity.runOnUiThread {
                     call.reject("Failed to setup vault: ${e.message}")
+                }
+            }
+        }.start()
+    }
+
+    @PluginMethod
+    fun upsertVaultWrapper(call: PluginCall) {
+        val userId = call.getString("userId")
+        val vaultKeyHash = call.getString("vaultKeyHash")
+        val method = call.getString("method")
+        val encryptedVaultKey = call.getString("encryptedVaultKey")
+        val salt = call.getString("salt")
+        val iv = call.getString("iv")
+
+        if (userId == null || vaultKeyHash == null || method == null || encryptedVaultKey == null || salt == null || iv == null) {
+            call.reject("Missing required parameters")
+            return
+        }
+
+        val passkeyCredentialId = call.getString("passkeyCredentialId")
+        val passkeyPrfSalt = call.getString("passkeyPrfSalt")
+        val authToken = call.getString("authToken")
+        val backendUrl = getBackendUrl(call)
+
+        Thread {
+            try {
+                val json = JSONObject().apply {
+                    put("userId", userId)
+                    put("vaultKeyHash", vaultKeyHash)
+                    put("method", method)
+                    put("encryptedVaultKey", encryptedVaultKey)
+                    put("salt", salt)
+                    put("iv", iv)
+                    if (passkeyCredentialId != null) put("passkeyCredentialId", passkeyCredentialId)
+                    if (passkeyPrfSalt != null) put("passkeyPrfSalt", passkeyPrfSalt)
+                }
+
+                val requestBody = json.toString().toRequestBody("application/json".toMediaType())
+                val requestBuilder = Request.Builder()
+                    .url("$backendUrl/db/vault/wrapper/upsert")
+                    .post(requestBody)
+                    .addHeader("Content-Type", "application/json")
+
+                if (authToken != null) {
+                    requestBuilder.addHeader("Authorization", "Bearer $authToken")
+                }
+
+                val response = httpClient.newCall(requestBuilder.build()).execute()
+                val success = response.isSuccessful
+                val responseBody = response.body?.string().orEmpty()
+                val errorSnippet = responseBody.take(300)
+                activity.runOnUiThread {
+                    if (!success) {
+                        val detail = if (errorSnippet.isBlank()) "no response body" else errorSnippet
+                        call.reject("Failed to upsert wrapper: HTTP ${response.code} - ${detail}")
+                        return@runOnUiThread
+                    }
+                    call.resolve(JSObject().put("success", true))
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    call.reject("Failed to upsert wrapper: ${e.message}")
+                }
+            }
+        }.start()
+    }
+
+    @PluginMethod
+    fun setPrimaryVaultMethod(call: PluginCall) {
+        val userId = call.getString("userId")
+        val primaryMethod = call.getString("primaryMethod")
+        if (userId == null || primaryMethod == null) {
+            call.reject("Missing required parameters")
+            return
+        }
+
+        val authToken = call.getString("authToken")
+        val backendUrl = getBackendUrl(call)
+
+        Thread {
+            try {
+                val json = JSONObject().apply {
+                    put("userId", userId)
+                    put("primaryMethod", primaryMethod)
+                }
+                val requestBody = json.toString().toRequestBody("application/json".toMediaType())
+                val requestBuilder = Request.Builder()
+                    .url("$backendUrl/db/vault/primary/set")
+                    .post(requestBody)
+                    .addHeader("Content-Type", "application/json")
+                if (authToken != null) {
+                    requestBuilder.addHeader("Authorization", "Bearer $authToken")
+                }
+                val response = httpClient.newCall(requestBuilder.build()).execute()
+                val success = response.isSuccessful
+                val responseBody = response.body?.string().orEmpty()
+                val errorSnippet = responseBody.take(300)
+                activity.runOnUiThread {
+                    if (!success) {
+                        val detail = if (errorSnippet.isBlank()) "no response body" else errorSnippet
+                        call.reject("Failed to set primary method: HTTP ${response.code} - ${detail}")
+                        return@runOnUiThread
+                    }
+                    call.resolve(JSObject().put("success", true))
+                }
+            } catch (e: Exception) {
+                activity.runOnUiThread {
+                    call.reject("Failed to set primary method: ${e.message}")
                 }
             }
         }.start()

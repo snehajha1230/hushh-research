@@ -15,6 +15,8 @@ import { auth } from "@/lib/firebase/config";
 import { ApiService } from "@/lib/services/api-service";
 import { clearSessionStorage } from "@/lib/utils/session-storage";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export default function LogoutPage() {
   const router = useRouter();
@@ -57,20 +59,23 @@ export default function LogoutPage() {
         await clearSessionStorage();
 
         // Sign out from Firebase
+        const currentUid = auth.currentUser?.uid ?? null;
         await signOut(auth);
+        CacheSyncService.onAuthSignedOut(currentUid);
 
         // Step 1: Logout complete
         completeStep();
 
         console.log("✅ Logged out successfully");
-        router.push("/");
+        router.push(ROUTES.HOME);
       } catch (error) {
         console.error("Logout failed:", error);
         completeStep(); // Complete step on error
         // Still clear storage and redirect even if Firebase logout fails
         localStorage.clear();
         sessionStorage.clear();
-        router.push("/");
+        CacheSyncService.onAuthSignedOut(auth.currentUser?.uid ?? null);
+        router.push(ROUTES.HOME);
       }
     };
 

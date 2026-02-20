@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
 import { WorldModelService } from "@/lib/services/world-model-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 // ============================================================================
 // Types
@@ -382,6 +383,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       try {
         await promise;
         markAsHandled(consent.id);
+        CacheSyncService.onConsentMutated(userId);
         onActionComplete?.();
 
         // Dispatch custom event so consents page can refresh tables
@@ -440,6 +442,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
       try {
         await promise;
         markAsHandled(requestId);
+        CacheSyncService.onConsentMutated(userId);
         onActionComplete?.();
 
         // Dispatch custom event so consents page can refresh tables
@@ -506,6 +509,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
           });
         }
         
+        CacheSyncService.onConsentMutated(userId);
         onActionComplete?.();
       } catch (err) {
         console.error("Error revoking consent:", err);

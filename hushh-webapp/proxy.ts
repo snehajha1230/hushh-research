@@ -7,16 +7,17 @@ import {
   isOnboardingRoute,
   ONBOARDING_REQUIRED_COOKIE,
 } from "./lib/services/onboarding-route-cookie";
+import { ROUTES, isPublicRoute } from "./lib/navigation/routes";
 
 // Routes that don't require authentication (VaultLockGuard handles protected routes)
 const PUBLIC_ROUTES = [
-  "/",
-  "/login",
-  "/onboarding/preferences",
-  "/docs",
-  "/logout",
-  "/privacy",
-  "/profile",
+  ROUTES.HOME,
+  ROUTES.LOGIN,
+  ROUTES.ONBOARDING_PREFERENCES_LEGACY,
+  ROUTES.DOCS,
+  ROUTES.LOGOUT,
+  ROUTES.PRIVACY,
+  ROUTES.PROFILE,
 ];
 
 // API routes are handled separately
@@ -31,7 +32,7 @@ export function proxy(request: NextRequest) {
   }
 
   // Allow public routes
-  if (PUBLIC_ROUTES.includes(pathname)) {
+  if (PUBLIC_ROUTES.includes(pathname) || isPublicRoute(pathname)) {
     return NextResponse.next();
   }
 
@@ -47,9 +48,13 @@ export function proxy(request: NextRequest) {
   // Cookie-backed onboarding route guard:
   // if onboarding is pending, keep users inside /kai/onboarding until completion.
   const onboardingRequired = request.cookies.get(ONBOARDING_REQUIRED_COOKIE)?.value === "1";
-  if (onboardingRequired && pathname.startsWith("/kai") && !isOnboardingRoute(pathname)) {
+  if (
+    onboardingRequired &&
+    pathname.startsWith(ROUTES.KAI_HOME) &&
+    !isOnboardingRoute(pathname)
+  ) {
     const nextUrl = request.nextUrl.clone();
-    nextUrl.pathname = "/kai/onboarding";
+    nextUrl.pathname = ROUTES.KAI_ONBOARDING;
     nextUrl.search = "";
     return NextResponse.redirect(nextUrl);
   }

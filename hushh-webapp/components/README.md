@@ -17,11 +17,14 @@
   - `/kai/import` import/vault intro
   - `/kai` info home + first-time nav tour
   - `/kai/dashboard` portfolio analytics
-- **Vault Methods:** Method switching must go through `VaultMethodService` (single active KEK model). Do not add ad-hoc setup calls in UI components.
+- **Vault Methods:** Method switching must go through `VaultMethodService` (multi-wrapper model: passphrase + recovery mandatory, optional biometric/passkey wrappers). Do not add ad-hoc setup calls in UI components.
 - **Bottom Nav Tour:** Use `components/kai/onboarding/kai-nav-tour.tsx` + nav-tour services for first-time `/kai` guidance and sync.
+- **Routes:** Use `hushh-webapp/lib/navigation/routes.ts` constants; avoid hardcoded app route strings.
+- **Cache Mutations:** DB CRUD paths must go through `CacheSyncService` (`hushh-webapp/lib/cache/cache-sync-service.ts`), not ad-hoc cache invalidation.
 
 See:
 - `docs/reference/design-system.md`
+- `docs/reference/cache-coherence.md`
 - `docs/reference/frontend-pattern-catalog.md`
 - `docs/reference/architecture.md`
 

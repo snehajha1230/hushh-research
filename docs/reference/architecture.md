@@ -276,11 +276,12 @@ hushh-webapp/
 
 Connection: SQLAlchemy with Supabase Session Pooler. No ORM models -- raw SQL through `DatabaseClient`.
 
-### Live Tables (10)
+### Live Tables (11)
 
 | Table                       | Purpose                                     | Encrypted |
 | --------------------------- | ------------------------------------------- | --------- |
-| `vault_keys`                | User vault key material (salt, IV, recovery)| Partial   |
+| `vault_keys`                | Vault header (hash, primary method, recovery wrapper) | Partial   |
+| `vault_key_wrappers`        | Enrolled unlock wrappers per method         | Partial   |
 | `world_model_data`          | User data blobs (AES-256-GCM ciphertext)    | Yes       |
 | `world_model_index_v2`      | Non-encrypted metadata for MCP scoping      | No        |
 | `domain_registry`           | Available data domains (food, financial...) | No        |

@@ -1,3 +1,5 @@
+import { ROUTES, isKaiOnboardingRoute } from "@/lib/navigation/routes";
+
 export const ONBOARDING_REQUIRED_COOKIE = "kai_onboarding_required";
 export const ONBOARDING_FLOW_ACTIVE_COOKIE = "kai_onboarding_flow_active";
 
@@ -50,5 +52,14 @@ export function isOnboardingFlowActiveCookieEnabled(): boolean {
 }
 
 export function isOnboardingRoute(pathname: string): boolean {
-  return pathname === "/kai/onboarding" || pathname.startsWith("/kai/onboarding/");
+  return isKaiOnboardingRoute(pathname);
+}
+
+export const ONBOARDING_ROUTES = {
+  PREFERRED: ROUTES.KAI_ONBOARDING,
+  LEGACY: ROUTES.ONBOARDING_PREFERENCES_LEGACY,
+} as const;
+
+export function getOnboardingRoute(): string {
+  return ONBOARDING_ROUTES.PREFERRED;
 }

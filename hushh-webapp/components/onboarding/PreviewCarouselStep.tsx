@@ -9,7 +9,6 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "@/components/ui/carousel";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/lib/morphy-ux/button";
 import { cn } from "@/lib/utils";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
@@ -179,80 +178,81 @@ export function PreviewCarouselStep({ onContinue }: { onContinue: () => void }) 
         "h-[100dvh] w-full bg-transparent flex flex-col overflow-hidden"
       )}
     >
-      <header className="relative flex-none px-6 pt-6 pb-2">
-        <div className="absolute right-6 top-3 z-10">
-          <Button
-            variant="blue-gradient"
-            effect="fade"
-            size="default"
-            showRipple
-            onClick={completeAndContinue}
-          >
-            Skip
-            <Icon icon={ChevronRight} size="sm" className="ml-1" />
-          </Button>
-        </div>
-        <div
-          ref={headerRef}
-          className={cn(
-            "w-full mx-auto text-center flex flex-col justify-end gap-3",
-            // Responsive allocation so we never clip on tablets/desktop, while keeping mobile tight.
-            "min-h-[clamp(168px,22vh,248px)]",
-            "sm:max-w-lg"
-          )}
-        >
-          <h2 className="text-[clamp(2rem,5.6vw,3.2rem)] font-black tracking-tight leading-[1.08]">
-            {slides[displayIndex]?.title}
-            <br />
-            <span className="hushh-gradient-text">{slides[displayIndex]?.accent}</span>
-          </h2>
-          <p className="mx-auto max-w-[19rem] text-[clamp(0.95rem,2.2vw,1.05rem)] text-muted-foreground leading-relaxed">
-            {slides[displayIndex]?.subtitle}
-          </p>
-        </div>
-      </header>
+      <div className="flex-1 min-h-0 w-full px-4 pt-6 pb-[var(--app-screen-footer-pad)]">
+        <div className="relative mx-auto flex h-full w-full flex-col">
+          <div className="absolute right-0 top-0 z-10">
+            <Button
+              variant="blue-gradient"
+              effect="fade"
+              size="default"
+              showRipple
+              onClick={completeAndContinue}
+            >
+              Skip
+              <Icon icon={ChevronRight} size="sm" className="ml-1" />
+            </Button>
+          </div>
 
-      <section className="flex-1 min-h-0 flex items-center overflow-hidden px-6">
-        <Carousel
-          opts={{ align: "center", containScroll: "trimSnaps" }}
-          setApi={setApi}
-          className="w-full max-w-sm sm:max-w-md mx-auto"
-        >
-          <CarouselContent className="items-center">
-            {slides.map((slide, idx) => (
-              <CarouselItem key={idx} className="flex items-center justify-center">
-                <div className="w-full max-w-[22rem] p-1">
-                  <Card className="h-full w-full border-0 bg-transparent shadow-none">
-                    <CardContent className="flex h-full items-center justify-center p-0">
-                      <div className="flex w-full min-h-[clamp(24rem,50vh,31rem)] items-center justify-center">
+          <div
+            ref={headerRef}
+            className={cn(
+              "w-full mx-auto text-center flex flex-col justify-end gap-3",
+              // Keep copy + spacing responsive without clipping on larger screens.
+              "min-h-[clamp(168px,22vh,248px)] pt-8",
+              "sm:max-w-lg"
+            )}
+          >
+            <h2 className="text-[clamp(2rem,5.6vw,3.2rem)] font-black tracking-tight leading-[1.08]">
+              {slides[displayIndex]?.title}
+              <br />
+              <span className="hushh-gradient-text">{slides[displayIndex]?.accent}</span>
+            </h2>
+            <p className="mx-auto max-w-[19rem] text-[clamp(0.95rem,2.2vw,1.05rem)] text-muted-foreground leading-relaxed">
+              {slides[displayIndex]?.subtitle}
+            </p>
+          </div>
+
+          <div className="min-h-0 flex-1 flex items-center">
+            <Carousel
+              opts={{ align: "center", containScroll: "trimSnaps" }}
+              setApi={setApi}
+              className="w-full"
+            >
+              <CarouselContent className="items-center -ml-0">
+                {slides.map((slide, idx) => (
+                  <CarouselItem
+                    key={idx}
+                    className="basis-full pl-0 flex items-center justify-center"
+                  >
+                    <div className="flex w-full min-h-[clamp(24rem,50vh,31rem)] items-center justify-center px-4 sm:px-6 md:px-8 py-3">
+                      <div className="w-full max-w-[22rem] sm:max-w-[24rem] md:max-w-[25rem] lg:max-w-[26rem] xl:max-w-[27rem]">
                         {slide.preview}
                       </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              </CarouselItem>
-            ))}
-          </CarouselContent>
-          <CarouselPrevious className="left-0 border-border/60 bg-background/85 backdrop-blur-sm" />
-          <CarouselNext className="right-0 border-border/60 bg-background/85 backdrop-blur-sm" />
-        </Carousel>
-      </section>
+                    </div>
+                  </CarouselItem>
+                ))}
+              </CarouselContent>
+              <CarouselPrevious className="left-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
+              <CarouselNext className="right-2 border border-[var(--morphy-primary-start)]/25 bg-gradient-to-r from-[var(--morphy-primary-start)]/14 to-[var(--morphy-primary-end)]/14 text-[var(--morphy-primary-start)] backdrop-blur-sm transition-colors hover:from-[var(--morphy-primary-start)]/20 hover:to-[var(--morphy-primary-end)]/20 disabled:border-border/60 disabled:bg-muted/70 disabled:text-muted-foreground disabled:opacity-100" />
+            </Carousel>
+          </div>
 
-      <footer className="flex-none px-6 pt-2 pb-[var(--app-screen-footer-pad)]">
-        <div className="w-full sm:max-w-md mx-auto flex flex-col justify-end gap-4">
-          <Dots count={slides.length} activeIndex={selectedIndex} />
+          <div className="mt-4 flex flex-col justify-end gap-4">
+            <Dots count={slides.length} activeIndex={selectedIndex} />
 
-          <Button
-            size="lg"
-            fullWidth
-            onClick={handlePrimary}
-            showRipple
-          >
-            {isLast ? "Continue" : "Next"}
-            <Icon icon={ChevronRight} size="md" className="ml-2" />
-          </Button>
+            <Button
+              size="lg"
+              fullWidth
+              className="mx-auto w-full max-w-md"
+              onClick={handlePrimary}
+              showRipple
+            >
+              {isLast ? "Continue" : "Next"}
+              <Icon icon={ChevronRight} size="md" className="ml-2" />
+            </Button>
+          </div>
         </div>
-      </footer>
+      </div>
     </main>
   );
 }

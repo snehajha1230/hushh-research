@@ -3,7 +3,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "@testing-library/react";
 
 // Minimal mocks for Next primitives used by Navbar.
-vi.mock("next/navigation", () => ({ usePathname: () => "/kai" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/kai",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+}));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: any) => (
     <a href={href} {...props}>
@@ -76,7 +83,7 @@ describe("Navbar bottom fixed UI offset", () => {
     const v = document.documentElement.style.getPropertyValue(
       "--app-bottom-fixed-ui"
     );
-    // height 50 + gap 24 = 74px
-    expect(v.trim()).toBe("74px");
+    // height 50 + current bottom gap token 14 = 64px
+    expect(v.trim()).toBe("64px");
   });
 });

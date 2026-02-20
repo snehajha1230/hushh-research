@@ -18,6 +18,7 @@
 
 import { Capacitor } from "@capacitor/core";
 import { HushhWorldModel } from "@/lib/capacitor";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { ApiService } from "./api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "./cache-service";
 
@@ -393,12 +394,7 @@ export class WorldModelService {
 
       // Invalidate caches after successful native store
       if (result.success) {
-        const cache = CacheService.getInstance();
-        cache.invalidate(CACHE_KEYS.DOMAIN_DATA(params.userId, params.domain));
-        cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(params.userId));
-        if (params.domain === "financial") {
-          cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(params.userId));
-        }
+        CacheSyncService.onWorldModelDomainStored(params.userId, params.domain);
       }
 
       return result;
@@ -432,12 +428,7 @@ export class WorldModelService {
     const data = await response.json();
 
     // Invalidate caches after successful store
-    const cache = CacheService.getInstance();
-    cache.invalidate(CACHE_KEYS.DOMAIN_DATA(params.userId, params.domain));
-    cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(params.userId));
-    if (params.domain === "financial") {
-      cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(params.userId));
-    }
+    CacheSyncService.onWorldModelDomainStored(params.userId, params.domain);
 
     return data;
   }
@@ -1013,12 +1004,7 @@ export class WorldModelService {
     vaultOwnerToken?: string
   ): Promise<boolean> {
     const invalidateDomainCaches = () => {
-      const cache = CacheService.getInstance();
-      cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
-      cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
-      if (domain === "financial") {
-        cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
-      }
+      CacheSyncService.onWorldModelDomainCleared(userId, domain);
     };
 
     if (Capacitor.isNativePlatform()) {

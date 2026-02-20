@@ -63,6 +63,7 @@ import {
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
 import { toast } from "sonner";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -79,6 +80,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import type { LucideIcon } from "lucide-react";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { ROUTES } from "@/lib/navigation/routes";
 
 // Icon mapping for domains
 const DOMAIN_ICONS: Record<string, LucideIcon> = {
@@ -251,7 +253,7 @@ export default function ProfilePage() {
   const handleSignOut = async () => {
     try {
       await signOut();
-      router.push("/");
+      router.push(ROUTES.HOME);
     } catch (err) {
       console.error("Sign out error:", err);
     }
@@ -278,6 +280,7 @@ export default function ProfilePage() {
       setHasVault(resolution.hasVault);
 
       await AccountService.deleteAccount(resolution.token);
+      CacheSyncService.onAccountDeleted(user.uid);
       await PreVaultOnboardingService.clear(user.uid);
       setOnboardingRequiredCookie(false);
       setOnboardingFlowActiveCookie(false);
@@ -470,7 +473,7 @@ export default function ProfilePage() {
                 return (
                   <button
                     key={domain.key}
-                    onClick={() => router.push("/kai/dashboard")}
+                    onClick={() => router.push(ROUTES.KAI_DASHBOARD)}
                     className="p-4 rounded-xl bg-muted/50 hover:bg-muted transition-colors text-left group"
                   >
                     <div className="flex items-center gap-3">
@@ -508,7 +511,7 @@ export default function ProfilePage() {
                   <p className="text-sm text-muted-foreground mb-3">
                     Create your vault from import to start building your data profile.
                   </p>
-                  <Button variant="gradient" size="sm" onClick={() => router.push("/kai/import")}>
+                  <Button variant="gradient" size="sm" onClick={() => router.push(ROUTES.KAI_IMPORT)}>
                     Go to Import
                   </Button>
                 </>

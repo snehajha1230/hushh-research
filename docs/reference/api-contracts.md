@@ -141,27 +141,30 @@ Frontend path: first entry auto-opens optional intro modal on `/kai/dashboard`; 
 
 #### Vault Key Metadata (Setup/Get)
 
-Vault creation and retrieval continue to require encrypted key fields:
-- `encryptedVaultKey`
-- `salt`
-- `iv`
+Vault setup/get now use a multi-wrapper `VaultState` contract:
+- `vaultKeyHash`
+- `primaryMethod`
 - `recoveryEncryptedVaultKey`
 - `recoverySalt`
 - `recoveryIv`
-
-Optional metadata now supported for generated-default key flows:
-- `keyMode` (`generated_default_native_biometric` | `generated_default_web_prf` | `null`)
-- `passkeyCredentialId` (nullable)
-- `passkeyPrfSalt` (nullable)
+- `wrappers[]` with:
+  - `method`
+  - `encryptedVaultKey`
+  - `salt`
+  - `iv`
+  - `passkeyCredentialId` (nullable)
+  - `passkeyPrfSalt` (nullable)
 
 Method-management semantics:
-- Switching unlock method keeps the same vault key material and re-wraps it with the target method KEK.
-- `authMethod` + `keyMode` represent the currently active method (single active KEK model).
-- Frontend method switch path uses existing setup/get contracts (no extra endpoint required).
+- Passphrase wrapper is mandatory for every vault.
+- Recovery wrapper is mandatory for every vault.
+- Optional quick methods (native biometric/web PRF passkey) add wrappers for the same DEK.
+- Primary method only controls default unlock UX; fallback wrappers remain valid.
+- Additional endpoints: `POST /db/vault/wrapper/upsert`, `POST /db/vault/primary/set`.
 
 Security invariant:
 - No plaintext-at-rest path is allowed.
-- If custom key setup is skipped, vault setup must still use generated-default secure key mode.
+- World-model encryption/decryption always uses the same DEK regardless of unlock method.
 | POST | `/api/sync/vault` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
 | POST | `/api/sync/batch` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |
 | GET | `/api/sync/pull` | Disabled in regulated cutover (`501`, `SYNC_DISABLED`) |

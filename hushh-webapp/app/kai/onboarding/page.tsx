@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { toast } from "sonner";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { HushhLoader } from "@/components/ui/hushh-loader";
 import { KaiPersonaScreen } from "@/components/kai/onboarding/KaiPersonaScreen";
@@ -206,7 +206,7 @@ export default function KaiOnboardingPage() {
               });
             }
 
-            toast.success("You're all set.");
+            toast.success("Preferences saved. Next step: connect your portfolio or Plaid.");
             setOnboardingRequiredCookie(false);
             setOnboardingFlowActiveCookie(true);
             router.replace("/kai/import");

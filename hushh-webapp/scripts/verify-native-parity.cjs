@@ -144,11 +144,76 @@ function checkAndroidRegistrationAndNames() {
   ok("Android plugin registrations and @CapacitorPlugin names look consistent");
 }
 
+function assertMethodsPresent(label, files, methods) {
+  const fileContents = files.map((rel) => {
+    if (!exists(rel)) {
+      fail(`${label}: missing file ${rel}`);
+      return "";
+    }
+    return readText(rel);
+  });
+
+  for (const method of methods) {
+    for (let i = 0; i < files.length; i += 1) {
+      const rel = files[i];
+      const src = fileContents[i];
+      if (!src.includes(method)) {
+        fail(`${label}: missing method "${method}" in ${rel}`);
+      }
+    }
+  }
+
+  ok(`${label}: required methods present across TS/iOS/Android`);
+}
+
+function checkMethodLevelParity() {
+  assertMethodsPresent(
+    "HushhVault multi-wrapper parity",
+    [
+      "hushh-webapp/lib/capacitor/index.ts",
+      "hushh-webapp/ios/App/App/Plugins/HushhVaultPlugin.swift",
+      "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/HushhVault/HushhVaultPlugin.kt",
+    ],
+    ["getVault", "setupVault", "upsertVaultWrapper", "setPrimaryVaultMethod"]
+  );
+
+  assertMethodsPresent(
+    "HushhKeychain biometric parity",
+    [
+      "hushh-webapp/lib/capacitor/index.ts",
+      "hushh-webapp/ios/App/App/Plugins/HushhKeystorePlugin.swift",
+      "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/HushhKeystore/HushhKeystorePlugin.kt",
+    ],
+    ["isBiometricAvailable", "setBiometric", "getBiometric"]
+  );
+
+  assertMethodsPresent(
+    "Kai streaming parity",
+    [
+      "hushh-webapp/lib/capacitor/kai.ts",
+      "hushh-webapp/ios/App/App/Plugins/KaiPlugin.swift",
+      "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/Kai/KaiPlugin.kt",
+    ],
+    ["streamPortfolioImport", "streamPortfolioAnalyzeLosers", "streamKaiAnalysis"]
+  );
+
+  assertMethodsPresent(
+    "WorldModel critical parity",
+    [
+      "hushh-webapp/lib/capacitor/world-model.ts",
+      "hushh-webapp/ios/App/App/Plugins/WorldModelPlugin.swift",
+      "hushh-webapp/android/app/src/main/java/com/hushh/app/plugins/WorldModel/WorldModelPlugin.kt",
+    ],
+    ["getMetadata", "getEncryptedData", "storeDomainData", "getDomainData", "clearDomain"]
+  );
+}
+
 function main() {
   checkWebRoutes();
   checkTsRegistrations();
   checkIosRegistration();
   checkAndroidRegistrationAndNames();
+  checkMethodLevelParity();
 
   if (process.exitCode) {
     console.error("\nParity check FAILED");

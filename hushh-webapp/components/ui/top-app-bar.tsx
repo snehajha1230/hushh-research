@@ -57,6 +57,8 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { ROUTES, isKaiOnboardingRoute } from "@/lib/navigation/routes";
 
 /** Shared style so Capacitor status bar area and breadcrumb bar match (masked blur on all platforms) */
 const BAR_GLASS_CLASS = "top-bar-glass";
@@ -68,7 +70,7 @@ const BAR_GLASS_CLASS = "top-bar-glass";
 export function TopBarBackground() {
   const [isNative, setIsNative] = useState(false);
   const pathname = usePathname();
-  const hideChrome = pathname === "/" || pathname.startsWith("/login");
+  const hideChrome = pathname === ROUTES.HOME || pathname.startsWith(ROUTES.LOGIN);
 
   useEffect(() => {
     setIsNative(Capacitor.isNativePlatform());
@@ -105,9 +107,9 @@ export function TopAppBar({ className }: TopAppBarProps) {
   const [isNative, setIsNative] = useState(false);
   const [onboardingFlowActive, setOnboardingFlowActive] = useState(false);
   const pathname = usePathname();
-  const onKaiOnboarding = pathname.startsWith("/kai/onboarding");
+  const onKaiOnboarding = isKaiOnboardingRoute(pathname);
   const showOnboardingActions = onKaiOnboarding || onboardingFlowActive;
-  const hideChrome = pathname === "/" || pathname.startsWith("/login");
+  const hideChrome = pathname === ROUTES.HOME || pathname.startsWith(ROUTES.LOGIN);
 
   useEffect(() => {
     // Check platform on mount to avoid hydration mismatch
@@ -190,7 +192,7 @@ function OnboardingRouteActions() {
       setOnboardingRequiredCookie(false);
       setOnboardingFlowActiveCookie(false);
       await signOut();
-      router.push("/");
+      router.push(ROUTES.HOME);
     } catch (error) {
       console.error("[TopAppBar] Failed to sign out:", error);
       toast.error("Couldn't sign out. Please retry.");
@@ -209,18 +211,19 @@ function OnboardingRouteActions() {
 
       if (resolution.kind === "needs_unlock") {
         toast.error("Unlock your vault from Profile to delete this account.");
-        router.push("/profile");
+        router.push(ROUTES.PROFILE);
         return;
       }
 
       await AccountService.deleteAccount(resolution.token);
+      CacheSyncService.onAccountDeleted(user.uid);
       await PreVaultOnboardingService.clear(user.uid);
       setOnboardingRequiredCookie(false);
       setOnboardingFlowActiveCookie(false);
 
       toast.success("Account deleted.");
       await signOut();
-      router.push("/");
+      router.push(ROUTES.HOME);
     } catch (error) {
       console.error("[TopAppBar] Failed to delete account:", error);
       toast.error("Failed to delete account. Please retry.");
@@ -295,7 +298,7 @@ function OnboardingRouteActions() {
 export function TopAppBarSpacer() {
   const pathname = usePathname();
   const [isNative, setIsNative] = useState(false);
-  const hideChrome = pathname === "/" || pathname.startsWith("/login");
+  const hideChrome = pathname === ROUTES.HOME || pathname.startsWith(ROUTES.LOGIN);
 
   useEffect(() => {
     setIsNative(Capacitor.isNativePlatform());

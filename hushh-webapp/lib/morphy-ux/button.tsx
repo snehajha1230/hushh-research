@@ -99,6 +99,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         // Always: white (light), black (dark)
         return "text-white dark:text-black";
       }
+      if (effect === "fill" && (variant === "blue-gradient" || variant === "blue" || variant === "gradient")) {
+        return "text-inherit";
+      }
       return accentColor;
     };
 
@@ -191,7 +194,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             className="z-0"
           />
         )}
-        <span className="relative z-10 inline-flex items-center justify-center pointer-events-none">
+        <span className="relative z-10 inline-flex items-center justify-center pointer-events-none text-inherit">
           {IconComponent && renderIconBlock()}
           {children}
         </span>

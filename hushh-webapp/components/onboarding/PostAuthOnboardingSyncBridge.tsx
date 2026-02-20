@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import { useAuth } from "@/hooks/use-auth";
-import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
+import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
 import { useVault } from "@/lib/vault/vault-context";
 
 /**
@@ -14,9 +14,15 @@ export function PostAuthOnboardingSyncBridge() {
   const { user, loading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const syncingRef = useRef(false);
+  const lastSyncedSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (loading || !user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
+      return;
+    }
+
+    const signature = `${user.uid}:${vaultOwnerToken}`;
+    if (lastSyncedSignatureRef.current === signature) {
       return;
     }
 
@@ -25,14 +31,19 @@ export function PostAuthOnboardingSyncBridge() {
     }
 
     syncingRef.current = true;
+    lastSyncedSignatureRef.current = signature;
 
-    void KaiProfileSyncService.syncPendingToVault({
+    void PostUnlockSyncService.run({
       userId: user.uid,
       vaultKey,
       vaultOwnerToken,
     })
       .catch((error) => {
-        console.warn("[PostAuthOnboardingSyncBridge] Sync failed, will retry later:", error);
+        lastSyncedSignatureRef.current = null;
+        console.warn(
+          "[PostAuthOnboardingSyncBridge] Post-unlock sync failed, will retry later:",
+          error
+        );
       })
       .finally(() => {
         syncingRef.current = false;

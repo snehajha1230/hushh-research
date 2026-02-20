@@ -16,6 +16,50 @@ import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
  *   - Server stores only encrypted vault key
  */
 
+function isHexLike(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length % 2 === 0 && /^[0-9a-fA-F]+$/.test(trimmed);
+}
+
+function hexToBytes(value: string): Uint8Array {
+  const hex = value.trim();
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    out[i / 2] = Number.parseInt(hex.slice(i, i + 2), 16);
+  }
+  return out;
+}
+
+function normalizeBase64(input: string): string {
+  let normalized = input.trim().replace(/-/g, "+").replace(/_/g, "/");
+  while (normalized.length % 4 !== 0) {
+    normalized += "=";
+  }
+  return normalized;
+}
+
+function decodeBytesCompat(value: string): Uint8Array {
+  // Backward-compat for legacy rows that may have persisted hex instead of base64.
+  if (isHexLike(value) && !/[+/=_-]/.test(value)) {
+    return hexToBytes(value);
+  }
+
+  try {
+    return base64ToBytes(normalizeBase64(value));
+  } catch {
+    if (isHexLike(value)) {
+      return hexToBytes(value);
+    }
+    throw new Error("Unsupported encoded binary format");
+  }
+}
+
+function toCryptoBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(new ArrayBuffer(bytes.byteLength));
+  out.set(bytes);
+  return out;
+}
+
 /**
  * Derive vault key from passphrase using PBKDF2
  */
@@ -146,9 +190,9 @@ export async function unlockVaultWithPassphrase(
   iv: string
 ): Promise<string> {
   // Decode from base64
-  const saltBytes = base64ToBytes(salt);
-  const ivBytes = base64ToBytes(iv);
-  const encryptedBytes = base64ToBytes(encryptedVaultKey);
+  const saltBytes = toCryptoBytes(decodeBytesCompat(salt));
+  const ivBytes = toCryptoBytes(decodeBytesCompat(iv));
+  const encryptedBytes = toCryptoBytes(decodeBytesCompat(encryptedVaultKey));
 
   // Derive key from passphrase
   const decryptionKey = await deriveKeyFromPassphrase(passphrase, saltBytes);
@@ -192,9 +236,9 @@ export async function unlockVaultWithRecoveryKey(
   recoveryIv: string
 ): Promise<string> {
   // Decode from base64
-  const saltBytes = base64ToBytes(recoverySalt);
-  const ivBytes = base64ToBytes(recoveryIv);
-  const encryptedBytes = base64ToBytes(recoveryEncryptedVaultKey);
+  const saltBytes = toCryptoBytes(decodeBytesCompat(recoverySalt));
+  const ivBytes = toCryptoBytes(decodeBytesCompat(recoveryIv));
+  const encryptedBytes = toCryptoBytes(decodeBytesCompat(recoveryEncryptedVaultKey));
 
   // Derive key from recovery key using stored salt
   const unwrapKey = await deriveKeyFromPassphrase(recoveryKey, saltBytes);

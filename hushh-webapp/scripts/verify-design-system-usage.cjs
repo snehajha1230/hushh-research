@@ -15,6 +15,26 @@
 const { execSync } = require("node:child_process");
 const fs = require("node:fs");
 
+const SONNER_IMPORT_ALLOWLIST = new Set([
+  "app/profile/page.tsx",
+  "app/kai/onboarding/page.tsx",
+  "app/kai/dashboard/manage/page.tsx",
+  "app/consents/page.tsx",
+  "lib/services/auth-service.ts",
+  "lib/consent/use-consent-actions.ts",
+  "lib/utils/native-download.ts",
+  "components/consent/notification-provider.tsx",
+  "components/vault/vault-method-prompt.tsx",
+  "components/kai/onboarding/KaiPreferencesSheet.tsx",
+  "components/kai/kai-flow.tsx",
+  "components/kai/views/kai-mock-sonner-notice.tsx",
+  "components/kai/views/stock-search.tsx",
+  "components/kai/views/dashboard-view.tsx",
+  "components/kai/views/analysis-history-dashboard.tsx",
+  "components/kai/debate-stream-view.tsx",
+  "components/ui/top-app-bar.tsx",
+]);
+
 function getTrackedFiles() {
   try {
     const out = execSync("git ls-files", { stdio: ["ignore", "pipe", "ignore"] })
@@ -83,6 +103,18 @@ function main() {
     ) {
       failFindings.push(
         `${rel}: contains legacy font variable name (use semantic --font-app-body/--font-app-heading/--font-app-mono)`
+      );
+    }
+
+    // Fail: new direct Sonner imports outside explicit allowlist.
+    const importsSonner =
+      text.includes('from "sonner"') || text.includes("from 'sonner'");
+    const isSonnerInfra =
+      rel === "components/ui/sonner.tsx" ||
+      rel === "lib/morphy-ux/toast-utils.tsx";
+    if (importsSonner && !isSonnerInfra && !SONNER_IMPORT_ALLOWLIST.has(rel)) {
+      failFindings.push(
+        `${rel}: direct Sonner import detected (use morphyToast unless file is allowlisted infra/legacy)`
       );
     }
 
@@ -160,6 +192,19 @@ function main() {
       if (re.test(text)) {
         warnFindings.push(
           `${rel}: Morphy <Button> appears to override radius/elevation via className (prefer props/defaults; avoid rounded-*/shadow-* in className)`
+        );
+      }
+
+      const blueGradientTextOverride =
+        /<Button\b[^>]*variant\s*=\s*["']blue-gradient["'][^>]*className\s*=\s*["'][^"']*\btext-[^"']*["']/m.test(
+          text
+        ) ||
+        /<Button\b[^>]*className\s*=\s*["'][^"']*\btext-[^"']*["'][^>]*variant\s*=\s*["']blue-gradient["']/m.test(
+          text
+        );
+      if (blueGradientTextOverride) {
+        warnFindings.push(
+          `${rel}: blue-gradient <Button> overrides text-* class (prefer global contrast: light=white, dark=black)`
         );
       }
     }

@@ -59,7 +59,7 @@ Guard invariants:
 ## Vault Security Model (Current)
 
 - Encryption at rest is mandatory. There is no plaintext fallback.
-- If custom passphrase is skipped, generated-default secure key mode is used.
+- Passphrase enrollment is mandatory. Optional quick-unlock methods (biometric/passkey) add additional wrappers for the same DEK.
 - Single active KEK mode is authoritative:
   - `passphrase`
   - `generated_default_native_biometric`

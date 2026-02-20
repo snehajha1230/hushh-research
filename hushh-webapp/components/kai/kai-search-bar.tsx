@@ -1,57 +1,53 @@
-// components/kai/kai-search-bar.tsx
-
-/**
- * Kai Search Bar - Command palette for triggering stock analysis
- *
- * Delegates search UI to StockSearch (Popover on desktop, Drawer on mobile).
- *
- * IMPORTANT UX:
- * - Must align to the bottom pill navbar container width (centered, px-4)
- * - Must be clickable (no overlay/pointer-events issues)
- * - Selecting a ticker navigates immediately; vault gating happens later in the flow
- */
-
 "use client";
 
-import { StockSearch } from "@/components/kai/views/stock-search";
+import { useState } from "react";
+import { Search } from "lucide-react";
+
+import { KaiCommandPalette, type KaiCommandAction } from "@/components/kai/kai-command-palette";
+import { Button } from "@/lib/morphy-ux/button";
+import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
-// =============================================================================
-// TYPES
-// =============================================================================
-
 interface KaiSearchBarProps {
-  onCommand: (command: string, params?: Record<string, unknown>) => void;
-  /** @deprecated – no longer used; StockSearch has its own suggestion list */
-  holdings?: string[];
-  /** @deprecated – no longer used */
-  placeholder?: string;
+  onCommand: (command: KaiCommandAction, params?: Record<string, unknown>) => void;
   disabled?: boolean;
+  hasPortfolioData?: boolean;
 }
-
-// =============================================================================
-// MAIN COMPONENT
-// =============================================================================
 
 export function KaiSearchBar({
   onCommand,
   disabled = false,
+  hasPortfolioData = true,
 }: KaiSearchBarProps) {
-  const handleSelect = (ticker: string) => {
-    onCommand("analyze", { symbol: ticker });
-  };
+  const [open, setOpen] = useState(false);
 
   return (
-    <div className="fixed bottom-[var(--app-bottom-inset)] inset-x-0 z-[130] flex justify-center px-4 pointer-events-none">
-      <div className="pointer-events-auto w-[315px]">
-        <StockSearch
-          onSelect={handleSelect}
-          className={cn(
-            "w-full",
-            disabled ? "pointer-events-none opacity-50" : ""
-          )}
-        />
+    <>
+      <div className="fixed bottom-[var(--app-bottom-inset)] inset-x-0 z-[130] flex justify-center px-4 pointer-events-none">
+        <div className="pointer-events-auto w-[315px]">
+          <Button
+            variant="none"
+            effect="fade"
+            fullWidth
+            size="default"
+            className={cn(
+              "h-12 justify-start rounded-full px-4 text-sm text-muted-foreground",
+              disabled && "pointer-events-none opacity-50"
+            )}
+            onClick={() => setOpen(true)}
+          >
+            <Icon icon={Search} size="sm" className="mr-2 text-muted-foreground" />
+            Analyze, optimize, manage with Kai
+          </Button>
+        </div>
       </div>
-    </div>
+
+      <KaiCommandPalette
+        open={open}
+        onOpenChange={setOpen}
+        onCommand={onCommand}
+        hasPortfolioData={hasPortfolioData}
+      />
+    </>
   );
 }

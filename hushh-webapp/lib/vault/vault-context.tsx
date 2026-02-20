@@ -32,6 +32,7 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { WorldModelService } from "@/lib/services/world-model-service";
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 // ============================================================================
 // Types
@@ -98,7 +99,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
     setTokenExpiresAt(null);
 
     if (user?.uid) {
-      CacheService.getInstance().invalidate(CACHE_KEYS.VAULT_CHECK(user.uid));
+      CacheSyncService.onVaultStateChanged(user.uid);
     }
   }, [user?.uid]);
 

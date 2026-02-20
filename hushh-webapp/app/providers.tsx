@@ -29,6 +29,9 @@ import { usePathname } from "next/navigation";
 import { ensureMorphyGsapReady } from "@/lib/morphy-ux/gsap-init";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
+import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
+import { ROUTES, isKaiOnboardingRoute } from "@/lib/navigation/routes";
+import { Capacitor } from "@capacitor/core";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -36,13 +39,25 @@ interface ProvidersProps {
 
 export function Providers({ children }: ProvidersProps) {
   const pathname = usePathname();
-  const hideGlobalChrome = pathname === "/" || pathname.startsWith("/login");
-  const isKaiOnboarding = pathname === "/kai/onboarding" || pathname.startsWith("/kai/onboarding/");
+  const hideGlobalChrome =
+    pathname === ROUTES.HOME || pathname.startsWith(ROUTES.LOGIN);
+  const isKaiOnboarding = isKaiOnboardingRoute(pathname);
   const pageRef = useRef<HTMLDivElement | null>(null);
 
   // One-time GSAP init (non-blocking).
   useEffect(() => {
     void ensureMorphyGsapReady();
+  }, []);
+
+  // Native iOS has WKWebView content insets applied via Capacitor config.
+  // Add a root class so bottom spacing tokens can avoid double-counting safe area.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const root = document.documentElement;
+    const isNativeIOS =
+      Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
+    root.classList.toggle("native-ios", isNativeIOS);
+    return () => root.classList.remove("native-ios");
   }, []);
 
   // App-wide page enter fade.
@@ -66,6 +81,7 @@ export function Providers({ children }: ProvidersProps) {
                     <TopBarBackground />
                     <TopAppBar />
                     <PostAuthOnboardingSyncBridge />
+                    <KaiCommandBarGlobal />
                     {/* Main scroll container: extends under fixed bar so content can scroll behind it; padding clears bar height */}
                     <div
                       className={

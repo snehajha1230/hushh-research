@@ -16,11 +16,20 @@ interface CacheEntry<T> {
   ttl: number;
 }
 
+type CacheEvent =
+  | { type: "set"; key: string }
+  | { type: "invalidate"; keys: string[] }
+  | { type: "clear" }
+  | { type: "invalidate_user"; userId: string; keys: string[] };
+
+type CacheListener = (event: CacheEvent) => void;
+
 // Default TTL: 5 minutes
 const DEFAULT_TTL = 5 * 60 * 1000;
 
 class CacheService {
   private cache = new Map<string, CacheEntry<unknown>>();
+  private listeners = new Set<CacheListener>();
   private static instance: CacheService | null = null;
 
   private constructor() {
@@ -66,6 +75,7 @@ class CacheService {
       timestamp: Date.now(),
       ttl: ttlMs,
     });
+    this.emit({ type: "set", key });
   }
 
   /**
@@ -79,7 +89,10 @@ class CacheService {
    * Invalidate a specific key
    */
   invalidate(key: string): void {
-    this.cache.delete(key);
+    const deleted = this.cache.delete(key);
+    if (deleted) {
+      this.emit({ type: "invalidate", keys: [key] });
+    }
   }
 
   /**
@@ -94,14 +107,70 @@ class CacheService {
       }
     });
 
+    if (keysToDelete.length === 0) return;
     keysToDelete.forEach((key) => this.cache.delete(key));
+    this.emit({ type: "invalidate", keys: keysToDelete });
+  }
+
+  /**
+   * Invalidate a list of keys in one operation.
+   */
+  invalidateMany(keys: string[]): void {
+    if (!keys.length) return;
+    const deletedKeys: string[] = [];
+    for (const key of keys) {
+      if (this.cache.delete(key)) {
+        deletedKeys.push(key);
+      }
+    }
+    if (deletedKeys.length > 0) {
+      this.emit({ type: "invalidate", keys: deletedKeys });
+    }
+  }
+
+  /**
+   * Invalidate all cache entries scoped to a user.
+   * This includes fixed keys + dynamic domain/stock prefixes.
+   */
+  invalidateUser(userId: string): void {
+    const keysToDelete = new Set<string>([
+      CACHE_KEYS.WORLD_MODEL_METADATA(userId),
+      CACHE_KEYS.VAULT_STATUS(userId),
+      CACHE_KEYS.VAULT_CHECK(userId),
+      CACHE_KEYS.ACTIVE_CONSENTS(userId),
+      CACHE_KEYS.PENDING_CONSENTS(userId),
+      CACHE_KEYS.CONSENT_AUDIT_LOG(userId),
+      CACHE_KEYS.PORTFOLIO_DATA(userId),
+    ]);
+
+    for (const key of this.cache.keys()) {
+      if (
+        key.startsWith(`domain_data_${userId}_`) ||
+        key.startsWith(`stock_context_${userId}_`)
+      ) {
+        keysToDelete.add(key);
+      }
+    }
+
+    const deletedKeys: string[] = [];
+    for (const key of keysToDelete) {
+      if (this.cache.delete(key)) {
+        deletedKeys.push(key);
+      }
+    }
+
+    if (deletedKeys.length > 0) {
+      this.emit({ type: "invalidate_user", userId, keys: deletedKeys });
+    }
   }
 
   /**
    * Clear all cached data
    */
   clear(): void {
+    if (this.cache.size === 0) return;
     this.cache.clear();
+    this.emit({ type: "clear" });
   }
 
   /**
@@ -112,6 +181,27 @@ class CacheService {
       size: this.cache.size,
       keys: Array.from(this.cache.keys()),
     };
+  }
+
+  /**
+   * Subscribe to cache lifecycle events.
+   * Returns an unsubscribe callback.
+   */
+  subscribe(listener: CacheListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  private emit(event: CacheEvent): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.warn("[CacheService] listener error:", error);
+      }
+    }
   }
 }
 

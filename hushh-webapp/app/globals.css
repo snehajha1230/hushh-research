@@ -88,12 +88,17 @@ html body[data-scroll-locked] {
   --lucide-stroke-width: 1;
   /* Safe area and fixed-bottom UI spacing tokens (single source of truth). */
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  /* Effective safe-area used by bottom-fixed UI primitives.
+   * Overridden on native iOS because WKWebView contentInset already applies bottom insets. */
+  --app-safe-area-bottom-effective: var(--app-safe-area-bottom);
   /* Fixed bottom navbar clearance fallback (before runtime measurement). */
   --bottom-nav-offset: 88px;
   /* Runtime-measured bottom fixed UI (Navbar / floating theme pill). Overridden by navbar at runtime. */
   --app-bottom-fixed-ui: var(--bottom-nav-offset);
-  --app-bottom-inset: calc(var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom));
-  --app-screen-footer-pad: calc(16px + var(--app-bottom-inset));
+  --app-bottom-inset: calc(
+    var(--app-bottom-fixed-ui) + var(--app-safe-area-bottom-effective)
+  );
+  --app-screen-footer-pad: calc(8px + var(--app-bottom-inset));
 
   /* Motion tokens (GSAP + CSS). Change once to retune the whole app. */
   --motion-duration-xs: 120ms;
@@ -185,6 +190,9 @@ html body[data-scroll-locked] {
   --toast-error-bg: #feeff1;
   --toast-error-border: #f8c5cd;
   --toast-error-fg: #8b1e2b;
+  --morphy-toast-glass-opacity: 0.96;
+  --morphy-toast-blur: 14px;
+  --morphy-toast-shadow: 0 14px 32px color-mix(in oklch, black 20%, transparent);
 
   /* Crystal Glass Effect */
   --crystal-glass-bg: rgba(255, 255, 255, 0.12);
@@ -243,6 +251,14 @@ html body[data-scroll-locked] {
   --md-ripple-pressed-color: var(--morphy-primary-start);
   --md-ripple-hover-opacity: 0.08;
   --md-ripple-pressed-opacity: 0.12;
+}
+
+/* Capacitor iOS uses `ios.contentInset = always`; don't double-count bottom safe area in app spacing. */
+html.native-ios {
+  /* Keep navbar visual anchor low, but add a small effective inset for footer clearance math. */
+  --app-safe-area-bottom-effective: 4px;
+  /* On iOS onboarding screens, keep CTA comfortably above the bottom theme/nav pill. */
+  --app-screen-footer-pad: calc(40px + var(--app-bottom-inset));
 }
 
 /* Theme-aware gradient text - Apple Blue consistently */
@@ -360,6 +376,9 @@ html body[data-scroll-locked] {
   --toast-error-bg: rgba(127, 29, 29, 0.4);
   --toast-error-border: rgba(248, 113, 113, 0.45);
   --toast-error-fg: #fee2e2;
+  --morphy-toast-glass-opacity: 0.93;
+  --morphy-toast-blur: 14px;
+  --morphy-toast-shadow: 0 14px 32px color-mix(in oklch, black 36%, transparent);
 
   /* CTA elevation (used by Morphy Button fill variants) */
   --morphy-cta-shadow: rgba(96, 165, 250, 0.22);
@@ -607,9 +626,30 @@ md-ripple.morphy-md-ripple {
     background-color var(--motion-duration-md) var(--motion-ease-standard) 0ms,
     border-color var(--motion-duration-md) var(--motion-ease-standard) 0ms,
     fill var(--motion-duration-md) var(--motion-ease-standard) 0ms,
-    stroke var(--motion-duration-md) var(--motion-ease-standard) 0ms,
-    box-shadow var(--motion-duration-md) var(--motion-ease-standard) 0ms !important;
+    stroke var(--motion-duration-md) var(--motion-ease-standard) 0ms;
   transition-delay: 0ms !important;
+}
+
+/* Preserve ThemeToggle pill motion while theme colors transition app-wide. */
+.theme-switching [data-theme-control],
+.theme-switching [data-theme-control] *,
+.theme-switching [data-theme-control] *::before,
+.theme-switching [data-theme-control] *::after {
+  transition-property:
+    color,
+    background-color,
+    border-color,
+    box-shadow,
+    transform,
+    opacity !important;
+  transition-duration: var(--motion-duration-lg) !important;
+  transition-timing-function: var(--motion-ease-standard) !important;
+}
+
+.theme-switching [data-theme-control] [data-segment-indicator] {
+  transition-property: transform, background-color, box-shadow, border-color !important;
+  transition-duration: var(--motion-duration-xl) !important;
+  transition-timing-function: var(--motion-ease-emphasized) !important;
 }
 
 /* Centralized theme transition utility for nested content surfaces (cards/preview bodies). */
@@ -778,7 +818,7 @@ md-ripple.morphy-md-ripple {
     padding-top: env(safe-area-inset-top);
   }
   .safe-area-pb {
-    padding-bottom: var(--app-safe-area-bottom);
+    padding-bottom: var(--app-safe-area-bottom-effective);
   }
 }
 
@@ -820,31 +860,49 @@ md-ripple.morphy-md-ripple {
 .morphy-sonner-toast[data-sonner-toast] {
   border-radius: var(--radius-xl);
   border: 1px solid var(--toast-info-border);
-  background: var(--toast-info-bg);
+  background: color-mix(
+    in oklch,
+    var(--toast-info-bg) calc(var(--morphy-toast-glass-opacity) * 100%),
+    transparent
+  ) !important;
   color: var(--toast-info-fg);
-  box-shadow: 0 14px 32px color-mix(in oklch, black 18%, transparent);
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, white 35%, transparent),
+    var(--morphy-toast-shadow);
+  backdrop-filter: blur(var(--morphy-toast-blur)) saturate(148%);
+  -webkit-backdrop-filter: blur(var(--morphy-toast-blur)) saturate(148%);
 }
 
 .morphy-sonner-toast[data-sonner-toast][data-type="success"],
 .morphy-sonner-toast.morphy-sonner-tone-success[data-sonner-toast] {
   border-color: var(--toast-success-border);
-  background: var(--toast-success-bg);
+  background: color-mix(
+    in oklch,
+    var(--toast-success-bg) calc(var(--morphy-toast-glass-opacity) * 100%),
+    transparent
+  ) !important;
   color: var(--toast-success-fg);
 }
 
 .morphy-sonner-toast[data-sonner-toast][data-type="warning"],
 .morphy-sonner-toast.morphy-sonner-tone-warning[data-sonner-toast] {
   border-color: var(--toast-warning-border);
-  background: var(--toast-warning-bg);
+  background: color-mix(
+    in oklch,
+    var(--toast-warning-bg) calc(var(--morphy-toast-glass-opacity) * 100%),
+    transparent
+  ) !important;
   color: var(--toast-warning-fg);
 }
 
 .morphy-sonner-toast[data-sonner-toast][data-type="error"],
 .morphy-sonner-toast.morphy-sonner-tone-error[data-sonner-toast] {
   border-color: var(--toast-error-border);
-  background: var(--toast-error-bg);
+  background: color-mix(
+    in oklch,
+    var(--toast-error-bg) calc(var(--morphy-toast-glass-opacity) * 100%),
+    transparent
+  ) !important;
   color: var(--toast-error-fg);
 }
 
@@ -871,6 +929,13 @@ md-ripple.morphy-md-ripple {
   background: transparent;
   color: inherit;
   border: 1px solid color-mix(in oklch, currentColor 18%, transparent);
+}
+
+.morphy-sonner-close {
+  color: color-mix(in oklch, currentColor 78%, transparent) !important;
+  border: 1px solid color-mix(in oklch, currentColor 16%, transparent) !important;
+  background: color-mix(in oklch, currentColor 8%, transparent) !important;
+  border-radius: 9999px !important;
 }
 
 @keyframes morphy-sonner-enter {

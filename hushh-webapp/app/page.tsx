@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { IntroStep } from "@/components/onboarding/IntroStep";
 import { PreviewCarouselStep } from "@/components/onboarding/PreviewCarouselStep";
+import { ROUTES } from "@/lib/navigation/routes";
 
 type HomeStep = "intro" | "preview";
 
@@ -45,7 +46,7 @@ function HomeContent() {
     if (loading) return;
 
     if (user) {
-      router.push("/kai");
+      router.push(ROUTES.KAI_HOME);
       return;
     }
 
@@ -75,8 +76,8 @@ function HomeContent() {
 
   if (step === "preview") {
     const loginUrl = redirectPath
-      ? `/login?redirect=${encodeURIComponent(redirectPath)}`
-      : "/login";
+      ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(redirectPath)}`
+      : ROUTES.LOGIN;
     return <PreviewCarouselStep onContinue={() => router.push(loginUrl)} />;
   }
   return null;

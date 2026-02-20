@@ -8,10 +8,10 @@ import { DashboardSummaryHero } from "@/components/kai/cards/dashboard-summary-h
 import { HoldingPositionCard, type HoldingPosition } from "@/components/kai/cards/holding-position-card";
 import { NewHoldingCtaCard } from "@/components/kai/cards/new-holding-cta-card";
 import { PortfolioMetricsCard } from "@/components/kai/cards/portfolio-metrics-card";
-import { ProfileBasedPicksList } from "@/components/kai/cards/profile-based-picks-list";
 import { TopMoversCard } from "@/components/kai/cards/top-movers-card";
 import type { PortfolioData } from "@/components/kai/views/dashboard-view";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
+import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
 
 interface DashboardMasterViewProps {
@@ -123,6 +123,9 @@ export function DashboardMasterView({
       : 0;
 
   const riskBucket = holdings.length > 0 ? "Moderate" : "Unknown";
+  const hasAllocation = cashPct > 0 || equitiesPct > 0 || bondsPct > 0;
+  const hasHoldings = holdings.length > 0;
+  const brokerageName = portfolioData.account_info?.brokerage_name;
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 px-4 pb-[calc(144px+var(--app-bottom-inset))] pt-2 sm:px-6">
@@ -132,68 +135,103 @@ export function DashboardMasterView({
         changePct={changePct}
         holdingsCount={holdings.length}
         riskLabel={riskBucket}
+        brokerageName={brokerageName}
         periodRange={parseDateRange(portfolioData)}
         beginningBalance={beginningValue > 0 ? beginningValue : undefined}
       />
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <MorphyButton variant="none" effect="fade" fullWidth onClick={onManagePortfolio}>
+        <MorphyButton
+          variant="none"
+          effect="fade"
+          fullWidth
+          onClick={onManagePortfolio}
+          disabled={!hasHoldings}
+        >
           <Icon icon={SlidersHorizontal} size="sm" className="mr-2" />
           Manage
         </MorphyButton>
-        <MorphyButton variant="none" effect="fade" fullWidth onClick={onViewHistory}>
+        <MorphyButton
+          variant="none"
+          effect="fade"
+          fullWidth
+          onClick={onViewHistory}
+          disabled={!hasHoldings}
+        >
           <Icon icon={Clock3} size="sm" className="mr-2" />
           History
         </MorphyButton>
-        <MorphyButton variant="none" effect="fade" fullWidth onClick={onAnalyzeLosers}>
+        <MorphyButton
+          variant="none"
+          effect="fade"
+          fullWidth
+          onClick={onAnalyzeLosers}
+          disabled={!hasHoldings}
+        >
           <Icon icon={Sparkles} size="sm" className="mr-2" />
           Optimize
         </MorphyButton>
       </div>
 
-      <AllocationStrip cashPct={cashPct} equitiesPct={equitiesPct} bondsPct={bondsPct} />
+      {hasAllocation && (
+        <AllocationStrip cashPct={cashPct} equitiesPct={equitiesPct} bondsPct={bondsPct} />
+      )}
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[11px] font-black uppercase tracking-[0.16em] text-muted-foreground">
-            Current Holdings
-          </h3>
-          <MorphyButton variant="none" effect="fade" size="sm" onClick={onManagePortfolio}>
-            Manage Portfolio
-          </MorphyButton>
+      {hasHoldings ? (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[11px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+              Current Holdings
+            </h3>
+            <MorphyButton variant="none" effect="fade" size="sm" onClick={onManagePortfolio}>
+              Manage Portfolio
+            </MorphyButton>
+          </div>
+
+          <div className="space-y-3">
+            {holdings.slice(0, 6).map((holding) => (
+              <HoldingPositionCard
+                key={`${holding.symbol}-${holding.name}`}
+                holding={holding}
+                onAnalyze={(symbol) => onAnalyzeStock?.(symbol)}
+                onManage={(_symbol, _action) => onManagePortfolio()}
+              />
+            ))}
+          </div>
+        </section>
+      ) : (
+        <Card variant="none" effect="glass" showRipple={false}>
+          <CardContent className="space-y-3 p-4">
+            <h3 className="text-sm font-black">No holdings loaded yet</h3>
+            <p className="text-xs text-muted-foreground">
+              Connect your statement to generate data-bound portfolio insights.
+            </p>
+            <MorphyButton size="default" fullWidth onClick={() => onReupload?.()}>
+              Import Portfolio
+            </MorphyButton>
+          </CardContent>
+        </Card>
+      )}
+
+      {hasHoldings && (
+        <>
+          <NewHoldingCtaCard
+            onAddHolding={onManagePortfolio}
+            onImportStatement={() => onReupload?.()}
+          />
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <PortfolioMetricsCard holdings={holdingsForCards} totalValue={totalValue} />
+            <TopMoversCard holdings={holdingsForCards} />
+          </div>
+        </>
+      )}
+
+      {!hasHoldings && (
+        <div className="grid gap-3 md:grid-cols-2">
+          <TopMoversCard holdings={holdingsForCards} />
         </div>
-
-        <div className="space-y-3">
-          {holdings.slice(0, 6).map((holding) => (
-            <HoldingPositionCard
-              key={`${holding.symbol}-${holding.name}`}
-              holding={holding}
-              onAnalyze={(symbol) => onAnalyzeStock?.(symbol)}
-              onManage={(_symbol, _action) => onManagePortfolio()}
-            />
-          ))}
-        </div>
-      </section>
-
-      <NewHoldingCtaCard
-        onAddHolding={onManagePortfolio}
-        onImportStatement={() => onReupload?.()}
-      />
-
-      <div className="grid gap-3 md:grid-cols-2">
-        <PortfolioMetricsCard holdings={holdingsForCards} totalValue={totalValue} />
-        <TopMoversCard holdings={holdingsForCards} />
-      </div>
-
-      <ProfileBasedPicksList
-        onAdd={(symbol) => {
-          if (onAnalyzeStock) {
-            onAnalyzeStock(symbol);
-            return;
-          }
-          onManagePortfolio();
-        }}
-      />
+      )}
     </div>
   );
 }

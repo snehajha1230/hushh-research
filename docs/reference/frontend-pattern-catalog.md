@@ -340,7 +340,7 @@ Use when: Offering unlock method upgrades or method switching.
 
 Do:
 - Use `VaultMethodService.switchMethod(...)` as the single method-switch entrypoint.
-- Keep single-active-KEK semantics (rewrap same vault key, do not generate a new vault key).
+- Keep multi-wrapper semantics on the same vault DEK (passphrase + recovery always retained; optional quick methods enroll extra wrappers).
 - Reuse same capability and method state model in both modal prompt and profile page.
 
 Don't:

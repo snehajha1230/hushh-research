@@ -1,5 +1,16 @@
-import { redirect } from "next/navigation";
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+import { ROUTES } from "@/lib/navigation/routes";
 
 export default function LegacyPreVaultOnboardingRedirect() {
-  redirect("/kai/onboarding");
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace(ROUTES.KAI_ONBOARDING);
+  }, [router]);
+
+  return null;
 }

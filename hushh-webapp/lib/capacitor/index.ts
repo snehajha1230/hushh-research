@@ -285,16 +285,19 @@ export interface HushhVaultPlugin {
    * Replaces: /api/vault/get endpoint on iOS
    */
   getVault(options: { userId: string; authToken?: string }): Promise<{
-    authMethod: string;
-    keyMode?: string;
-    encryptedVaultKey: string;
-    salt: string;
-    iv: string;
+    vaultKeyHash: string;
+    primaryMethod: string;
     recoveryEncryptedVaultKey: string;
     recoverySalt: string;
     recoveryIv: string;
-    passkeyCredentialId?: string;
-    passkeyPrfSalt?: string;
+    wrappers: Array<{
+      method: string;
+      encryptedVaultKey: string;
+      salt: string;
+      iv: string;
+      passkeyCredentialId?: string;
+      passkeyPrfSalt?: string;
+    }>;
   }>;
 
   /**
@@ -303,16 +306,37 @@ export interface HushhVaultPlugin {
    */
   setupVault(options: {
     userId: string;
-    authMethod?: string;
-    keyMode?: string;
-    encryptedVaultKey: string;
-    salt: string;
-    iv: string;
+    vaultKeyHash: string;
+    primaryMethod: string;
     recoveryEncryptedVaultKey: string;
     recoverySalt: string;
     recoveryIv: string;
+    wrappers: Array<{
+      method: string;
+      encryptedVaultKey: string;
+      salt: string;
+      iv: string;
+      passkeyCredentialId?: string;
+      passkeyPrfSalt?: string;
+    }>;
+    authToken?: string;
+  }): Promise<{ success: boolean }>;
+
+  upsertVaultWrapper(options: {
+    userId: string;
+    vaultKeyHash: string;
+    method: string;
+    encryptedVaultKey: string;
+    salt: string;
+    iv: string;
     passkeyCredentialId?: string;
     passkeyPrfSalt?: string;
+    authToken?: string;
+  }): Promise<{ success: boolean }>;
+
+  setPrimaryVaultMethod(options: {
+    userId: string;
+    primaryMethod: string;
     authToken?: string;
   }): Promise<{ success: boolean }>;
 

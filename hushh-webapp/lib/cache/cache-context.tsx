@@ -18,6 +18,7 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
   ReactNode,
   useMemo,
 } from "react";
@@ -125,6 +126,56 @@ export function CacheProvider({ children }: CacheProviderProps) {
 
   const cache = CacheService.getInstance();
 
+  useEffect(() => {
+    const unsubscribe = cache.subscribe((event) => {
+      if (event.type === "clear") {
+        setWorldModelMetadataState(null);
+        setPortfolioDataState(null);
+        setVaultStatusState(null);
+        setActiveConsentsState([]);
+        return;
+      }
+
+      const keys =
+        event.type === "invalidate" || event.type === "invalidate_user"
+          ? event.keys
+          : [];
+
+      if (keys.length === 0) return;
+
+      if (keys.some((key) => key.startsWith("world_model_metadata_"))) {
+        setWorldModelMetadataState(null);
+      }
+
+      if (
+        keys.some(
+          (key) =>
+            key.startsWith("portfolio_data_") ||
+            (key.startsWith("domain_data_") && key.endsWith("_financial"))
+        )
+      ) {
+        setPortfolioDataState(null);
+      }
+
+      if (keys.some((key) => key.startsWith("vault_status_"))) {
+        setVaultStatusState(null);
+      }
+
+      if (
+        keys.some(
+          (key) =>
+            key.startsWith("active_consents_") ||
+            key.startsWith("pending_consents_") ||
+            key.startsWith("consent_audit_log_")
+        )
+      ) {
+        setActiveConsentsState([]);
+      }
+    });
+
+    return unsubscribe;
+  }, [cache]);
+
   // World Model Metadata
   const setWorldModelMetadata = useCallback(
     (userId: string, data: WorldModelMetadata) => {
@@ -229,10 +280,7 @@ export function CacheProvider({ children }: CacheProviderProps) {
 
   const invalidateUser = useCallback(
     (userId: string) => {
-      cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
-      cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
-      cache.invalidate(CACHE_KEYS.VAULT_STATUS(userId));
-      cache.invalidate(CACHE_KEYS.ACTIVE_CONSENTS(userId));
+      cache.invalidateUser(userId);
       setWorldModelMetadataState(null);
       setPortfolioDataState(null);
       setVaultStatusState(null);

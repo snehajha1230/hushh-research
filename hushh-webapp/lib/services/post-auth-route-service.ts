@@ -2,12 +2,13 @@
 
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { VaultService } from "@/lib/services/vault-service";
+import { ROUTES } from "@/lib/navigation/routes";
 
-const PRE_VAULT_ROUTE = "/kai/onboarding";
-const NO_VAULT_DEFAULT_ROUTE = "/kai";
+const PRE_VAULT_ROUTE = ROUTES.KAI_ONBOARDING;
+const NO_VAULT_DEFAULT_ROUTE = ROUTES.KAI_HOME;
 
 function normalizeRedirectPath(path: string | null | undefined): string {
-  if (!path || !path.trim()) return "/kai";
+  if (!path || !path.trim()) return ROUTES.KAI_HOME;
   return path;
 }
 

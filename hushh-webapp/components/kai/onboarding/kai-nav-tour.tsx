@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, Compass, UserRound, Bell, Mic2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Compass, UserRound, Shield, Mic2 } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import { Card, CardContent } from "@/lib/morphy-ux/card";
@@ -23,7 +23,7 @@ const TOUR_STEPS = [
     id: "nav-consents",
     title: "Consents",
     description: "Review and control every active data consent.",
-    icon: Bell,
+    icon: Shield,
   },
   {
     id: "nav-profile",
@@ -54,7 +54,8 @@ export function KaiNavTour() {
   const [stepIndex, setStepIndex] = useState(0);
   const [open, setOpen] = useState(false);
 
-  const isEligibleRoute = pathname === "/kai";
+  const normalizedPath = pathname?.replace(/\/+$/, "") || "";
+  const isEligibleRoute = normalizedPath === "/kai";
   const activeStep = TOUR_STEPS[stepIndex] ?? TOUR_STEPS[0];
 
   useEffect(() => {
@@ -69,10 +70,9 @@ export function KaiNavTour() {
       const local = await KaiNavTourLocalService.load(user.uid);
       if (cancelled) return;
 
-      if (isResolved(local)) {
-        setOpen(false);
-        return;
-      }
+      const localResolved = isResolved(local);
+      const localSynced = Boolean(local?.synced_to_vault_at);
+      const localResolvedForGate = localResolved;
 
       if (isVaultUnlocked && vaultKey && vaultOwnerToken) {
         try {
@@ -97,9 +97,22 @@ export function KaiNavTour() {
             setOpen(false);
             return;
           }
+
+          // If local state says resolved but never synced, and vault profile has
+          // no completion markers, treat local as stale and show tour again.
+          if (localResolved && !localSynced) {
+            setStepIndex(0);
+            setOpen(true);
+            return;
+          }
         } catch (error) {
           console.warn("[KaiNavTour] Failed to read vault-backed tour state:", error);
         }
+      }
+
+      if (localResolvedForGate) {
+        setOpen(false);
+        return;
       }
 
       setStepIndex(0);
@@ -204,16 +217,20 @@ export function KaiNavTour() {
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[140]">
-      <div className="pointer-events-auto absolute inset-0 bg-black/25" />
-      <div className="pointer-events-auto absolute inset-x-4 bottom-[calc(var(--app-bottom-fixed-ui)+env(safe-area-inset-bottom)+16px)] mx-auto w-full max-w-md">
-        <Card variant="none" effect="glass" className="rounded-2xl p-0">
+      <div className="pointer-events-auto absolute inset-0 bg-black/35 dark:bg-black/45" />
+      <div className="pointer-events-auto absolute inset-x-3 bottom-[calc(var(--app-bottom-inset)+16px)] sm:left-1/2 sm:right-auto sm:w-[min(30rem,calc(100vw-1.5rem))] sm:-translate-x-1/2">
+        <Card
+          variant="none"
+          effect="glass"
+          className="rounded-2xl p-0 shadow-2xl border-border/80 !bg-popover/96 dark:!bg-popover/94 text-popover-foreground backdrop-blur-xl"
+        >
           <CardContent className="space-y-3 p-4">
             <div className="flex items-center justify-between">
-              <div className="inline-flex items-center gap-2">
+              <div className="inline-flex min-w-0 items-center gap-2">
                 <Icon icon={activeStep.icon} size="sm" className="text-[var(--brand-600)]" />
-                <p className="text-sm font-semibold">Bottom Navigation Tour</p>
+                <p className="truncate text-sm font-semibold">Bottom Navigation Tour</p>
               </div>
-              <p className="text-xs text-muted-foreground tabular-nums">
+              <p className="ml-2 shrink-0 text-xs text-muted-foreground tabular-nums">
                 {stepIndex + 1}/{TOUR_STEPS.length} · {progress}%
               </p>
             </div>
@@ -223,11 +240,12 @@ export function KaiNavTour() {
               <p className="text-sm text-muted-foreground">{activeStep.description}</p>
             </div>
 
-            <div className="flex items-center gap-2 pt-1">
+            <div className="grid grid-cols-3 gap-2 pt-1">
               <Button
                 variant="blue-gradient"
                 effect="fade"
                 size="default"
+                className="w-full"
                 onClick={() => void handleSkip()}
               >
                 Skip
@@ -237,6 +255,7 @@ export function KaiNavTour() {
                 variant="blue-gradient"
                 effect="fade"
                 size="default"
+                className="w-full"
                 disabled={isFirst}
                 onClick={() => setStepIndex((prev) => Math.max(0, prev - 1))}
               >
@@ -246,7 +265,7 @@ export function KaiNavTour() {
 
               <Button
                 size="default"
-                className="ml-auto"
+                className="w-full"
                 onClick={() => {
                   if (isLast) {
                     void handleDone();

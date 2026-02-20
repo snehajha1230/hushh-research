@@ -55,7 +55,9 @@
       "webRouteFiles": [
         "hushh-webapp/app/api/vault/check/route.ts",
         "hushh-webapp/app/api/vault/get/route.ts",
-        "hushh-webapp/app/api/vault/setup/route.ts"
+        "hushh-webapp/app/api/vault/setup/route.ts",
+        "hushh-webapp/app/api/vault/wrapper/upsert/route.ts",
+        "hushh-webapp/app/api/vault/primary/set/route.ts"
       ],
       "backend": {
         "file": "consent-protocol/api/routes/db_proxy.py",
@@ -63,7 +65,9 @@
         "paths": [
           "/vault/check",
           "/vault/get",
-          "/vault/setup"
+          "/vault/setup",
+          "/vault/wrapper/upsert",
+          "/vault/primary/set"
         ]
       },
       "native": {
@@ -73,7 +77,9 @@
         "requiredMethodNames": [
           "hasVault",
           "getVault",
-          "setupVault"
+          "setupVault",
+          "upsertVaultWrapper",
+          "setPrimaryVaultMethod"
         ]
       }
     },

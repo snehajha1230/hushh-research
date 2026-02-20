@@ -7,7 +7,7 @@
  * Features:
  * - Animated progress bar for stream progression
  * - Real-time thought summaries from Gemini thinking mode (in StreamingAccordion)
- * - Human-readable streaming text display (transforms JSON to readable format)
+ * - Parsing timeline surface (indexing/scanning/extracting/parsing/validation)
  * - Character count and chunk count stats
  * - Cancel button
  * - Auto-collapsing accordions when streaming completes
@@ -26,14 +26,16 @@ import {
 } from "@/lib/morphy-ux/card";
 import { Progress } from "@/components/ui/progress";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
-import { X, FileChartColumn, Database, CheckCircle2 } from "lucide-react";
+import { X, FileChartColumn, CheckCircle2 } from "lucide-react";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { useSmoothStreamProgress } from "@/lib/morphy-ux/hooks/use-smooth-stream-progress";
 
 
 export type ImportStage =
   | "idle"
   | "uploading"
-  | "analyzing"
+  | "indexing"
+  | "scanning"
   | "thinking"
   | "extracting"
   | "parsing"
@@ -59,7 +61,7 @@ interface LiveHoldingPreview {
 export interface ImportProgressViewProps {
   /** Current processing stage */
   stage: ImportStage;
-  /** Streamed text from Gemini (raw JSON being built) */
+  /** Streamed text from backend stream (used for stats/phase awareness) */
   streamedText: string;
   /** Whether actively streaming */
   isStreaming: boolean;
@@ -98,12 +100,36 @@ export interface ImportProgressViewProps {
 const stageMessages: Record<ImportStage, string> = {
   idle: "Ready to import",
   uploading: "Processing uploaded file...",
-  analyzing: "AI analyzing document structure...",
+  indexing: "Indexing document...",
+  scanning: "Scanning pages and sections...",
   thinking: "AI reasoning about your portfolio...",
   extracting: "Extracting financial data...",
   parsing: "Processing extracted data...",
   complete: "Import complete!",
   error: "Import failed",
+};
+
+const TIMELINE_STEPS: Array<{
+  key: "indexing" | "scanning" | "extracting" | "parsing" | "complete";
+  label: string;
+}> = [
+  { key: "indexing", label: "Indexing document" },
+  { key: "scanning", label: "Scanning pages" },
+  { key: "extracting", label: "Extracting positions" },
+  { key: "parsing", label: "Normalizing holdings" },
+  { key: "complete", label: "Validation complete" },
+];
+
+const STAGE_ORDER: Record<ImportStage, number> = {
+  idle: 0,
+  uploading: 1,
+  indexing: 2,
+  scanning: 3,
+  thinking: 4,
+  extracting: 5,
+  parsing: 6,
+  complete: 7,
+  error: 7,
 };
 
 export function ImportProgressView({
@@ -130,11 +156,7 @@ export function ImportProgressView({
   const isThinking = stage === "thinking";
   const isExtracting = stage === "extracting" || stage === "parsing";
   const isComplete = stage === "complete";
-  const visibleStreamText =
-    streamedText ||
-    (isStreaming
-      ? `${statusMessage || stageMessages[stage]}\n\nWaiting for next stream chunk...`
-      : "");
+  const hasStreamedOutput = streamedText.trim().length > 0;
   const resolvedProgress = useMemo(() => {
     if (typeof progressPct === "number" && Number.isFinite(progressPct)) {
       return Math.max(0, Math.min(100, progressPct));
@@ -142,12 +164,14 @@ export function ImportProgressView({
     switch (stage) {
       case "uploading":
         return 5;
-      case "analyzing":
-        return 20;
+      case "indexing":
+        return 18;
+      case "scanning":
+        return 35;
       case "thinking":
-        return 45;
+        return 52;
       case "extracting":
-        return 70;
+        return 72;
       case "parsing":
         return 90;
       case "complete":
@@ -158,6 +182,7 @@ export function ImportProgressView({
         return 0;
     }
   }, [progressPct, stage]);
+  const smoothProgress = useSmoothStreamProgress(resolvedProgress);
 
   // Format thoughts into a single text string for the accordion
   // Matches the [N] **Header** pattern for bold rendering
@@ -196,10 +221,10 @@ export function ImportProgressView({
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>Import progress</span>
-            <span>{Math.round(resolvedProgress)}%</span>
+            <span>{Math.round(smoothProgress)}%</span>
           </div>
           <Progress
-            value={resolvedProgress}
+            value={smoothProgress}
             className={cn("h-2", isStreaming && "transition-all")}
           />
         </div>
@@ -225,35 +250,61 @@ export function ImportProgressView({
           />
         )}
 
+        {(streamedText.trim().length > 0 || isStreaming) && (
+          <StreamingAccordion
+            id="vertex-token-stream"
+            title="Vertex Gemini Token Stream"
+            text={streamedText}
+            isStreaming={isStreaming}
+            isComplete={isComplete}
+            icon={isComplete ? "check" : "spinner"}
+            className="border-border/40"
+          />
+        )}
 
-
-        {/* Data Extraction Stream */}
-        {(isStreaming || (streamedText && !isComplete) || (isComplete && streamedText)) && (
+        {/* Parsing timeline */}
+        <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
+          <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+            <span>Parsing Timeline</span>
+            <span>
+              {Math.round(smoothProgress)}%
+            </span>
+          </div>
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
-              <span className="flex items-center gap-1.5">
-                <Icon icon={Database} size="xs" className="text-primary" />
-                Live Extraction Stream
-              </span>
-              <span>
-                {totalChars.toLocaleString()} chars • {chunkCount} chunks
-              </span>
-            </div>
-            <StreamingAccordion
-              id="data-extraction-live"
-              title="Realtime Extracted Text"
-              text={visibleStreamText}
-              isStreaming={isStreaming}
-              isComplete={isComplete}
-              formatAsHuman={false}
-              icon={isComplete ? "database" : "spinner"}
-              iconClassName="text-primary"
-              maxHeight="320px"
-              defaultExpanded={true}
-              autoCollapseOnComplete={false}
-              emptyStreamingMessage="Initializing Vertex stream..."
-              bodyClassName="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed"
-            />
+            {TIMELINE_STEPS.map((timelineStep) => {
+              const timelineStage: ImportStage = stage === "thinking" ? "scanning" : stage;
+              const currentOrder = STAGE_ORDER[timelineStage];
+              const stepOrder = STAGE_ORDER[timelineStep.key];
+              const done = currentOrder > stepOrder;
+              const active = !done && currentOrder === stepOrder;
+              return (
+                <div
+                  key={timelineStep.key}
+                  className="flex items-center justify-between rounded-lg border border-border/40 bg-background/70 px-3 py-2"
+                >
+                  <span className="text-xs font-medium">{timelineStep.label}</span>
+                  <span
+                    className={cn(
+                      "text-[10px] font-semibold uppercase tracking-wide",
+                      done && "text-emerald-600 dark:text-emerald-400",
+                      active && "text-primary",
+                      !done && !active && "text-muted-foreground"
+                    )}
+                  >
+                    {done ? "Done" : active ? "Active" : "Pending"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {(hasStreamedOutput || totalChars > 0 || chunkCount > 0) && (
+          <div className="flex items-center justify-between rounded-lg border border-border/40 bg-background/70 px-3 py-2 text-xs text-muted-foreground">
+            <span>Streaming stats</span>
+            <span>
+              {totalChars.toLocaleString()} chars • {chunkCount} chunks
+            </span>
           </div>
         )}
 

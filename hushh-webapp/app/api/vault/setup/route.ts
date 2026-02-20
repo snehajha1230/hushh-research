@@ -1,64 +1,67 @@
-// app/api/vault/setup/route.ts
-
-/**
- * Vault Setup API
- *
- * SYMMETRIC WITH NATIVE:
- * This route proxies to Python backend /db/vault/setup
- * to maintain consistency with iOS/Android native plugins.
- *
- * Native (Swift/Kotlin): POST /db/vault/setup → Python
- * Web (Next.js): POST /api/vault/setup → Python (proxy)
- */
-
 import { NextRequest, NextResponse } from "next/server";
+
+import { getPythonApiUrl } from "@/app/api/_utils/backend";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isDevelopment, logSecurityEvent } from "@/lib/config";
-import { getPythonApiUrl } from "@/app/api/_utils/backend";
 
 export const dynamic = "force-dynamic";
 
-// Python backend URL (same as native apps use)
 const PYTHON_API_URL = getPythonApiUrl();
+
+type VaultWrapper = {
+  method: string;
+  encryptedVaultKey: string;
+  salt: string;
+  iv: string;
+  passkeyCredentialId?: string;
+  passkeyPrfSalt?: string;
+};
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
       userId,
-      authMethod,
-      keyMode,
-      encryptedVaultKey,
-      salt,
-      iv,
+      vaultKeyHash,
+      primaryMethod,
       recoveryEncryptedVaultKey,
       recoverySalt,
       recoveryIv,
-      passkeyCredentialId,
-      passkeyPrfSalt,
-    } = body;
+      wrappers,
+    } = body as {
+      userId?: string;
+      vaultKeyHash?: string;
+      primaryMethod?: string;
+      recoveryEncryptedVaultKey?: string;
+      recoverySalt?: string;
+      recoveryIv?: string;
+      wrappers?: VaultWrapper[];
+    };
 
     if (
       !userId ||
-      !authMethod ||
-      !encryptedVaultKey ||
-      !salt ||
-      !iv ||
+      !vaultKeyHash ||
+      !primaryMethod ||
       !recoveryEncryptedVaultKey ||
       !recoverySalt ||
-      !recoveryIv
+      !recoveryIv ||
+      !Array.isArray(wrappers) ||
+      wrappers.length === 0
     ) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required vault state fields" },
         { status: 400 }
       );
     }
 
-    // =========================================================================
-    // FIREBASE AUTH (optional in dev)
-    // =========================================================================
-    const authHeader = request.headers.get("Authorization");
+    if (!wrappers.some((wrapper) => wrapper.method === "passphrase")) {
+      return NextResponse.json(
+        { error: "Passphrase wrapper is required" },
+        { status: 400 }
+      );
+    }
 
+    const authHeader = request.headers.get("Authorization");
     if (authHeader) {
       const validation = await validateFirebaseToken(authHeader);
       if (!validation.valid && !isDevelopment()) {
@@ -69,9 +72,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // =========================================================================
-    // PROXY TO PYTHON BACKEND (Same as native iOS/Android)
-    // =========================================================================
     const response = await fetch(`${PYTHON_API_URL}/db/vault/setup`, {
       method: "POST",
       headers: {
@@ -80,34 +80,26 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         userId,
-        authMethod,
-        keyMode,
-        encryptedVaultKey,
-        salt,
-        iv,
+        vaultKeyHash,
+        primaryMethod,
         recoveryEncryptedVaultKey,
         recoverySalt,
         recoveryIv,
-        passkeyCredentialId,
-        passkeyPrfSalt,
+        wrappers,
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("[API] Python backend error:", response.status, errorText);
       return NextResponse.json(
-        { error: "Backend error" },
+        { error: errorText || "Backend error" },
         { status: response.status }
       );
     }
 
     const result = await response.json();
-
-    logSecurityEvent("VAULT_SETUP_SUCCESS", { userId, authMethod });
-    console.log(`✅ Vault setup for user: ${userId} (${authMethod})`);
-
-    return NextResponse.json({ success: result.success });
+    logSecurityEvent("VAULT_SETUP_SUCCESS", { userId, primaryMethod });
+    return NextResponse.json({ success: !!result.success });
   } catch (error) {
     console.error("Vault setup error:", error);
     return NextResponse.json(

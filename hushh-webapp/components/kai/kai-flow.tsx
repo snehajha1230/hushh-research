@@ -20,8 +20,8 @@ import { useRouter } from "next/navigation";
 import { HushhLoader } from "@/components/ui/hushh-loader";
 import { WorldModelService } from "@/lib/services/world-model-service";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
-import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { useCache } from "@/lib/cache/cache-context";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { PortfolioImportView } from "./views/portfolio-import-view";
 import { ImportProgressView, ImportStage } from "./views/import-progress-view";
 import { PortfolioReviewView, PortfolioData as ReviewPortfolioData } from "./views/portfolio-review-view";
@@ -36,6 +36,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import { KaiPreferencesSheet } from "@/components/kai/onboarding/KaiPreferencesSheet";
+import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { useAuth } from "@/hooks/use-auth";
 import { VaultFlow } from "@/components/vault/vault-flow";
 import {
@@ -45,6 +46,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-cookie";
+import { ROUTES } from "@/lib/navigation/routes";
 
 // =============================================================================
 // TYPES
@@ -440,6 +442,7 @@ export function KaiFlow({
   const [resumeUploadAfterUnlock, setResumeUploadAfterUnlock] = useState(false);
   const [vaultResolvedForUpload, setVaultResolvedForUpload] = useState(false);
   const isDashboardMode = mode === "dashboard";
+  const stateRef = useRef<FlowState>("checking");
   
   // Streaming state for real-time progress
   const [streaming, setStreaming] = useState<StreamingState>({
@@ -456,6 +459,10 @@ export function KaiFlow({
   });
   const abortControllerRef = useRef<AbortController | null>(null);
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const handleAnalyzeLosers = useCallback(() => {
     if (!flowData.portfolioData) {
@@ -515,14 +522,9 @@ export function KaiFlow({
       .slice(0, 25);
 
     const forceOptimize = losers.length === 0;
-
-    if (forceOptimize) {
-      toast.info(
-        "No positions are below -5%. Optimizing the portfolio using your full holdings."
-      );
-    } else {
-      toast.info("Optimizing around your current losers and allocations.");
-    }
+    toast.info(
+      "Optimizing suggestions using curated rulesets across your portfolio context."
+    );
 
     useKaiSession.getState().setLosersInput({
       userId,
@@ -534,17 +536,30 @@ export function KaiFlow({
       hadBelowThreshold: losers.length > 0,
     });
 
-    router.push("/kai/dashboard/portfolio-health");
+    router.push(`${ROUTES.KAI_DASHBOARD}/portfolio-health`);
   }, [flowData.portfolioData, router, userId]);
 
   const handleViewHistory = useCallback(() => {
-    router.push("/kai/dashboard/analysis");
+    router.push(`${ROUTES.KAI_DASHBOARD}/analysis`);
   }, [router]);
 
   // Check World Model for financial data on mount
   useEffect(() => {
     async function checkFinancialData() {
       try {
+        // Avoid resetting active import/review UI when vault state changes mid-flow.
+        if (
+          mode === "import" &&
+          (vaultDialogOpen ||
+            resumeUploadAfterUnlock ||
+            !!queuedUploadFile ||
+            stateRef.current === "importing" ||
+            stateRef.current === "import_complete" ||
+            stateRef.current === "reviewing")
+        ) {
+          return;
+        }
+
         setState("checking");
 
         // Fetch user's World Model metadata
@@ -633,7 +648,7 @@ export function KaiFlow({
           invalidateDomain(userId, "financial");
           setFlowData({ hasFinancialData: false });
           if (isDashboardMode) {
-            router.replace("/kai/import");
+            router.replace(ROUTES.KAI_IMPORT);
             setState("checking");
             return;
           }
@@ -643,7 +658,7 @@ export function KaiFlow({
         console.error("[KaiFlow] Error checking financial data:", err);
         // Default to import_required on error (new user)
         if (isDashboardMode) {
-          router.replace("/kai/import");
+          router.replace(ROUTES.KAI_IMPORT);
           setState("checking");
           return;
         }
@@ -658,6 +673,9 @@ export function KaiFlow({
     userId,
     vaultKey,
     effectiveVaultOwnerToken,
+    vaultDialogOpen,
+    resumeUploadAfterUnlock,
+    queuedUploadFile,
     getPortfolioData,
     setPortfolioData,
     invalidateDomain,
@@ -828,11 +846,13 @@ export function KaiFlow({
         }
 
         let fullStreamedText = "";
+        let fullModelTokenText = "";
         let parsedPortfolio: ReviewPortfolioData | null = null;
         const validStages = new Set<ImportStage>([
           "idle",
           "uploading",
-          "analyzing",
+          "indexing",
+          "scanning",
           "thinking",
           "extracting",
           "parsing",
@@ -868,9 +888,11 @@ export function KaiFlow({
             switch (envelope.event) {
               case "stage": {
                 const stageValue = typeof payload.stage === "string" ? payload.stage : undefined;
+                const normalizedStageValue =
+                  stageValue === "analyzing" ? "scanning" : stageValue;
                 const stage =
-                  stageValue && validStages.has(stageValue as ImportStage)
-                    ? (stageValue as ImportStage)
+                  normalizedStageValue && validStages.has(normalizedStageValue as ImportStage)
+                    ? (normalizedStageValue as ImportStage)
                     : undefined;
                 if (!stage) return;
 
@@ -893,6 +915,9 @@ export function KaiFlow({
                 const thought = typeof payload.thought === "string" ? payload.thought : undefined;
                 setStreaming((prev) => {
                   const thoughts = thought ? [...prev.thoughts, thought] : prev.thoughts;
+                  if (thought) {
+                    fullModelTokenText += `${thought}\n`;
+                  }
                   return {
                     ...prev,
                     stage: "thinking",
@@ -900,6 +925,7 @@ export function KaiFlow({
                     thoughtCount: readNumber(payload.count) ?? thoughts.length,
                     progressPct: readNumber(payload.progress_pct) ?? prev.progressPct,
                     statusMessage: readString(payload.message) ?? prev.statusMessage,
+                    streamedText: fullModelTokenText || prev.streamedText,
                   };
                 });
                 break;
@@ -908,11 +934,12 @@ export function KaiFlow({
                 const text = typeof payload.text === "string" ? payload.text : "";
                 if (text) {
                   fullStreamedText += text;
+                  fullModelTokenText += text;
                 }
                 setStreaming((prev) => ({
                   ...prev,
                   stage: "extracting",
-                  streamedText: fullStreamedText,
+                  streamedText: fullModelTokenText || fullStreamedText,
                   totalChars: readNumber(payload.total_chars) ?? fullStreamedText.length,
                   chunkCount: readNumber(payload.chunk_count) ?? prev.chunkCount,
                   holdingsExtracted:
@@ -986,6 +1013,7 @@ export function KaiFlow({
                     })) || prev.liveHoldings,
                   progressPct: readNumber(payload.progress_pct) ?? 100,
                   statusMessage: readString(payload.message) ?? "Import complete!",
+                  streamedText: fullModelTokenText || prev.streamedText,
                 }));
                 break;
               }
@@ -1123,7 +1151,7 @@ export function KaiFlow({
       errorMessage: undefined,
     });
     if (mode === "import" && flowData.portfolioData) {
-      router.push("/kai/dashboard");
+      router.push(ROUTES.KAI_DASHBOARD);
       return;
     }
   }, [flowData.portfolioData, mode, router, setBusyOperation]);
@@ -1161,7 +1189,7 @@ export function KaiFlow({
   const handleBackToDashboardFromImport = useCallback(() => {
     if (mode === "import") {
       setOnboardingFlowActiveCookie(false);
-      router.push("/kai/dashboard");
+      router.push(ROUTES.KAI_DASHBOARD);
       return;
     }
     if (flowData.portfolioData) {
@@ -1172,7 +1200,7 @@ export function KaiFlow({
   }, [flowData.portfolioData, mode, router]);
 
   // Handle save complete from review screen
-  const handleSaveComplete = useCallback((savedData: ReviewPortfolioData) => {
+  const handleSaveComplete = useCallback(async (savedData: ReviewPortfolioData) => {
     // Convert to dashboard format and update flow data
     // Map the review types to dashboard types
     // Normalize holdings to ensure unrealized_gain_loss_pct is computed
@@ -1214,6 +1242,7 @@ export function KaiFlow({
 
     // Update cache context so other pages (Manage, etc.) can access the data
     setPortfolioData(userId, portfolioData);
+    CacheSyncService.onPortfolioUpserted(userId, portfolioData);
     console.log("[KaiFlow] Portfolio data saved to cache");
 
     setFlowData({
@@ -1224,19 +1253,31 @@ export function KaiFlow({
       parsedPortfolio: undefined, // Clear parsed data
     });
 
+    if (effectiveVaultOwnerToken && vaultKey) {
+      try {
+        await KaiProfileSyncService.syncPendingToVault({
+          userId,
+          vaultKey,
+          vaultOwnerToken: effectiveVaultOwnerToken,
+        });
+      } catch (syncError) {
+        console.warn("[KaiFlow] Deferred onboarding sync failed after save:", syncError);
+      }
+    }
+
     if (mode === "import") {
-      router.push("/kai/dashboard");
+      router.push(ROUTES.KAI_DASHBOARD);
       return;
     }
 
     setState("dashboard");
-  }, [mode, router, userId, setPortfolioData]);
+  }, [mode, router, userId, setPortfolioData, effectiveVaultOwnerToken, vaultKey]);
 
   // Handle skip import - preserve existing data if available
   const handleSkipImport = useCallback(() => {
     if (mode === "import") {
       setOnboardingFlowActiveCookie(false);
-      router.push("/kai");
+      router.push(ROUTES.KAI_HOME);
       return;
     }
 
@@ -1251,7 +1292,7 @@ export function KaiFlow({
   // Handle re-import (upload new statement)
   const handleReimport = useCallback(() => {
     if (mode === "dashboard") {
-      router.push("/kai/import");
+      router.push(ROUTES.KAI_IMPORT);
       return;
     }
     setState("import_required");
@@ -1271,15 +1312,12 @@ export function KaiFlow({
     try {
       // Clear World Model financial domain
       await WorldModelService.clearDomain(userId, "financial", effectiveVaultOwnerToken);
-      
-      // Invalidate cache to ensure fresh data on next load
-      CacheService.getInstance().invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
-      CacheService.getInstance().invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
+      CacheSyncService.onWorldModelDomainCleared(userId, "financial");
       
       // Reset flow state
       setFlowData({ hasFinancialData: false });
       if (mode === "dashboard") {
-        router.push("/kai/import");
+        router.push(ROUTES.KAI_IMPORT);
         return;
       }
       setState("import_required");
@@ -1293,7 +1331,7 @@ export function KaiFlow({
 
   // Handle manage portfolio navigation
   const handleManagePortfolio = useCallback(() => {
-    router.push("/kai/dashboard/manage");
+    router.push(`${ROUTES.KAI_DASHBOARD}/manage`);
   }, [router]);
 
   // Handle analyze stock - starts streaming analysis
@@ -1324,7 +1362,7 @@ export function KaiFlow({
         
         // Navigate to analysis view (DebateStreamView will read from Zustand store)
         console.log("[KaiFlow] Navigating to /kai/dashboard/analysis");
-        router.push("/kai/dashboard/analysis");
+        router.push(`${ROUTES.KAI_DASHBOARD}/analysis`);
       })
       .catch((error) => {
         console.error("[KaiFlow] Error getting context:", error);
@@ -1396,7 +1434,8 @@ export function KaiFlow({
           streamedText={streaming.streamedText}
           isStreaming={
             streaming.stage === "uploading" ||
-            streaming.stage === "analyzing" ||
+            streaming.stage === "indexing" ||
+            streaming.stage === "scanning" ||
             streaming.stage === "thinking" ||
             streaming.stage === "extracting" ||
             streaming.stage === "parsing"
@@ -1561,6 +1600,21 @@ export function KaiFlow({
                   onSuccess={() => {
                     setVaultResolvedForUpload(true);
                     setVaultDialogOpen(false);
+                    if (resumeUploadAfterUnlock && queuedUploadFile) {
+                      const fileToResume = queuedUploadFile;
+                      if (vaultKey && effectiveVaultOwnerToken) {
+                        // Restart immediately when unlock context is already available.
+                        setResumeUploadAfterUnlock(false);
+                        setQueuedUploadFile(null);
+                        window.setTimeout(() => {
+                          void handleFileUpload(fileToResume);
+                        }, 120);
+                      } else {
+                        // Keep pending flags so the resume effect can restart once context arrives.
+                        setQueuedUploadFile(fileToResume);
+                        setResumeUploadAfterUnlock(true);
+                      }
+                    }
                   }}
                 />
               </div>

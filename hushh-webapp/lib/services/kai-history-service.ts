@@ -16,7 +16,7 @@
  */
 
 import { WorldModelService } from "./world-model-service";
-import { CacheService, CACHE_KEYS } from "./cache-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 
 const MAX_HISTORY_PER_TICKER = 3;
@@ -134,10 +134,7 @@ export class KaiHistoryService {
 
       // Invalidate caches after successful save
       if (result.success) {
-        const cache = CacheService.getInstance();
-        cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, DOMAIN));
-        cache.invalidate(CACHE_KEYS.STOCK_CONTEXT(userId, entry.ticker));
-        cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
+        CacheSyncService.onAnalysisHistoryMutated(userId, entry.ticker);
       }
 
       return result.success;
@@ -245,8 +242,7 @@ export class KaiHistoryService {
       });
 
       if (result.success) {
-        const cache = CacheService.getInstance();
-        cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, DOMAIN));
+        CacheSyncService.onAnalysisHistoryMutated(userId, ticker);
       }
 
       return result.success;
@@ -297,9 +293,7 @@ export class KaiHistoryService {
       });
 
       if (result.success) {
-        const cache = CacheService.getInstance();
-        cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, DOMAIN));
-        cache.invalidate(CACHE_KEYS.STOCK_CONTEXT(userId, ticker));
+        CacheSyncService.onAnalysisHistoryMutated(userId, ticker);
       }
 
       return result.success;

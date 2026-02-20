@@ -11,9 +11,9 @@ vi.mock("@/lib/vault/vault-context", () => ({
 vi.mock("@/lib/services/vault-service", () => ({
   VaultService: {
     checkVault: vi.fn(),
-    canUseGeneratedDefaultVault: vi.fn(),
     createVault: vi.fn(),
-    setupVault: vi.fn(),
+    setupVaultState: vi.fn(),
+    hashVaultKey: vi.fn(),
     setVaultCheckCache: vi.fn(),
   },
 }));
@@ -29,17 +29,13 @@ vi.mock("sonner", () => ({
 import { VaultService } from "@/lib/services/vault-service";
 import { VaultFlow } from "@/components/vault/vault-flow";
 
-describe("VaultFlow generated-default fallback", () => {
+describe("VaultFlow passphrase-first setup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("falls back to passphrase setup on web when PRF/passkey is unavailable", async () => {
+  it("moves from intro to passphrase creation without generated-default shortcut", async () => {
     (VaultService.checkVault as any).mockResolvedValue(false);
-    (VaultService.canUseGeneratedDefaultVault as any).mockResolvedValue({
-      supported: false,
-      reason: "Passkey/PRF unavailable",
-    });
 
     const onSuccess = vi.fn();
 
@@ -55,14 +51,14 @@ describe("VaultFlow generated-default fallback", () => {
       expect(screen.getByText(/secure your digital vault/i)).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /not now \(use secure default key\)/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /i understand, create vault/i })
+    );
 
     await waitFor(() => {
       expect(screen.getByText(/create your vault passphrase/i)).toBeTruthy();
     });
 
-    expect(VaultService.canUseGeneratedDefaultVault).toHaveBeenCalled();
     expect(onSuccess).not.toHaveBeenCalled();
   });
 });
-

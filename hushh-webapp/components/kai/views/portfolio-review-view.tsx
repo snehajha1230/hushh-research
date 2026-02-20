@@ -32,7 +32,7 @@ import {
   PieChart,
   Wallet,
 } from "lucide-react";
-import { toast } from "sonner";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Input } from "@/components/ui/input";
@@ -48,7 +48,8 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { WorldModelService } from "@/lib/services/world-model-service";
-import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import type { PortfolioData as CachedPortfolioData } from "@/lib/cache/cache-context";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -169,7 +170,7 @@ export interface PortfolioReviewViewProps {
   /** VAULT_OWNER token for authentication (required on native) */
   vaultOwnerToken?: string;
   /** Callback when save completes successfully */
-  onSaveComplete: (data: PortfolioData) => void;
+  onSaveComplete: (data: PortfolioData) => void | Promise<void>;
   /** Callback to re-import */
   onReimport: () => void;
   /** Callback to go back */
@@ -272,6 +273,7 @@ export function PortfolioReviewView({
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const createdVaultCopyRef = useRef(false);
   const createdVaultModeRef = useRef<string | null>(null);
+  const continuationInFlightRef = useRef(false);
   const [editingHoldingIndex, setEditingHoldingIndex] = useState<number | null>(
     null
   );
@@ -320,9 +322,13 @@ export function PortfolioReviewView({
   useEffect(() => {
     if (!pendingVaultSave) return;
     if (!effectiveVaultKey || !effectiveVaultOwnerToken) return;
+    if (continuationInFlightRef.current) return;
 
     setPendingVaultSave(false);
-    void handleSave();
+    continuationInFlightRef.current = true;
+    void handleSave().finally(() => {
+      continuationInFlightRef.current = false;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingVaultSave, effectiveVaultKey, effectiveVaultOwnerToken]);
 
@@ -593,16 +599,11 @@ export function PortfolioReviewView({
         throw new Error("Failed to store financial_documents snapshot");
       }
 
-      // 5b. Prime in-memory cache immediately so all Kai screens render updated data
-      // without waiting for a refetch/decrypt cycle.
-      const cache = CacheService.getInstance();
-      cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), portfolioToSave, CACHE_TTL.SESSION);
-      cache.set(
-        CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
-        portfolioToSave,
-        CACHE_TTL.SESSION
+      // 5b. Prime/invalidate deterministic cache entries for all financial reads.
+      CacheSyncService.onPortfolioUpserted(
+        userId,
+        portfolioToSave as unknown as CachedPortfolioData
       );
-      cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
 
       // 6. Verify the save by reading back
       try {
@@ -627,7 +628,7 @@ export function PortfolioReviewView({
       } else {
         toast.success("Portfolio saved securely.");
       }
-      onSaveComplete(portfolioToSave);
+      await Promise.resolve(onSaveComplete(portfolioToSave));
     } catch (error) {
       console.error("Save error:", error);
       toast.error("Failed to save portfolio");
@@ -1214,6 +1215,17 @@ export function PortfolioReviewView({
                   onSuccess={(meta) => {
                     createdVaultModeRef.current = meta?.mode ?? null;
                     setVaultDialogOpen(false);
+                    if (
+                      effectiveVaultKey &&
+                      effectiveVaultOwnerToken &&
+                      !continuationInFlightRef.current
+                    ) {
+                      continuationInFlightRef.current = true;
+                      void handleSave().finally(() => {
+                        continuationInFlightRef.current = false;
+                      });
+                      return;
+                    }
                     setPendingVaultSave(true);
                   }}
                 />

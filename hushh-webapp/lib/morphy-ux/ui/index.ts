@@ -23,3 +23,4 @@ export * from "./brand-mark";
 export * from "./icon-chip";
 export * from "./feature-rail";
 export * from "./onboarding-feature-list";
+export * from "./segmented-pill";

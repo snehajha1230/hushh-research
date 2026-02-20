@@ -288,13 +288,19 @@ export class HushhVaultWeb extends WebPlugin {
    * Get encrypted vault key - web fallback calls API route
    */
   async getVault(options: { userId: string; authToken?: string }): Promise<{
-    authMethod: string;
-    encryptedVaultKey: string;
-    salt: string;
-    iv: string;
+    vaultKeyHash: string;
+    primaryMethod: string;
     recoveryEncryptedVaultKey: string;
     recoverySalt: string;
     recoveryIv: string;
+    wrappers: Array<{
+      method: string;
+      encryptedVaultKey: string;
+      salt: string;
+      iv: string;
+      passkeyCredentialId?: string;
+      passkeyPrfSalt?: string;
+    }>;
   }> {
     const response = await fetch(`/api/vault/get?userId=${options.userId}`);
     if (!response.ok) throw new Error("Vault not found");
@@ -306,13 +312,19 @@ export class HushhVaultWeb extends WebPlugin {
    */
   async setupVault(options: {
     userId: string;
-    authMethod?: string;
-    encryptedVaultKey: string;
-    salt: string;
-    iv: string;
+    vaultKeyHash: string;
+    primaryMethod: string;
     recoveryEncryptedVaultKey: string;
     recoverySalt: string;
     recoveryIv: string;
+    wrappers: Array<{
+      method: string;
+      encryptedVaultKey: string;
+      salt: string;
+      iv: string;
+      passkeyCredentialId?: string;
+      passkeyPrfSalt?: string;
+    }>;
     authToken?: string;
   }): Promise<{ success: boolean }> {
     const response = await fetch("/api/vault/setup", {
@@ -321,6 +333,40 @@ export class HushhVaultWeb extends WebPlugin {
       body: JSON.stringify(options),
     });
     if (!response.ok) throw new Error("Failed to setup vault");
+    return { success: true };
+  }
+
+  async upsertVaultWrapper(options: {
+    userId: string;
+    vaultKeyHash: string;
+    method: string;
+    encryptedVaultKey: string;
+    salt: string;
+    iv: string;
+    passkeyCredentialId?: string;
+    passkeyPrfSalt?: string;
+    authToken?: string;
+  }): Promise<{ success: boolean }> {
+    const response = await fetch("/api/vault/wrapper/upsert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options),
+    });
+    if (!response.ok) throw new Error("Failed to upsert wrapper");
+    return { success: true };
+  }
+
+  async setPrimaryVaultMethod(options: {
+    userId: string;
+    primaryMethod: string;
+    authToken?: string;
+  }): Promise<{ success: boolean }> {
+    const response = await fetch("/api/vault/primary/set", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(options),
+    });
+    if (!response.ok) throw new Error("Failed to set primary method");
     return { success: true };
   }
 

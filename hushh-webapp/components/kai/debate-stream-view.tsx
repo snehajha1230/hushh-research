@@ -7,7 +7,6 @@ import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckC
 import { Icon } from "@/lib/morphy-ux/ui";
 import { setKaiVaultOwnerToken } from "@/lib/services/kai-service";
 import { KaiHistoryService } from "@/lib/services/kai-history-service";
-import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { DecisionCard } from "./views/decision-card";
 import { RoundTabsCard } from "./views/round-tabs-card";
 import { toast } from "sonner";
@@ -589,11 +588,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                       },
                     },
                   })
-                    .then(() => {
-                      const cache = CacheService.getInstance();
-                      cache.invalidate(CACHE_KEYS.STOCK_CONTEXT(userId, ticker.toUpperCase()));
-                      cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, "kai_analysis_history"));
-                    })
+                    .then(() => undefined)
                     .catch((e) => console.warn("[DebateStreamView] History save failed:", e));
                 }
                 break;

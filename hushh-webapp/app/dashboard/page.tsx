@@ -7,11 +7,12 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export default function DashboardRedirectPage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/kai");
+    router.replace(ROUTES.KAI_HOME);
   }, [router]);
   return null;
 }

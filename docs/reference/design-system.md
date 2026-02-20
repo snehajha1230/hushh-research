@@ -17,6 +17,7 @@ The brand name implies keeping things quiet until YOU decide to share.
 ### Navigation (Client-Side Routing)
 
 **ALWAYS** use `next/link` for internal navigation to prevent page reloads.
+**ALWAYS** use centralized route constants from `hushh-webapp/lib/navigation/routes.ts` for programmatic navigation.
 
 ```tsx
 import Link from "next/link";
@@ -30,6 +31,11 @@ import { BreadcrumbLink } from "@/components/ui/breadcrumb";
 // ❌ WRONG - Direct href (causes full reload)
 <BreadcrumbLink href="/dashboard">Dashboard</BreadcrumbLink>
 ```
+
+Route/chrome constraints:
+- Public no-chrome routes: `ROUTES.HOME`, `ROUTES.LOGIN`
+- Kai chrome routes: `ROUTES.KAI_HOME`, `ROUTES.KAI_ONBOARDING`, `ROUTES.KAI_IMPORT`, `ROUTES.KAI_DASHBOARD`
+- Legacy aliases must include client fallback pages for Capacitor export compatibility (do not rely only on `next.config.ts` redirects).
 
 ### Button (PRIMARY INTERACTIVE ELEMENT)
 
@@ -95,11 +101,28 @@ import { VaultFlow } from "@/components/vault/vault-flow";
 
 Vault security policy (locked):
 - Never allow plaintext-at-rest paths.
-- If users skip custom passphrase creation, use generated default key flow.
+- Passphrase creation is mandatory for new vaults. Quick unlock methods (biometric/passkey) are optional additive wrappers.
 - Generated default key is allowed only on secure mechanisms:
   - Native: biometric-protected `HushhKeychain.setBiometric/getBiometric`
   - Web: passkey/WebAuthn PRF
 - If secure mechanism is unavailable (web no PRF), require passphrase.
+
+### Cache-Safe Mutation Rule
+
+Any DB-backed mutation path must update cache through `CacheSyncService`:
+- `hushh-webapp/lib/cache/cache-sync-service.ts`
+- `hushh-webapp/lib/services/cache-service.ts`
+
+Do:
+- Invoke `CacheSyncService` in world-model/vault/consent/history/import/auth mutation paths.
+- Keep invalidation/write-through deterministic and centralized.
+
+Don't:
+- Add ad-hoc `CacheService.getInstance().invalidate(...)` calls inside mutation flows.
+- Scatter cache key orchestration in feature components.
+
+Verification:
+- `cd hushh-webapp && npm run verify:cache`
 
 ---
 

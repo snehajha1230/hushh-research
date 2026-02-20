@@ -328,7 +328,7 @@ export function EditHoldingModal({
           )}
         </div>
  
-        <DrawerFooter className="border-t bg-background/80 backdrop-blur-lg pb-[calc(5rem+var(--app-safe-area-bottom))]">
+        <DrawerFooter className="border-t bg-background/80 backdrop-blur-lg pb-[calc(5rem+var(--app-safe-area-bottom-effective))]">
           <div className="flex gap-3 w-full">
             <DrawerClose asChild>
               <Button

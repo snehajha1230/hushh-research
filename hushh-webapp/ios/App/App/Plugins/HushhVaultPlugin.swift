@@ -21,6 +21,8 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "hasVault", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getVault", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setupVault", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "upsertVaultWrapper", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setPrimaryVaultMethod", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getFoodPreferences", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getProfessionalData", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "storePreferencesToCloud", returnType: CAPPluginReturnPromise),
@@ -228,6 +230,10 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         let urlStr = "\(backendUrl)/db/vault/check"
         
         performRequest(urlStr: urlStr, body: ["userId": userId], authToken: authToken) { json, error in
+            if let error = error {
+                call.reject("Failed to check vault: \(error)")
+                return
+            }
             if let json = json, let hasVault = json["hasVault"] as? Bool {
                 call.resolve(["exists": hasVault])
             } else {
@@ -248,7 +254,52 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         
         performRequest(urlStr: urlStr, body: ["userId": userId], authToken: authToken) { json, error in
             if let json = json {
-                call.resolve(json as [String: Any])
+                var normalized: [String: Any] = [
+                    "vaultKeyHash": (json["vaultKeyHash"] as? String) ?? "",
+                    "primaryMethod": (json["primaryMethod"] as? String) ?? "passphrase",
+                    "recoveryEncryptedVaultKey": (json["recoveryEncryptedVaultKey"] as? String) ?? "",
+                    "recoverySalt": (json["recoverySalt"] as? String) ?? "",
+                    "recoveryIv": (json["recoveryIv"] as? String) ?? ""
+                ]
+
+                let wrappersAny = json["wrappers"]
+                let wrappersArray: [[String: Any]]
+                if let direct = wrappersAny as? [[String: Any]] {
+                    wrappersArray = direct
+                } else if let rawArray = wrappersAny as? [Any] {
+                    wrappersArray = rawArray.compactMap { $0 as? [String: Any] }
+                } else {
+                    wrappersArray = []
+                }
+                let wrappers: [[String: Any]] = wrappersArray.map { raw in
+                    var wrapper: [String: Any] = [
+                        "method": (raw["method"] as? String) ?? "passphrase",
+                        "encryptedVaultKey": (raw["encryptedVaultKey"] as? String) ?? (raw["encrypted_vault_key"] as? String) ?? "",
+                        "salt": (raw["salt"] as? String) ?? "",
+                        "iv": (raw["iv"] as? String) ?? ""
+                    ]
+
+                    if let passkeyCredentialId = (raw["passkeyCredentialId"] as? String) ?? (raw["passkey_credential_id"] as? String) {
+                        let trimmed = passkeyCredentialId.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty && trimmed.lowercased() != "null" {
+                            wrapper["passkeyCredentialId"] = trimmed
+                        }
+                    }
+
+                    if let passkeyPrfSalt = (raw["passkeyPrfSalt"] as? String) ?? (raw["passkey_prf_salt"] as? String) {
+                        let trimmed = passkeyPrfSalt.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty && trimmed.lowercased() != "null" {
+                            wrapper["passkeyPrfSalt"] = trimmed
+                        }
+                    }
+
+                    return wrapper
+                }
+
+                normalized["wrappers"] = wrappers
+                let methods = wrappers.compactMap { ($0["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                print("[\(self.TAG)] getVault wrappers count: \(wrappers.count), methods: \(methods)")
+                call.resolve(normalized)
             } else if let error = error, error.contains("404") {
                 call.resolve(["vault": NSNull()])
             } else {
@@ -263,58 +314,152 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         print("[\(TAG)] Received keys: \(receivedKeys)")
         
         guard let userId = call.getString("userId"),
-              let encryptedVaultKey = call.getString("encryptedVaultKey"),
-              let salt = call.getString("salt"),
-              let iv = call.getString("iv") else {
+              let vaultKeyHash = call.getString("vaultKeyHash"),
+              let primaryMethod = call.getString("primaryMethod"),
+              let recoveryEncryptedVaultKey = call.getString("recoveryEncryptedVaultKey"),
+              let recoverySalt = call.getString("recoverySalt"),
+              let recoveryIv = call.getString("recoveryIv"),
+              let wrappers = call.getArray("wrappers", [Any].self) else {
             print("❌ [\(TAG)] setupVault: Missing required parameters")
             print("   Available keys: \(receivedKeys)")
-            call.reject("Missing required parameters: userId, encryptedVaultKey, salt, iv")
+            call.reject("Missing required parameters for vault setup state")
             return
         }
         
-        let authMethod = call.getString("authMethod") ?? "passphrase"
-        let keyMode = call.getString("keyMode")
-        let recoveryEncryptedVaultKey = call.getString("recoveryEncryptedVaultKey") ?? ""
-        let recoverySalt = call.getString("recoverySalt") ?? ""
-        let recoveryIv = call.getString("recoveryIv") ?? ""
-        let passkeyCredentialId = call.getString("passkeyCredentialId")
-        let passkeyPrfSalt = call.getString("passkeyPrfSalt")
         let authToken = call.getString("authToken")
         let backendUrl = call.getString("backendUrl") ?? defaultBackendUrl
         let urlStr = "\(backendUrl)/db/vault/setup"
         
         print("[\(TAG)] 🌐 URL: \(urlStr)")
-        print("[\(TAG)] userId: \(userId), authMethod: \(authMethod)")
+        print("[\(TAG)] userId: \(userId), primaryMethod: \(primaryMethod)")
         
-        var body: [String: Any] = [
+        let normalizedWrappers: [[String: Any]] = wrappers.compactMap { item in
+            guard let raw = item as? [String: Any] else { return nil }
+            let method = (raw["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let encrypted = ((raw["encryptedVaultKey"] as? String) ?? (raw["encrypted_vault_key"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let salt = ((raw["salt"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let iv = ((raw["iv"] as? String) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if encrypted.isEmpty || salt.isEmpty || iv.isEmpty { return nil }
+
+            var wrapper: [String: Any] = [
+                "method": (method?.isEmpty == false ? method! : "passphrase"),
+                "encryptedVaultKey": encrypted,
+                "salt": salt,
+                "iv": iv
+            ]
+
+            if let passkeyCredentialId = ((raw["passkeyCredentialId"] as? String) ?? (raw["passkey_credential_id"] as? String))?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !passkeyCredentialId.isEmpty,
+               passkeyCredentialId.lowercased() != "null" {
+                wrapper["passkeyCredentialId"] = passkeyCredentialId
+            }
+            if let passkeyPrfSalt = ((raw["passkeyPrfSalt"] as? String) ?? (raw["passkey_prf_salt"] as? String))?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !passkeyPrfSalt.isEmpty,
+               passkeyPrfSalt.lowercased() != "null" {
+                wrapper["passkeyPrfSalt"] = passkeyPrfSalt
+            }
+            return wrapper
+        }
+
+        let body: [String: Any] = [
             "userId": userId,
-            "authMethod": authMethod,
-            "encryptedVaultKey": encryptedVaultKey,
-            "salt": salt,
-            "iv": iv,
+            "vaultKeyHash": vaultKeyHash,
+            "primaryMethod": primaryMethod,
             "recoveryEncryptedVaultKey": recoveryEncryptedVaultKey,
             "recoverySalt": recoverySalt,
-            "recoveryIv": recoveryIv
+            "recoveryIv": recoveryIv,
+            "wrappers": normalizedWrappers
         ]
-
-        if let keyMode, !keyMode.isEmpty {
-            body["keyMode"] = keyMode
-        }
-        if let passkeyCredentialId, !passkeyCredentialId.isEmpty {
-            body["passkeyCredentialId"] = passkeyCredentialId
-        }
-        if let passkeyPrfSalt, !passkeyPrfSalt.isEmpty {
-            body["passkeyPrfSalt"] = passkeyPrfSalt
-        }
         
         performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
-            if json != nil {
+            if let error = error {
+                print("❌ [\(self.TAG)] setupVault failed: \(error)")
+                call.reject(error)
+                return
+            }
+            if let success = json?["success"] as? Bool, success {
                 print("✅ [\(self.TAG)] setupVault completed successfully")
                 call.resolve(["success": true])
-            } else {
-                print("❌ [\(self.TAG)] setupVault failed: \(error ?? "unknown error")")
-                call.reject(error ?? "Failed to create vault")
+                return
             }
+            print("❌ [\(self.TAG)] setupVault failed: success response missing/false")
+            call.reject("Failed to create vault: invalid success response")
+        }
+    }
+
+    @objc func upsertVaultWrapper(_ call: CAPPluginCall) {
+        guard let userId = call.getString("userId"),
+              let vaultKeyHash = call.getString("vaultKeyHash"),
+              let method = call.getString("method"),
+              let encryptedVaultKey = call.getString("encryptedVaultKey"),
+              let salt = call.getString("salt"),
+              let iv = call.getString("iv") else {
+            call.reject("Missing required parameters")
+            return
+        }
+
+        let authToken = call.getString("authToken")
+        let backendUrl = call.getString("backendUrl") ?? defaultBackendUrl
+        let urlStr = "\(backendUrl)/db/vault/wrapper/upsert"
+
+        var body: [String: Any] = [
+            "userId": userId,
+            "vaultKeyHash": vaultKeyHash,
+            "method": method,
+            "encryptedVaultKey": encryptedVaultKey,
+            "salt": salt,
+            "iv": iv
+        ]
+        if let passkeyCredentialId = call.getString("passkeyCredentialId"), !passkeyCredentialId.isEmpty {
+            body["passkeyCredentialId"] = passkeyCredentialId
+        }
+        if let passkeyPrfSalt = call.getString("passkeyPrfSalt"), !passkeyPrfSalt.isEmpty {
+            body["passkeyPrfSalt"] = passkeyPrfSalt
+        }
+
+        performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
+            if let error = error {
+                call.reject(error)
+                return
+            }
+            if let success = json?["success"] as? Bool, success {
+                call.resolve(["success": true])
+                return
+            }
+            call.reject("Failed to upsert wrapper: invalid success response")
+        }
+    }
+
+    @objc func setPrimaryVaultMethod(_ call: CAPPluginCall) {
+        guard let userId = call.getString("userId"),
+              let primaryMethod = call.getString("primaryMethod") else {
+            call.reject("Missing required parameters")
+            return
+        }
+
+        let authToken = call.getString("authToken")
+        let backendUrl = call.getString("backendUrl") ?? defaultBackendUrl
+        let urlStr = "\(backendUrl)/db/vault/primary/set"
+        let body: [String: Any] = [
+            "userId": userId,
+            "primaryMethod": primaryMethod
+        ]
+
+        performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
+            if let error = error {
+                call.reject(error)
+                return
+            }
+            if let success = json?["success"] as? Bool, success {
+                call.resolve(["success": true])
+                return
+            }
+            call.reject("Failed to set primary method: invalid success response")
         }
     }
     
@@ -597,20 +742,36 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
                 completion(nil, "No data")
                 return
             }
-            
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 404 {
-                completion(nil, "404")
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                completion(nil, "Invalid HTTP response")
                 return
             }
-            
-            do {
-                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    completion(json, nil)
+
+            let status = httpResponse.statusCode
+            var parsedJson: [String: Any]?
+            if let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                parsedJson = jsonObject
+            }
+
+            if !(200...299).contains(status) {
+                let backendDetail =
+                    (parsedJson?["detail"] as? String) ??
+                    (parsedJson?["error"] as? String) ??
+                    String(data: data, encoding: .utf8)
+                let trimmedDetail = backendDetail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if trimmedDetail.isEmpty {
+                    completion(nil, "HTTP \(status)")
                 } else {
-                    completion(nil, "Invalid JSON")
+                    completion(nil, "HTTP \(status): \(trimmedDetail)")
                 }
-            } catch {
-                completion(nil, "Parse error")
+                return
+            }
+
+            if let parsedJson {
+                completion(parsedJson, nil)
+            } else {
+                completion(nil, "Invalid JSON")
             }
         }.resume()
     }

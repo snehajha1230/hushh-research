@@ -35,6 +35,7 @@ interface DashboardSummaryHeroProps {
   changePct: number;
   holdingsCount: number;
   riskLabel?: string;
+  brokerageName?: string;
   periodLabel?: string;
   periodRange?: string;
   beginningBalance?: number;
@@ -46,6 +47,7 @@ export function DashboardSummaryHero({
   changePct,
   holdingsCount,
   riskLabel,
+  brokerageName,
   periodLabel = "Past Month",
   periodRange,
   beginningBalance,
@@ -64,6 +66,11 @@ export function DashboardSummaryHero({
             <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
               Holdings: {holdingsCount}
             </Badge>
+            {brokerageName && (
+              <Badge className="rounded-full bg-muted px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                {brokerageName}
+              </Badge>
+            )}
           </div>
           <h2 className="text-[34px] font-black leading-tight tracking-tight">{formatCurrency(totalValue)}</h2>
           <div className="flex items-center justify-center gap-2 text-sm">

@@ -7,7 +7,9 @@ import { MarketOverviewGrid } from "@/components/kai/cards/market-overview-grid"
 import { SpotlightCard } from "@/components/kai/cards/spotlight-card";
 import { ThemeFocusList } from "@/components/kai/cards/theme-focus-list";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
+import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { useRouter } from "next/navigation";
 
 function SectionLabel({ children }: { children: string }) {
   return (
@@ -18,6 +20,8 @@ function SectionLabel({ children }: { children: string }) {
 }
 
 export function KaiMarketPreviewView() {
+  const router = useRouter();
+
   return (
     <div className="mx-auto w-full max-w-md px-4 py-6 pb-[calc(140px+var(--app-bottom-inset))]">
       <header className="space-y-2 text-center">
@@ -27,6 +31,16 @@ export function KaiMarketPreviewView() {
         <p className="mx-auto max-w-[22rem] text-sm text-muted-foreground">
           Structured insights, even before connecting your portfolio.
         </p>
+        <div className="pt-2">
+          <Button
+            variant="none"
+            effect="fade"
+            size="default"
+            onClick={() => router.push("/kai/dashboard")}
+          >
+            Open Dashboard
+          </Button>
+        </div>
       </header>
 
       <section className="mt-8">

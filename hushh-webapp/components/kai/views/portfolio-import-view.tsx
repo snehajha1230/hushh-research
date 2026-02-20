@@ -12,7 +12,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/lib/morphy-ux/card";
+import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 
 import { Upload, FileText, CheckCircle, AlertCircle, Link2 } from "lucide-react";

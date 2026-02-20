@@ -5,10 +5,11 @@ import { useSearchParams } from "next/navigation";
 
 import { AuthStep } from "@/components/onboarding/AuthStep";
 import { HushhLoader } from "@/components/ui/hushh-loader";
+import { ROUTES } from "@/lib/navigation/routes";
 
 function LoginContent() {
   const searchParams = useSearchParams();
-  const redirectPath = searchParams.get("redirect") || "/kai";
+  const redirectPath = searchParams.get("redirect") || ROUTES.KAI_HOME;
 
   return (
     <AuthStep

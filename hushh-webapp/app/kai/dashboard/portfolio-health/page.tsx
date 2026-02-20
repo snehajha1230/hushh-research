@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
@@ -115,6 +116,7 @@ function useThemeAware() {
 }
 
 export default function PortfolioHealthPage() {
+  const router = useRouter();
   const theme = useThemeAware();
   const { user, loading: authLoading } = useAuth();
   const { vaultOwnerToken, vaultKey } = useVault();
@@ -137,9 +139,12 @@ export default function PortfolioHealthPage() {
   const [isComplete, setIsComplete] = useState(false);
   const [currentStage, setCurrentStage] = useState<string>("analyzing");
   const [progressPct, setProgressPct] = useState<number>(5);
-  const [statusMessage, setStatusMessage] = useState("Preparing portfolio optimization...");
+  const [statusMessage, setStatusMessage] = useState(
+    "Optimizing suggestions using curated rulesets across your portfolio context."
+  );
   const abortControllerRef = useRef<AbortController | null>(null);
   const [kaiProfile, setKaiProfile] = useState<KaiProfileV2 | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   // New streaming states for granular control
   const [thoughts, setThoughts] = useState<string[]>([]);
@@ -279,6 +284,7 @@ export default function PortfolioHealthPage() {
         setCurrentStage("analyzing");
         setProgressPct(8);
         setStatusMessage("Preparing portfolio context and optimization universe...");
+        setErrorCode(null);
         setIsThinking(false);
         setIsExtracting(false);
 
@@ -397,12 +403,18 @@ export default function PortfolioHealthPage() {
                 break;
               }
               case "error": {
+                const code = readString(payload.code);
                 const message =
                   typeof payload.message === "string"
                     ? payload.message
                     : "Portfolio health analysis failed";
-                setStatusMessage(message);
-                throw new Error(message);
+                setErrorCode(code ?? null);
+                const friendlyMessage =
+                  code === "OPTIMIZE_PARSE_FAILED"
+                    ? "We hit a formatting issue while composing optimization output. Please retry."
+                    : message;
+                setStatusMessage(friendlyMessage);
+                throw new Error(friendlyMessage);
               }
               case "aborted": {
                 const message =
@@ -430,6 +442,9 @@ export default function PortfolioHealthPage() {
         } else {
           setError((e as Error).message);
           setStatusMessage((e as Error).message);
+          if ((e as Error).message.includes("formatting issue")) {
+            setErrorCode("OPTIMIZE_PARSE_FAILED");
+          }
         }
         setIsStreaming(false);
         setIsThinking(false);
@@ -486,11 +501,6 @@ export default function PortfolioHealthPage() {
       }
     };
   }, []);
-
-  const thresholdLabel =
-    input?.thresholdPct !== undefined ? `${input.thresholdPct}%` : "-5%";
-
-  const hadBelowThreshold = input?.hadBelowThreshold ?? false;
 
   const stageMessages: Record<string, string> = {
     analyzing: "Analyzing portfolio positions...",
@@ -595,21 +605,15 @@ export default function PortfolioHealthPage() {
         />
       )}
 
-      {/* All-clear card only when we have no optimization result and no error */}
+      {/* Neutral fallback card only when we have no result and no error */}
       {!loading && !error && !result && !isStreaming && (
         <Card variant="none" effect="glass" showRipple={false}>
           <CardHeader>
-            <CardTitle>All Clear at This Threshold</CardTitle>
+            <CardTitle>Optimization Ready</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              No positions are currently below {thresholdLabel}. At this loss
-              threshold, your portfolio looks healthy.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              You can tighten the threshold in a future update (for example,
-              -2% or any negative position) if you want Kai to flag earlier
-              drawdowns.
+              Optimizing suggestions using curated rulesets across your portfolio context.
             </p>
           </CardContent>
         </Card>
@@ -618,16 +622,34 @@ export default function PortfolioHealthPage() {
       {!loading && error && (
         <Card variant="none" effect="glass" showRipple={false}>
           <CardHeader>
-            <CardTitle>Couldn't assess portfolio health</CardTitle>
+            <CardTitle>Optimization temporarily unavailable</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">{error}</p>
+            {errorCode === "OPTIMIZE_PARSE_FAILED" && (
+              <p className="text-xs text-muted-foreground">
+                Kai will retry safely if you rerun optimization.
+              </p>
+            )}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <Button size="default" onClick={() => router.refresh()}>
+                Retry optimization
+              </Button>
+              <Button
+                size="default"
+                variant="blue-gradient"
+                effect="fade"
+                onClick={() => router.push("/kai/dashboard/manage")}
+              >
+                Manage portfolio
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
 
       {/* Results - shown after streaming completes */}
-      {isComplete && hadBelowThreshold && result && (
+      {isComplete && result && (
         <>
           {/* 1. High-Level Portfolio Health Summary - REBUILT LAYOUT */}
           <Card variant="none" effect="glass" showRipple={false} className="border-white/10 overflow-hidden">

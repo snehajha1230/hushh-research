@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { HushhLoader } from "@/components/ui/hushh-loader";
 import { KaiProfileService } from "@/lib/services/kai-profile-service";
+import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { VaultService } from "@/lib/services/vault-service";
 import { useAuth } from "@/hooks/use-auth";
@@ -13,6 +14,7 @@ import {
   isOnboardingRequiredCookieEnabled,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
+import { ROUTES, isKaiOnboardingRoute } from "@/lib/navigation/routes";
 
 export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -24,7 +26,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     let cancelled = false;
-    const onOnboardingRoute = pathname.startsWith("/kai/onboarding");
+    const onOnboardingRoute = isKaiOnboardingRoute(pathname);
 
     async function run() {
       if (authLoading) return;
@@ -47,12 +49,12 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
           setOnboardingRequiredCookie(onboardingIncomplete);
 
           if (onboardingIncomplete && !onOnboardingRoute) {
-            router.replace("/kai/onboarding");
+            router.replace(ROUTES.KAI_ONBOARDING);
             return;
           }
 
           if (!onboardingIncomplete && onOnboardingRoute) {
-            router.replace("/kai");
+            router.replace(ROUTES.KAI_HOME);
             return;
           }
 
@@ -63,7 +65,7 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
         // If vault exists but is not currently unlocked, rely on lock-guard and last known cookie.
         if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
           if (!onOnboardingRoute && isOnboardingRequiredCookieEnabled()) {
-            router.replace("/kai/onboarding");
+            router.replace(ROUTES.KAI_ONBOARDING);
             return;
           }
           setChecking(false);
@@ -78,16 +80,37 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
 
         if (cancelled) return;
 
-        const onboardingIncomplete = !profile.onboarding.completed;
+        let onboardingIncomplete = !profile.onboarding.completed;
+        if (onboardingIncomplete) {
+          const pending = await PreVaultOnboardingService.load(user.uid).catch(() => null);
+          if (cancelled) return;
+
+          // If pre-vault onboarding was already completed locally (skip or answered),
+          // do not bounce users back into onboarding while vault sync catches up.
+          if (pending?.completed) {
+            onboardingIncomplete = false;
+
+            void KaiProfileSyncService.syncPendingToVault({
+              userId: user.uid,
+              vaultKey,
+              vaultOwnerToken,
+            }).catch((syncError) => {
+              console.warn(
+                "[KaiOnboardingGuard] Deferred onboarding sync failed, retrying later:",
+                syncError
+              );
+            });
+          }
+        }
         setOnboardingRequiredCookie(onboardingIncomplete);
 
         if (onboardingIncomplete && !onOnboardingRoute) {
-          router.replace("/kai/onboarding");
+          router.replace(ROUTES.KAI_ONBOARDING);
           return;
         }
 
         if (!onboardingIncomplete && onOnboardingRoute) {
-          router.replace("/kai");
+          router.replace(ROUTES.KAI_HOME);
           return;
         }
       } catch (error) {

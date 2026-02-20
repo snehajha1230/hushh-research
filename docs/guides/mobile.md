@@ -92,8 +92,10 @@ All 10 plugins exist on both platforms with matching methods:
 | Method                   | Description                      |
 | ------------------------ | -------------------------------- |
 | `hasVault()`             | Check if vault exists for user   |
-| `getVault()`             | Get vault status                 |
-| `setupVault()`           | Initialize user vault            |
+| `getVault()`             | Get full vault state + wrappers  |
+| `setupVault()`           | Initialize/replace vault state   |
+| `upsertVaultWrapper()`   | Add/update one method wrapper    |
+| `setPrimaryVaultMethod()`| Set default unlock method        |
 | `getFoodPreferences()`   | Get encrypted food preferences   |
 | `storeFoodPreferences()` | Store encrypted food preferences |
 | `getProfessionalData()`  | Get encrypted professional data  |
@@ -414,6 +416,8 @@ Native plugins call Python backend directly, bypassing Next.js:
 | Vault Check      | `POST /db/vault/check`               | `GET /api/vault/check`                    | Python  |
 | Vault Get        | `POST /db/vault/get`                 | `GET /api/vault/get`                      | Python  |
 | Vault Setup      | `POST /db/vault/setup`               | `POST /api/vault/setup`                   | Python  |
+| Vault Wrapper Upsert | `POST /db/vault/wrapper/upsert`   | `POST /api/vault/wrapper/upsert`          | Python  |
+| Vault Primary Set | `POST /db/vault/primary/set`        | `POST /api/vault/primary/set`             | Python  |
 | Food Get         | `POST /api/food/preferences`         | `GET /api/vault/food/preferences`         | Python  |
 | Professional Get | `POST /api/professional/preferences` | `GET /api/vault/professional/preferences` | Python  |
 | Consent Pending  | `POST /api/consent/pending`          | `GET /api/consent/pending`                | Python  |
@@ -710,6 +714,47 @@ Before releasing mobile updates:
 - [ ] Save to vault works (vaultOwnerToken passed correctly)
 - [ ] Backend URLs point to production
 - [ ] Biometric prompts work correctly
+
+---
+
+## Static Export Redirect Limitations
+
+For `CAPACITOR_BUILD=true` (`output: "export"`), Next.js server redirects in `next.config.ts` are not authoritative on-device.
+
+Required rule:
+- Every mobile-critical legacy route alias must also have an App Router page-level client fallback using `router.replace(...)`.
+
+Current mandatory fallback pages:
+- `hushh-webapp/app/onboarding/preferences/page.tsx` -> `/kai/onboarding`
+- `hushh-webapp/app/dashboard/kai/page.tsx` -> `/kai/dashboard`
+- `hushh-webapp/app/dashboard/kai/[...path]/page.tsx` -> `/kai/dashboard/[...path]`
+- `hushh-webapp/app/dashboard/domain/[...path]/page.tsx` -> `/kai`
+- `hushh-webapp/app/dashboard/agent-nav/page.tsx` -> `/agent-nav`
+
+Do not use server `redirect()` for those compatibility pages.
+
+---
+
+## Capacitor E2E Verification (Hard-Fail)
+
+Run from `hushh-webapp`:
+
+```bash
+npm run verify:capacitor:e2e
+```
+
+This runs:
+1. `verify:routes`
+2. `verify:parity`
+3. `verify:mobile-firebase`
+4. `cap:build:mobile`
+5. `verify:capacitor:routes`
+
+Expected outcome:
+- All commands pass with exit code `0`.
+- Any missing fallback route page, plugin method parity drift, or mobile artifact issue fails the gate immediately.
+
+Manual smoke on device/simulator is still required after this CI gate.
 
 ---
 
