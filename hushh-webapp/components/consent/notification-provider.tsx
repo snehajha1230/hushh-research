@@ -24,6 +24,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/hooks/use-auth";
 import { initializeFCM, FCM_MESSAGE_EVENT } from "@/lib/notifications";
 import { getAuth } from "firebase/auth";
+import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 
 // ============================================================================
 // Helpers
@@ -58,6 +59,37 @@ function consentFromFCMPayload(
     scopeDescription: data.scope_description || undefined,
     requestedAt: Date.now(),
   };
+}
+
+const pendingConsentRequestByUser = new Map<string, Promise<PendingConsent[]>>();
+
+async function loadPendingConsentsOnce(
+  userId: string,
+  vaultOwnerToken: string
+): Promise<PendingConsent[]> {
+  const cache = CacheService.getInstance();
+  const cacheKey = CACHE_KEYS.PENDING_CONSENTS(userId);
+  const cached = cache.get<PendingConsent[]>(cacheKey);
+  if (Array.isArray(cached)) return cached;
+
+  const existing = pendingConsentRequestByUser.get(userId);
+  if (existing) return existing;
+
+  const request = (async () => {
+    const response = await ApiService.getPendingConsents(userId, vaultOwnerToken);
+    if (!response.ok) return [];
+    const json = await response.json().catch(() => ({}));
+    const pending = Array.isArray(json.pending) ? (json.pending as PendingConsent[]) : [];
+    cache.set(cacheKey, pending, CACHE_TTL.MEDIUM);
+    return pending;
+  })().finally(() => {
+    if (pendingConsentRequestByUser.get(userId) === request) {
+      pendingConsentRequestByUser.delete(userId);
+    }
+  });
+
+  pendingConsentRequestByUser.set(userId, request);
+  return request;
 }
 
 // ============================================================================
@@ -211,16 +243,12 @@ export function ConsentNotificationProvider({
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) return;
 
-        const response = await ApiService.getPendingConsents(uid, vaultOwnerToken);
+        const pending = await loadPendingConsentsOnce(uid, vaultOwnerToken);
         if (cancelled) return;
-        if (response.ok) {
-          const json = await response.json().catch(() => ({}));
-          const pending: PendingConsent[] = json.pending || [];
-          setPendingCount(pending.length);
+        setPendingCount(pending.length);
 
-          // Show toasts for any that we haven't seen yet
-          pending.forEach((consent) => showConsentToast(consent));
-        }
+        // Show toasts for any that we haven't seen yet
+        pending.forEach((consent) => showConsentToast(consent));
       } catch (err) {
         console.error("[NotificationProvider] Initial fetch error:", err);
       }
@@ -261,12 +289,9 @@ export function usePendingConsentCount() {
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) return;
 
-        const response = await ApiService.getPendingConsents(uid, vaultOwnerToken);
+        const pending = await loadPendingConsentsOnce(uid, vaultOwnerToken);
         if (cancelled) return;
-        if (response.ok) {
-          const data = await response.json().catch(() => ({}));
-          setCount(data.pending?.length || 0);
-        }
+        setCount(pending.length);
       } catch (_err) {
         // Silently ignore -- not critical for badge
       }

@@ -15,6 +15,7 @@ import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ApiService } from "@/lib/services/api-service";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
@@ -133,6 +134,175 @@ function getErrorDisplay(errorType: ErrorType, retryIn?: number): { icon: React.
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS = [2000, 4000, 8000]; // Exponential backoff
+
+const TICKER_SYMBOL_REGEX = /^[A-Z]{1,6}$/;
+
+function toFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const cleaned = value.replace(/[$,%\s,]/g, "").trim();
+    if (!cleaned) return undefined;
+    const parsed = Number(cleaned);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function isCashEquivalentRow(row: {
+  symbol: string;
+  name: string;
+  asset_type?: string;
+}): boolean {
+  const hint = `${row.symbol} ${row.name} ${row.asset_type || ""}`.toLowerCase();
+  return (
+    hint.includes("cash") ||
+    hint.includes("sweep") ||
+    hint.includes("money market") ||
+    hint.includes("retail prime") ||
+    hint.includes("first american") ||
+    hint.includes("fxrxx")
+  );
+}
+
+function pickFirstNumber(source: Record<string, unknown>, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = toFiniteNumber(source[key]);
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+
+function extractDebatePortfolioContext(
+  userId: string
+): Record<string, unknown> | null {
+  const cache = CacheService.getInstance();
+  const cached =
+    cache.get<Record<string, unknown>>(CACHE_KEYS.PORTFOLIO_DATA(userId)) ??
+    cache.get<Record<string, unknown>>(CACHE_KEYS.DOMAIN_DATA(userId, "financial"));
+  if (!cached || typeof cached !== "object" || Array.isArray(cached)) return null;
+
+  const holdingsRaw = Array.isArray(cached.holdings)
+    ? cached.holdings
+    : Array.isArray(cached.detailed_holdings)
+      ? cached.detailed_holdings
+      : [];
+
+  const holdings = holdingsRaw
+    .filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object"))
+    .slice(0, 30)
+    .map((row) => ({
+      symbol: String(row.symbol ?? "").trim().toUpperCase(),
+      name: String(row.name ?? "").trim(),
+      quantity: toFiniteNumber(row.quantity),
+      market_value: toFiniteNumber(row.market_value),
+      unrealized_gain_loss_pct: toFiniteNumber(row.unrealized_gain_loss_pct),
+      sector: typeof row.sector === "string" ? row.sector : undefined,
+      asset_type:
+        typeof row.asset_type === "string"
+          ? row.asset_type
+          : typeof row.asset_class === "string"
+            ? row.asset_class
+            : undefined,
+    }))
+    .filter((row) => row.symbol.length > 0 || row.name.length > 0);
+
+  const nonCashHoldings = holdings.filter((row) => !isCashEquivalentRow(row));
+  const investableHoldings = nonCashHoldings.filter((row) => TICKER_SYMBOL_REGEX.test(row.symbol));
+  const excludedPositions = nonCashHoldings
+    .filter((row) => !TICKER_SYMBOL_REGEX.test(row.symbol))
+    .slice(0, 20)
+    .map((row) => ({
+      symbol: row.symbol || row.name || "UNKNOWN",
+      reason: "missing_ticker_alias",
+    }));
+  const cashPositionsCount = holdings.length - nonCashHoldings.length;
+  const tickerCoveragePct =
+    nonCashHoldings.length > 0 ? investableHoldings.length / nonCashHoldings.length : 0;
+  const sectorCoveragePct =
+    nonCashHoldings.length > 0
+      ? nonCashHoldings.filter((row) => Boolean(row.sector && row.sector.trim())).length / nonCashHoldings.length
+      : 0;
+  const gainLossCoveragePct =
+    nonCashHoldings.length > 0
+      ? nonCashHoldings.filter((row) => typeof row.unrealized_gain_loss_pct === "number").length /
+        nonCashHoldings.length
+      : 0;
+  const topPositions = holdings
+    .slice()
+    .sort((a, b) => (b.market_value || 0) - (a.market_value || 0))
+    .slice(0, 8)
+    .map((row) => ({
+      symbol: row.symbol || row.name || "UNKNOWN",
+      market_value: row.market_value ?? null,
+      sector: row.sector ?? null,
+      asset_type: row.asset_type ?? null,
+    }));
+  const accountSummary =
+    cached.account_summary && typeof cached.account_summary === "object" && !Array.isArray(cached.account_summary)
+      ? (cached.account_summary as Record<string, unknown>)
+      : {};
+  const statementSignals = {
+    investment_gain_loss: pickFirstNumber(accountSummary, [
+      "investment_gain_loss",
+      "total_change",
+      "change_in_value",
+    ]),
+    total_income_period: pickFirstNumber(accountSummary, ["total_income_period"]),
+    total_income_ytd: pickFirstNumber(accountSummary, ["total_income_ytd"]),
+    total_fees: pickFirstNumber(accountSummary, ["total_fees"]),
+    net_deposits_period: pickFirstNumber(accountSummary, [
+      "net_deposits_period",
+      "net_deposits_withdrawals",
+    ]),
+    net_deposits_ytd: pickFirstNumber(accountSummary, ["net_deposits_ytd"]),
+  };
+
+  return {
+    holdings,
+    holdings_count: holdings.length,
+    account_summary: Object.keys(accountSummary).length > 0 ? accountSummary : undefined,
+    asset_allocation:
+      cached.asset_allocation && typeof cached.asset_allocation === "object"
+        ? cached.asset_allocation
+        : undefined,
+    income_summary:
+      cached.income_summary && typeof cached.income_summary === "object"
+        ? cached.income_summary
+        : undefined,
+    realized_gain_loss:
+      cached.realized_gain_loss && typeof cached.realized_gain_loss === "object"
+        ? cached.realized_gain_loss
+        : undefined,
+    quality_report:
+      cached.quality_report && typeof cached.quality_report === "object"
+        ? cached.quality_report
+        : undefined,
+    total_value: toFiniteNumber(cached.total_value),
+    cash_balance: toFiniteNumber(cached.cash_balance),
+    debate_context: {
+      portfolio_snapshot: {
+        holdings_count: holdings.length,
+        non_cash_holdings_count: nonCashHoldings.length,
+        investable_holdings_count: investableHoldings.length,
+        cash_positions_count: cashPositionsCount,
+        total_value: toFiniteNumber(cached.total_value),
+        cash_balance: toFiniteNumber(cached.cash_balance),
+      },
+      coverage: {
+        ticker_coverage_pct: tickerCoveragePct,
+        sector_coverage_pct: sectorCoveragePct,
+        gain_loss_coverage_pct: gainLossCoveragePct,
+      },
+      statement_signals: statementSignals,
+      eligible_symbols: investableHoldings
+        .map((row) => row.symbol)
+        .filter((symbol, index, arr) => symbol.length > 0 && arr.indexOf(symbol) === index)
+        .slice(0, 20),
+      top_positions: topPositions,
+      excluded_positions: excludedPositions,
+    },
+  };
+}
 
 // ============================================================================
 // Component
@@ -341,6 +511,14 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
             console.warn("[DebateStreamView] Failed to load Kai profile context:", err);
             // Non-fatal, proceed without context
           }
+        }
+
+        const portfolioContext = extractDebatePortfolioContext(userId);
+        if (portfolioContext) {
+          context = {
+            ...(context || {}),
+            ...portfolioContext,
+          };
         }
 
         // Start SSE connection via ApiService.

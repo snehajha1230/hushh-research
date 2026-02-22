@@ -56,6 +56,11 @@ const EXCLUDED_SYMBOLS = new Set([
   "DEPOSIT",
 ]);
 
+function toSymbolsKey(symbols: string[]): string {
+  if (!Array.isArray(symbols) || symbols.length === 0) return "default";
+  return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
+}
+
 const THEME_ICON_MAP: Array<{ test: RegExp; icon: LucideIcon }> = [
   { test: /ai|chip|semi|data|cloud|infra/i, icon: Cpu },
   { test: /rate|yield|inflation|macro/i, icon: Percent },
@@ -238,6 +243,7 @@ export function KaiMarketPreviewView() {
           TICKER_CANDIDATE_RE.test(symbol) &&
           arr.indexOf(symbol) === index
       )
+      .sort((a, b) => a.localeCompare(b))
       .slice(0, 8);
   }, [user?.uid]);
 
@@ -253,9 +259,9 @@ export function KaiMarketPreviewView() {
       }
 
       const cache = CacheService.getInstance();
-      const trackedSymbols = resolveTrackedSymbols();
-      const symbolsKey = trackedSymbols.length > 0 ? trackedSymbols.join("-") : "default";
-      const marketCacheKey = CACHE_KEYS.KAI_MARKET_HOME(user.uid, symbolsKey, 7);
+      let trackedSymbols = resolveTrackedSymbols();
+      let symbolsKey = toSymbolsKey(trackedSymbols);
+      let marketCacheKey = CACHE_KEYS.KAI_MARKET_HOME(user.uid, symbolsKey, 7);
       if (!forceTokenRefresh && marketCacheKey) {
         const cachedPayload = cache.get<KaiHomeInsightsV2>(marketCacheKey);
         if (cachedPayload) {
@@ -300,8 +306,11 @@ export function KaiMarketPreviewView() {
         }
       }
 
-      if (!forceTokenRefresh && trackedSymbols.length === 0) {
+      if (!forceTokenRefresh && !hasPayloadRef.current) {
         await UnlockWarmOrchestrator.awaitInFlightForUser(user.uid, 1_800);
+        trackedSymbols = resolveTrackedSymbols();
+        symbolsKey = toSymbolsKey(trackedSymbols);
+        marketCacheKey = CACHE_KEYS.KAI_MARKET_HOME(user.uid, symbolsKey, 7);
         const warmedPayload =
           cache.get<KaiHomeInsightsV2>(marketCacheKey) ?? readAnyKaiHomeCache(cache, user.uid, 7);
         if (warmedPayload) {
@@ -342,7 +351,7 @@ export function KaiMarketPreviewView() {
             nextPayload = await ApiService.getKaiMarketInsights({
               userId: user.uid,
               vaultOwnerToken: token,
-              symbols: trackedSymbols,
+              symbols: trackedSymbols.length > 0 ? trackedSymbols : undefined,
               daysBack: 7,
               signal: controller.signal,
             });
@@ -352,7 +361,7 @@ export function KaiMarketPreviewView() {
             nextPayload = await ApiService.getKaiMarketInsights({
               userId: user.uid,
               vaultOwnerToken: token,
-              symbols: trackedSymbols,
+              symbols: trackedSymbols.length > 0 ? trackedSymbols : undefined,
               daysBack: 7,
               signal: controller.signal,
             });
@@ -365,6 +374,9 @@ export function KaiMarketPreviewView() {
           setPayload(nextPayload);
           hasPayloadRef.current = true;
           cache.set(marketCacheKey, nextPayload, MARKET_HOME_CACHE_TTL_MS);
+          if (trackedSymbols.length === 0) {
+            cache.set(CACHE_KEYS.KAI_MARKET_HOME(user.uid, "default", 7), nextPayload, MARKET_HOME_CACHE_TTL_MS);
+          }
           if (sessionCacheKey && typeof window !== "undefined") {
             window.sessionStorage.setItem(
               sessionCacheKey,

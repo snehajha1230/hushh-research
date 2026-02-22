@@ -24,7 +24,11 @@ export function getKaiChromeState(
   const isImportRoute = isKaiImportRoute(path);
   const onboardingFlowActive =
     options?.onboardingFlowActive ?? isOnboardingFlowActiveCookieEnabled();
-  const useOnboardingChrome = isOnboardingRoute || isImportRoute || onboardingFlowActive;
+  // Import is used by both first-time and returning users.
+  // Onboarding chrome should only appear on:
+  // 1) explicit onboarding routes, or
+  // 2) import routes while onboarding flow is active.
+  const useOnboardingChrome = isOnboardingRoute || (isImportRoute && onboardingFlowActive);
   const hideCommandBar =
     useOnboardingChrome ||
     path === ROUTES.HOME ||

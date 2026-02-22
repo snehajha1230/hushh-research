@@ -202,7 +202,7 @@ export const getVariantStyles = (
       if (effect === "fill") {
         return "bg-destructive text-white hover:bg-destructive/90 shadow-md transition-all duration-200 border border-transparent";
       } else if (effect === "fade") {
-        return "bg-gradient-to-r from-red-500/12 to-rose-500/12 text-red-600 border border-red-300/80 hover:from-red-500 hover:to-rose-500 hover:text-white dark:from-red-500/12 dark:to-rose-500/12 dark:text-red-600 dark:border-red-300/80 dark:hover:from-red-500 dark:hover:to-rose-500 dark:hover:text-white transition-all duration-200";
+        return "bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/15 transition-all duration-200";
       } else {
         // glass
         return "bg-transparent text-red-600 border border-red-300/80 shadow-sm backdrop-blur-md hover:bg-red-50 dark:bg-transparent dark:text-red-600 dark:border-red-300/80 dark:hover:bg-red-50 transition-all duration-200";
@@ -336,7 +336,7 @@ export const getVariantStylesNoHover = (
         return "bg-destructive text-destructive-foreground border border-transparent shadow-md transition-all duration-200";
       }
       if (effect === "fade") {
-        return "bg-transparent bg-gradient-to-r from-red-500/12 to-rose-500/12 text-red-600 border border-red-300/80 dark:bg-transparent dark:bg-gradient-to-r dark:from-red-500/12 dark:to-rose-500/12 dark:text-red-600 dark:border-red-300/80 transition-all duration-200";
+        return "bg-destructive/10 text-destructive border border-destructive/30 transition-all duration-200";
       }
       return "bg-transparent text-red-600 border border-red-300/80 shadow-sm backdrop-blur-md dark:bg-transparent dark:text-red-600 dark:border-red-300/80 transition-all duration-200";
 

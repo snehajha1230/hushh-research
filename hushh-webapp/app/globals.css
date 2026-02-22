@@ -1316,4 +1316,13 @@ md-ripple.morphy-md-ripple {
   animation: stage-pulse 1.5s ease-in-out infinite;
 }
 
-/* Keep Tailwind animate-spin behavior enabled for active progress indicators. */
+/* Ensure spinner utilities always rotate in runtime (vault/auth/load states). */
+@keyframes hushh-spin-fallback {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin {
+  animation: hushh-spin-fallback 1s linear infinite !important;
+}

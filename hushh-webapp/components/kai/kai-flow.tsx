@@ -95,6 +95,9 @@ interface QualityReport {
   dropped?: number;
   reconciled?: number;
   mismatch_detected?: number;
+  parse_repair_applied?: boolean;
+  parse_repair_actions?: string[];
+  parse_fallback?: boolean;
   dropped_reasons?: Record<string, number>;
   unknown_name_count?: number;
   placeholder_symbol_count?: number;
@@ -160,6 +163,17 @@ function parseMaybeNumber(value: unknown): number | undefined {
 
 function parseNumberOrZero(value: unknown): number {
   return parseMaybeNumber(value) ?? 0;
+}
+
+function compactRecord<T extends Record<string, unknown>>(value: T | undefined): T | undefined {
+  if (!value) return undefined;
+  const entries = Object.entries(value).filter(([, entryValue]) => {
+    if (entryValue === undefined || entryValue === null) return false;
+    if (typeof entryValue === "string" && entryValue.trim().length === 0) return false;
+    return true;
+  });
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries) as T;
 }
 
 function firstPresent(obj: Record<string, unknown>, keys: string[]): unknown {
@@ -372,7 +386,7 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
     backendData.account_metadata
   ) as Record<string, unknown> | undefined;
   
-  const normalizedAccountInfo = accountInfo ? {
+  const normalizedAccountInfo = compactRecord(accountInfo ? {
     holder_name: accountInfo.holder_name || accountInfo.account_holder 
       ? String(accountInfo.holder_name || accountInfo.account_holder) 
       : undefined,
@@ -383,7 +397,7 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
       : undefined,
     statement_period_start: accountInfo.statement_period_start ? String(accountInfo.statement_period_start) : undefined,
     statement_period_end: accountInfo.statement_period_end ? String(accountInfo.statement_period_end) : undefined,
-  } : undefined;
+  } : undefined);
 
   // Get account summary from multiple possible sources
   const accountSummary = (
@@ -391,40 +405,58 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
     backendData.portfolio_summary
   ) as Record<string, unknown> | undefined;
   
-  const normalizedAccountSummary = accountSummary ? {
+  const normalizedAccountSummary = compactRecord(accountSummary ? {
     beginning_value: parseMaybeNumber(accountSummary.beginning_value),
     ending_value: parseMaybeNumber(accountSummary.ending_value),
     cash_balance: parseMaybeNumber(accountSummary.cash_balance) ?? parseMaybeNumber(backendData.cash_balance),
     equities_value: parseMaybeNumber(accountSummary.equities_value),
     change_in_value: parseMaybeNumber(accountSummary.change_in_value) ?? parseMaybeNumber(accountSummary.total_change),
-  } : undefined;
+    total_change: parseMaybeNumber(accountSummary.total_change),
+    net_deposits_withdrawals:
+      parseMaybeNumber(accountSummary.net_deposits_withdrawals)
+      ?? parseMaybeNumber(accountSummary.net_deposits_period),
+    net_deposits_period: parseMaybeNumber(accountSummary.net_deposits_period),
+    net_deposits_ytd: parseMaybeNumber(accountSummary.net_deposits_ytd),
+    investment_gain_loss:
+      parseMaybeNumber(accountSummary.investment_gain_loss)
+      ?? parseMaybeNumber(accountSummary.total_investment_results),
+    total_income_period:
+      parseMaybeNumber(accountSummary.total_income_period)
+      ?? parseMaybeNumber(accountSummary.income_period),
+    total_income_ytd:
+      parseMaybeNumber(accountSummary.total_income_ytd)
+      ?? parseMaybeNumber(accountSummary.income_ytd),
+    total_fees:
+      parseMaybeNumber(accountSummary.total_fees)
+      ?? parseMaybeNumber(accountSummary.fees_and_expenses),
+  } : undefined);
 
   // Normalize asset_allocation
   const assetAllocation = backendData.asset_allocation as Record<string, unknown> | undefined;
-  const normalizedAssetAllocation = assetAllocation ? {
+  const normalizedAssetAllocation = compactRecord(assetAllocation ? {
     cash_pct: parseMaybeNumber(assetAllocation.cash_pct),
     cash_value: parseMaybeNumber(assetAllocation.cash_value),
     equities_pct: parseMaybeNumber(assetAllocation.equities_pct),
     equities_value: parseMaybeNumber(assetAllocation.equities_value),
     bonds_pct: parseMaybeNumber(assetAllocation.bonds_pct),
     bonds_value: parseMaybeNumber(assetAllocation.bonds_value),
-  } : undefined;
+  } : undefined);
 
   // Normalize income_summary
   const incomeSummary = backendData.income_summary as Record<string, unknown> | undefined;
-  const normalizedIncomeSummary = incomeSummary ? {
+  const normalizedIncomeSummary = compactRecord(incomeSummary ? {
     dividends_taxable: parseMaybeNumber(incomeSummary.dividends_taxable) ?? parseMaybeNumber(incomeSummary.taxable_dividends),
     interest_income: parseMaybeNumber(incomeSummary.interest_income) ?? parseMaybeNumber(incomeSummary.taxable_interest),
     total_income: parseMaybeNumber(incomeSummary.total_income),
-  } : undefined;
+  } : undefined);
 
   // Normalize realized_gain_loss
   const realizedGainLoss = backendData.realized_gain_loss as Record<string, unknown> | undefined;
-  const normalizedRealizedGainLoss = realizedGainLoss ? {
+  const normalizedRealizedGainLoss = compactRecord(realizedGainLoss ? {
     short_term_gain: parseMaybeNumber(realizedGainLoss.short_term_gain),
     long_term_gain: parseMaybeNumber(realizedGainLoss.long_term_gain),
     net_realized: parseMaybeNumber(realizedGainLoss.net_realized),
-  } : undefined;
+  } : undefined);
 
   // Calculate total_value if not provided
   let totalValue = parseMaybeNumber(backendData.total_value);
@@ -434,7 +466,7 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
       totalValue = normalizedAccountSummary.ending_value;
     } else {
       // Calculate from holdings
-      totalValue = normalizedHoldings.reduce((sum, h) => sum + (h.market_value || 0), 0);
+      totalValue = canonicalHoldings.reduce((sum, h) => sum + (h.market_value || 0), 0);
     }
   }
 
@@ -478,14 +510,21 @@ function normalizePortfolioData(backendData: Record<string, unknown>): ReviewPor
     legal_and_disclosures: Array.isArray(backendData.legal_and_disclosures)
       ? (backendData.legal_and_disclosures as string[])
       : undefined,
-    quality_report:
+    quality_report: compactRecord(
       backendData.quality_report &&
-      typeof backendData.quality_report === "object" &&
-      !Array.isArray(backendData.quality_report)
-        ? (backendData.quality_report as Record<string, unknown>)
-        : undefined,
+        typeof backendData.quality_report === "object" &&
+        !Array.isArray(backendData.quality_report)
+        ? ({
+            ...(backendData.quality_report as Record<string, unknown>),
+            parse_fallback:
+              (backendData.quality_report as Record<string, unknown>).parse_fallback ??
+              backendData.parse_fallback,
+          } as Record<string, unknown>)
+        : undefined
+    ),
     cash_balance: cashBalance,
     total_value: totalValue,
+    parse_fallback: backendData.parse_fallback === true,
   };
 
   console.log("[KaiFlow] Final normalized data:", {
@@ -921,6 +960,15 @@ export function KaiFlow({
           typeof value === "number" && Number.isFinite(value) ? value : undefined;
         const readString = (value: unknown): string | undefined =>
           typeof value === "string" && value.trim().length > 0 ? value : undefined;
+        const readBoolean = (value: unknown): boolean | undefined => {
+          if (typeof value === "boolean") return value;
+          if (typeof value === "string") {
+            const normalized = value.trim().toLowerCase();
+            if (normalized === "true") return true;
+            if (normalized === "false") return false;
+          }
+          return undefined;
+        };
         const readHoldingsPreview = (value: unknown): LiveHoldingPreview[] | undefined => {
           if (!Array.isArray(value)) return undefined;
           const preview: LiveHoldingPreview[] = [];
@@ -1072,14 +1120,26 @@ export function KaiFlow({
                 ) {
                   throw new Error("Missing portfolio_data in complete event");
                 }
-                parsedPortfolio = normalizePortfolioData(rawPortfolioData as Record<string, unknown>);
+                const parseFallback =
+                  readBoolean(payload.parse_fallback) ??
+                  readBoolean((rawPortfolioData as Record<string, unknown>).parse_fallback) ??
+                  false;
+                parsedPortfolio = normalizePortfolioData({
+                  ...(rawPortfolioData as Record<string, unknown>),
+                  parse_fallback: parseFallback,
+                });
 
                 const qualityReportRaw = (rawPortfolioData as Record<string, unknown>).quality_report;
                 const qualityReport =
                   qualityReportRaw &&
                   typeof qualityReportRaw === "object" &&
                   !Array.isArray(qualityReportRaw)
-                    ? (qualityReportRaw as QualityReport)
+                    ? ({
+                        ...(qualityReportRaw as QualityReport),
+                        parse_fallback:
+                          (qualityReportRaw as QualityReport).parse_fallback ??
+                          parseFallback,
+                      } as QualityReport)
                     : undefined;
 
                 setStreaming((prev) => ({
@@ -1167,7 +1227,11 @@ export function KaiFlow({
 
         // Persist completion state until user explicitly continues to review.
         setState("import_complete");
-        toast.success("Portfolio parsed successfully. Review when ready.");
+        if (parsedPortfolioData.parse_fallback) {
+          toast.warning("Portfolio recovered with partial parsing. Review carefully before saving.");
+        } else {
+          toast.success("Portfolio parsed successfully. Review when ready.");
+        }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
           console.log("[KaiFlow] Import cancelled by user");
@@ -1315,7 +1379,7 @@ export function KaiFlow({
       } : undefined,
       account_summary: savedData.account_summary ? {
         beginning_value: savedData.account_summary.beginning_value,
-        ending_value: savedData.account_summary.ending_value || 0,
+        ending_value: savedData.account_summary.ending_value ?? savedData.total_value ?? 0,
         change_in_value: savedData.account_summary.change_in_value,
         cash_balance: savedData.account_summary.cash_balance,
         equities_value: savedData.account_summary.equities_value,
@@ -1337,6 +1401,7 @@ export function KaiFlow({
         long_term: savedData.realized_gain_loss.long_term_gain,
         total: savedData.realized_gain_loss.net_realized,
       } : undefined,
+      parse_fallback: savedData.parse_fallback,
     };
 
     const holdingSymbols = normalizedHoldings?.map((h) => h.symbol) || [];

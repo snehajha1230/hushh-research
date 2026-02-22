@@ -69,7 +69,12 @@ export function GainLossDistributionChart({
       <CardContent className="pt-0 min-w-0 overflow-hidden">
         <ChartContainer config={chartConfig} className="h-[220px] w-full min-w-0">
           <BarChart data={chartData} margin={{ top: 10, right: 8, left: 0, bottom: 4 }}>
-            <CartesianGrid vertical={false} strokeDasharray="3 3" />
+            <CartesianGrid
+              vertical={false}
+              strokeDasharray="3 3"
+              stroke="hsl(var(--border))"
+              strokeOpacity={0.9}
+            />
             <XAxis
               dataKey="band"
               tickFormatter={(value) => compactBandLabel(String(value))}

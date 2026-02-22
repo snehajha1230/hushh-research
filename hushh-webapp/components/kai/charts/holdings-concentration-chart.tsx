@@ -62,7 +62,12 @@ export function HoldingsConcentrationChart({
       <CardContent className="pt-0 min-w-0 overflow-hidden">
         <ChartContainer config={chartConfig} className="h-[220px] w-full min-w-0 sm:h-[230px]">
           <BarChart data={chartData} layout="vertical" margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
-            <CartesianGrid horizontal={false} strokeDasharray="3 3" />
+            <CartesianGrid
+              horizontal={false}
+              strokeDasharray="3 3"
+              stroke="hsl(var(--border))"
+              strokeOpacity={0.9}
+            />
             <XAxis
               type="number"
               tickFormatter={(value) => `${Number(value).toFixed(0)}%`}

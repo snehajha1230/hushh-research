@@ -27,7 +27,12 @@ export interface AccountSummary {
   equities_value?: number;
   total_change?: number;
   net_deposits_withdrawals?: number;
+  net_deposits_period?: number;
+  net_deposits_ytd?: number;
   investment_gain_loss?: number;
+  total_income_period?: number;
+  total_income_ytd?: number;
+  total_fees?: number;
 }
 
 export interface PortfolioData {
@@ -99,7 +104,11 @@ export interface PortfolioData {
     dropped?: number;
     reconciled?: number;
     mismatch_detected?: number;
+    parse_repair_applied?: boolean;
+    parse_repair_actions?: string[];
+    parse_fallback?: boolean;
     dropped_reasons?: Record<string, number>;
     average_confidence?: number;
   };
+  parse_fallback?: boolean;
 }

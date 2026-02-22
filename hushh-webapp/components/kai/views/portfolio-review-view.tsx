@@ -105,6 +105,14 @@ export interface AccountSummary {
   cash_balance?: number;
   equities_value?: number;
   change_in_value?: number;
+  total_change?: number;
+  net_deposits_withdrawals?: number;
+  net_deposits_period?: number;
+  net_deposits_ytd?: number;
+  investment_gain_loss?: number;
+  total_income_period?: number;
+  total_income_ytd?: number;
+  total_fees?: number;
 }
 
 export interface AssetAllocation {
@@ -131,10 +139,14 @@ export interface RealizedGainLoss {
 export interface QualityReport {
   raw?: number;
   validated?: number;
+  aggregated?: number;
   dropped?: number;
   reconciled?: number;
   mismatch_detected?: number;
   parse_repair_applied?: boolean;
+  parse_repair_actions?: string[];
+  parse_fallback?: boolean;
+  average_confidence?: number;
 }
 
 export interface PortfolioData {
@@ -157,6 +169,7 @@ export interface PortfolioData {
     captured_sections: readonly string[];
     updated_at: string;
   };
+  parse_fallback?: boolean;
   cash_balance?: number;
   total_value?: number;
 }
@@ -219,6 +232,181 @@ function deriveRiskBucket(holdings: Holding[]): string {
   if (topHoldingPct > 30) return "aggressive";
   if (topHoldingPct > 15) return "moderate";
   return "conservative";
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const normalized = trimmed
+      .replace(/[,$\s]/g, "")
+      .replace(/%/g, "")
+      .replace(/[()]/g, "");
+    if (!normalized) return undefined;
+    const asNumber = Number(trimmed.startsWith("(") && trimmed.endsWith(")") ? `-${normalized}` : normalized);
+    return Number.isFinite(asNumber) ? asNumber : undefined;
+  }
+  return undefined;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+function compactRecord<T extends Record<string, unknown>>(value: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => {
+      if (entryValue === undefined || entryValue === null) return false;
+      if (typeof entryValue === "string" && entryValue.trim().length === 0) return false;
+      return true;
+    })
+  ) as Partial<T>;
+}
+
+function hasRecordValues(value: Record<string, unknown> | undefined): boolean {
+  return Boolean(value) && Object.keys(value as Record<string, unknown>).length > 0;
+}
+
+function sanitizeAccountSummary(value: unknown): AccountSummary {
+  const record = toRecord(value);
+  if (!record) return {};
+  return compactRecord({
+    beginning_value: toFiniteNumber(record.beginning_value),
+    ending_value: toFiniteNumber(record.ending_value),
+    cash_balance: toFiniteNumber(record.cash_balance),
+    equities_value: toFiniteNumber(record.equities_value),
+    change_in_value: toFiniteNumber(record.change_in_value),
+    total_change: toFiniteNumber(record.total_change),
+    net_deposits_withdrawals: toFiniteNumber(record.net_deposits_withdrawals),
+    net_deposits_period: toFiniteNumber(record.net_deposits_period),
+    net_deposits_ytd: toFiniteNumber(record.net_deposits_ytd),
+    investment_gain_loss: toFiniteNumber(record.investment_gain_loss),
+    total_income_period: toFiniteNumber(record.total_income_period),
+    total_income_ytd: toFiniteNumber(record.total_income_ytd),
+    total_fees: toFiniteNumber(record.total_fees),
+  } satisfies AccountSummary) as AccountSummary;
+}
+
+function sanitizeAssetAllocation(value: unknown): AssetAllocation {
+  const record = toRecord(value);
+  if (!record) return {};
+  return compactRecord({
+    cash_pct: toFiniteNumber(record.cash_pct),
+    cash_value: toFiniteNumber(record.cash_value),
+    equities_pct: toFiniteNumber(record.equities_pct),
+    equities_value: toFiniteNumber(record.equities_value),
+    bonds_pct: toFiniteNumber(record.bonds_pct),
+    bonds_value: toFiniteNumber(record.bonds_value),
+  } satisfies AssetAllocation) as AssetAllocation;
+}
+
+function hasSummaryValues(summary: AccountSummary): boolean {
+  return (
+    summary.beginning_value !== undefined ||
+    summary.ending_value !== undefined ||
+    summary.cash_balance !== undefined ||
+    summary.equities_value !== undefined ||
+    summary.change_in_value !== undefined ||
+    summary.total_change !== undefined ||
+    summary.net_deposits_withdrawals !== undefined ||
+    summary.net_deposits_period !== undefined ||
+    summary.net_deposits_ytd !== undefined ||
+    summary.investment_gain_loss !== undefined ||
+    summary.total_income_period !== undefined ||
+    summary.total_income_ytd !== undefined ||
+    summary.total_fees !== undefined
+  );
+}
+
+function hasAllocationValues(allocation: AssetAllocation): boolean {
+  return (
+    allocation.cash_pct !== undefined ||
+    allocation.cash_value !== undefined ||
+    allocation.equities_pct !== undefined ||
+    allocation.equities_value !== undefined ||
+    allocation.bonds_pct !== undefined ||
+    allocation.bonds_value !== undefined
+  );
+}
+
+function mergeAccountSummary(primary: AccountSummary, fallback: AccountSummary): AccountSummary {
+  return compactRecord({
+    beginning_value: primary.beginning_value ?? fallback.beginning_value,
+    ending_value: primary.ending_value ?? fallback.ending_value,
+    cash_balance: primary.cash_balance ?? fallback.cash_balance,
+    equities_value: primary.equities_value ?? fallback.equities_value,
+    change_in_value: primary.change_in_value ?? fallback.change_in_value,
+    total_change: primary.total_change ?? fallback.total_change,
+    net_deposits_withdrawals:
+      primary.net_deposits_withdrawals ?? fallback.net_deposits_withdrawals,
+    net_deposits_period: primary.net_deposits_period ?? fallback.net_deposits_period,
+    net_deposits_ytd: primary.net_deposits_ytd ?? fallback.net_deposits_ytd,
+    investment_gain_loss: primary.investment_gain_loss ?? fallback.investment_gain_loss,
+    total_income_period: primary.total_income_period ?? fallback.total_income_period,
+    total_income_ytd: primary.total_income_ytd ?? fallback.total_income_ytd,
+    total_fees: primary.total_fees ?? fallback.total_fees,
+  } satisfies AccountSummary) as AccountSummary;
+}
+
+function _mergeAssetAllocation(primary: AssetAllocation, fallback: AssetAllocation): AssetAllocation {
+  return compactRecord({
+    cash_pct: primary.cash_pct ?? fallback.cash_pct,
+    cash_value: primary.cash_value ?? fallback.cash_value,
+    equities_pct: primary.equities_pct ?? fallback.equities_pct,
+    equities_value: primary.equities_value ?? fallback.equities_value,
+    bonds_pct: primary.bonds_pct ?? fallback.bonds_pct,
+    bonds_value: primary.bonds_value ?? fallback.bonds_value,
+  } satisfies AssetAllocation) as AssetAllocation;
+}
+
+function pickRicherAccountSummary(left: AccountSummary, right: AccountSummary): AccountSummary {
+  return Object.keys(right).length > Object.keys(left).length ? right : left;
+}
+
+function pickRicherAssetAllocation(left: AssetAllocation, right: AssetAllocation): AssetAllocation {
+  return Object.keys(right).length > Object.keys(left).length ? right : left;
+}
+
+function isCashLikeHolding(holding: Holding): boolean {
+  const symbol = String(holding.symbol || "").trim().toUpperCase();
+  const name = String(holding.name || "").trim().toLowerCase();
+  const assetType = String(holding.asset_type || "").trim().toLowerCase();
+  if (symbol === "CASH" || symbol === "SWEEP" || symbol === "MMF") return true;
+  if (name.includes("cash") || name.includes("sweep")) return true;
+  if (assetType.includes("cash") || assetType.includes("money market")) return true;
+  return false;
+}
+
+function deriveCashFromHoldings(holdings: Holding[]): number | undefined {
+  const total = holdings.reduce((sum, holding) => {
+    if (!isCashLikeHolding(holding)) return sum;
+    return sum + (toFiniteNumber(holding.market_value) ?? 0);
+  }, 0);
+  return total > 0 ? total : undefined;
+}
+
+function statementCompletenessScore(statement: Record<string, unknown>): number {
+  const summary = sanitizeAccountSummary(statement.account_summary);
+  const allocation = sanitizeAssetAllocation(statement.asset_allocation);
+  const holdings = Array.isArray(statement.holdings) ? statement.holdings.length : 0;
+  const quality = toRecord(statement.quality_report);
+  const validated = toFiniteNumber(quality?.validated);
+
+  const summaryCount = Object.keys(summary).length;
+  const allocationCount = Object.keys(allocation).length;
+  return summaryCount * 6 + allocationCount * 4 + Math.min(holdings, 25) + (validated ?? 0) / 10;
+}
+
+function pickBestStatementSnapshot(statements: unknown): Record<string, unknown> | undefined {
+  if (!Array.isArray(statements) || statements.length === 0) return undefined;
+  const candidates = statements
+    .map((entry) => toRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  if (candidates.length === 0) return undefined;
+  candidates.sort((left, right) => statementCompletenessScore(right) - statementCompletenessScore(left));
+  return candidates[0];
 }
 
 const SpinningLoader = (props: any) => (
@@ -510,29 +698,6 @@ export function PortfolioReviewView({
         "legal_and_disclosures",
       ] as const;
 
-      // Build the complete portfolio data
-      const portfolioToSave: PortfolioData = {
-        account_info: accountInfo,
-        account_summary: {
-          ...accountSummary,
-          ending_value: totalValue,
-        },
-        asset_allocation: assetAllocation,
-        holdings: activeHoldings,
-        income_summary: incomeSummary,
-        realized_gain_loss: realizedGainLoss,
-        cash_balance: initialData.cash_balance || accountSummary.cash_balance,
-        total_value: totalValue,
-        domain_intent: {
-          primary: "financial",
-          source: "kai_import_llm",
-          captured_sections: capturedSections,
-          updated_at: new Date().toISOString(),
-        },
-      };
-
-      // 1. Fetch existing blob and merge (prevents cross-domain overwrite)
-      // 2. Build summary for indexing (non-sensitive metadata only)
       const holdingsSummary = activeHoldings.map((h) => ({
         symbol: h.symbol,
         name: h.name,
@@ -554,6 +719,18 @@ export function PortfolioReviewView({
           ? ({ ...(existingFinancialValue as Record<string, unknown>) } as Record<string, unknown>)
           : {};
 
+      const existingPortfolioCandidate = toRecord(existingFinancial.portfolio) ?? existingFinancial;
+
+      const parsedAccountSummary = sanitizeAccountSummary(accountSummary);
+      const parsedAssetAllocation = sanitizeAssetAllocation(assetAllocation);
+      const parsedCashBalance =
+        toFiniteNumber(initialData.cash_balance) ?? parsedAccountSummary.cash_balance;
+      const holdingsTotal = activeHoldings.reduce(
+        (sum, holding) => sum + (toFiniteNumber(holding.market_value) ?? 0),
+        0
+      );
+      const derivedCashBalance = deriveCashFromHoldings(activeHoldings);
+
       // 3. Append structured statement snapshot (no raw PDF bytes).
       const existingDocsValue = existingFinancial.documents;
       const existingDocsSource =
@@ -567,8 +744,130 @@ export function PortfolioReviewView({
       const existingStatements = Array.isArray(existingStatementsValue)
         ? [...existingStatementsValue]
         : [];
+      const bestStatementSnapshot = pickBestStatementSnapshot(existingStatements);
+
+      const existingPortfolioSummary = sanitizeAccountSummary(
+        existingPortfolioCandidate.account_summary
+      );
+      const existingStatementSummary = sanitizeAccountSummary(
+        bestStatementSnapshot?.account_summary
+      );
+      const fallbackAccountSummary = pickRicherAccountSummary(
+        existingPortfolioSummary,
+        existingStatementSummary
+      );
+
+      const existingPortfolioAllocation = sanitizeAssetAllocation(
+        existingPortfolioCandidate.asset_allocation
+      );
+      const existingStatementAllocation = sanitizeAssetAllocation(
+        bestStatementSnapshot?.asset_allocation
+      );
+      const fallbackAssetAllocation = pickRicherAssetAllocation(
+        existingPortfolioAllocation,
+        existingStatementAllocation
+      );
+
+      const fallbackCashBalance =
+        toFiniteNumber(existingPortfolioCandidate.cash_balance) ??
+        existingPortfolioSummary.cash_balance ??
+        toFiniteNumber(bestStatementSnapshot?.cash_balance) ??
+        existingStatementSummary.cash_balance;
+      const fallbackTotalValue =
+        toFiniteNumber(existingPortfolioCandidate.total_value) ??
+        existingPortfolioSummary.ending_value ??
+        toFiniteNumber(bestStatementSnapshot?.total_value) ??
+        existingStatementSummary.ending_value;
+
+      const statementTotalValue =
+        toFiniteNumber(initialData.total_value) ??
+        parsedAccountSummary.ending_value ??
+        (holdingsTotal > 0
+          ? holdingsTotal + (parsedCashBalance ?? derivedCashBalance ?? 0)
+          : undefined);
+      const resolvedCashBalance = parsedCashBalance ?? derivedCashBalance ?? fallbackCashBalance;
+      const resolvedTotalValue =
+        statementTotalValue ??
+        (holdingsTotal > 0 ? holdingsTotal + (resolvedCashBalance ?? 0) : undefined) ??
+        fallbackTotalValue ??
+        0;
+
+      const resolvedAccountSummary = compactRecord({
+        ...mergeAccountSummary(parsedAccountSummary, fallbackAccountSummary),
+        ending_value: resolvedTotalValue > 0 ? resolvedTotalValue : undefined,
+        cash_balance: resolvedCashBalance,
+      } satisfies AccountSummary) as AccountSummary;
+      const resolvedAssetAllocation = hasAllocationValues(parsedAssetAllocation)
+        ? parsedAssetAllocation
+        : fallbackAssetAllocation;
+
+      const sparseSections: string[] = [];
+      if (!hasSummaryValues(parsedAccountSummary)) sparseSections.push("account_summary");
+      if (!hasAllocationValues(parsedAssetAllocation)) sparseSections.push("asset_allocation");
+      if (!initialData.account_info || Object.keys(initialData.account_info).length === 0) {
+        sparseSections.push("account_info");
+      }
+
+      const parseFallback =
+        initialData.parse_fallback === true ||
+        initialData.quality_report?.parse_fallback === true;
+
+      const normalizedAccountInfo = compactRecord({
+        holder_name: accountInfo.holder_name,
+        account_number: accountInfo.account_number,
+        account_type: accountInfo.account_type,
+        brokerage: accountInfo.brokerage,
+        statement_period_start: accountInfo.statement_period_start,
+        statement_period_end: accountInfo.statement_period_end,
+      } satisfies AccountInfo) as AccountInfo;
+      const normalizedIncomeSummary = compactRecord({
+        dividends_taxable: incomeSummary.dividends_taxable,
+        interest_income: incomeSummary.interest_income,
+        total_income: incomeSummary.total_income,
+      } satisfies IncomeSummary) as IncomeSummary;
+      const normalizedRealizedGainLoss = compactRecord({
+        short_term_gain: realizedGainLoss.short_term_gain,
+        long_term_gain: realizedGainLoss.long_term_gain,
+        net_realized: realizedGainLoss.net_realized,
+      } satisfies RealizedGainLoss) as RealizedGainLoss;
+
+      const portfolioToSave: PortfolioData = {
+        account_info: hasRecordValues(normalizedAccountInfo as Record<string, unknown>)
+          ? normalizedAccountInfo
+          : undefined,
+        account_summary: hasSummaryValues(resolvedAccountSummary)
+          ? resolvedAccountSummary
+          : undefined,
+        asset_allocation: hasAllocationValues(resolvedAssetAllocation)
+          ? resolvedAssetAllocation
+          : undefined,
+        holdings: activeHoldings,
+        income_summary: hasRecordValues(normalizedIncomeSummary as Record<string, unknown>)
+          ? normalizedIncomeSummary
+          : undefined,
+        realized_gain_loss: hasRecordValues(
+          normalizedRealizedGainLoss as Record<string, unknown>
+        )
+          ? normalizedRealizedGainLoss
+          : undefined,
+        cash_balance: resolvedCashBalance,
+        total_value: resolvedTotalValue,
+        parse_fallback: parseFallback,
+        domain_intent: {
+          primary: "financial",
+          source: "kai_import_llm",
+          captured_sections: capturedSections,
+          updated_at: nowIso,
+        },
+      };
 
       const snapshotId = `stmt_${Date.now()}`;
+      const statementAccountSummary = compactRecord({
+        ...parsedAccountSummary,
+        ending_value: statementTotalValue ?? parsedAccountSummary.ending_value,
+        cash_balance: parsedCashBalance ?? derivedCashBalance,
+      } satisfies AccountSummary) as AccountSummary;
+
       const snapshot = {
         id: snapshotId,
         imported_at: nowIso,
@@ -585,13 +884,17 @@ export function PortfolioReviewView({
           account_type: accountInfo.account_type || null,
         },
         account_info: portfolioToSave.account_info || null,
-        account_summary: portfolioToSave.account_summary || null,
+        account_summary: hasSummaryValues(statementAccountSummary)
+          ? statementAccountSummary
+          : null,
         holdings: portfolioToSave.holdings || [],
         transactions:
           initialData.transactions ||
           initialData.activity_and_transactions ||
           [],
-        asset_allocation: portfolioToSave.asset_allocation || null,
+        asset_allocation: hasAllocationValues(parsedAssetAllocation)
+          ? parsedAssetAllocation
+          : null,
         income_summary: portfolioToSave.income_summary || null,
         realized_gain_loss: portfolioToSave.realized_gain_loss || null,
         cash_flow: initialData.cash_flow || null,
@@ -599,6 +902,11 @@ export function PortfolioReviewView({
         projections_and_mrd: initialData.projections_and_mrd || null,
         legal_and_disclosures: initialData.legal_and_disclosures || [],
         quality_report: initialData.quality_report || null,
+        parse_context: {
+          parse_fallback: parseFallback,
+          sparse_sections: sparseSections,
+          fallback_merge_applied: sparseSections.length > 0,
+        },
       };
       existingStatements.unshift(snapshot);
 
@@ -621,11 +929,35 @@ export function PortfolioReviewView({
         lastQuality.raw > 0
           ? Number((lastQuality.validated / lastQuality.raw).toFixed(4))
           : undefined;
+      const bestSnapshotSource = toRecord(bestStatementSnapshot?.source);
+      const bestSnapshotStatementEnd =
+        typeof bestSnapshotSource?.statement_period_end === "string"
+          ? bestSnapshotSource.statement_period_end
+          : undefined;
+      const bestSnapshotBrokerage =
+        typeof bestSnapshotSource?.brokerage === "string"
+          ? bestSnapshotSource.brokerage
+          : undefined;
+      const existingDocsStatementEnd =
+        typeof existingDocs.last_statement_end === "string"
+          ? (existingDocs.last_statement_end as string)
+          : undefined;
+      const existingDocsBrokerage =
+        typeof existingDocs.last_brokerage === "string"
+          ? (existingDocs.last_brokerage as string)
+          : undefined;
 
       const docsSummary: Record<string, unknown> = {
         documents_count: nextDocsDomain.statements.length,
-        last_statement_end: accountInfo.statement_period_end || null,
-        last_brokerage: accountInfo.brokerage || null,
+        last_statement_end:
+          accountInfo.statement_period_end ||
+          bestSnapshotStatementEnd ||
+          existingDocsStatementEnd ||
+          null,
+        last_brokerage:
+          accountInfo.brokerage || bestSnapshotBrokerage || existingDocsBrokerage || null,
+        parse_fallback_last_import: parseFallback,
+        sparse_sections_last_import: sparseSections,
         last_updated: nowIso,
       };
       if (lastQualityScore !== undefined) {
@@ -667,6 +999,8 @@ export function PortfolioReviewView({
         risk_bucket: riskBucket,
         has_income_data: !!incomeSummary.total_income,
         has_realized_gains: !!realizedGainLoss.net_realized,
+        parse_fallback_last_import: parseFallback,
+        sparse_sections_last_import: sparseSections,
         domain_contract_version: 1,
         intent_map: [
           "portfolio",
@@ -1232,8 +1566,9 @@ export function PortfolioReviewView({
                           )}
                           onClick={() => setEditingHoldingIndex(index)}
                           aria-label={`Edit ${holding.symbol || `holding ${index + 1}`}`}
-                          icon={{ icon: Pencil }}
-                        />
+                        >
+                          <Icon icon={Pencil} size="sm" />
+                        </MorphyButton>
                         <Kbd className="text-[8px] px-1 h-3.5">EDIT</Kbd>
                       </div>
                       <div className="flex flex-col items-center gap-1">
@@ -1252,8 +1587,9 @@ export function PortfolioReviewView({
                               ? `Undo remove ${holding.symbol || `holding ${index + 1}`}`
                               : `Remove ${holding.symbol || `holding ${index + 1}`}`
                           }
-                          icon={{ icon: holding.pending_delete ? Undo2 : Trash2 }}
-                        />
+                        >
+                          <Icon icon={holding.pending_delete ? Undo2 : Trash2} size="sm" />
+                        </MorphyButton>
                         <Kbd className="text-[8px] px-1 h-3.5">
                           {holding.pending_delete ? "UNDO" : "DEL"}
                         </Kbd>

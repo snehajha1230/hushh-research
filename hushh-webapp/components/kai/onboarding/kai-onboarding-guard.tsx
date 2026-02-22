@@ -12,6 +12,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   isOnboardingRequiredCookieEnabled,
+  setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -119,6 +120,12 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
         if (onboardingIncomplete && !onOnboardingRoute) {
           router.replace(ROUTES.KAI_ONBOARDING);
           return;
+        }
+
+        if (!onboardingIncomplete && onImportRoute && chromeState.onboardingFlowActive) {
+          // Import can be used outside onboarding. If profile is already completed,
+          // clear stale onboarding chrome state for returning users.
+          setOnboardingFlowActiveCookie(false);
         }
 
         if (!onboardingIncomplete && chromeState.onboardingFlowActive && !onImportRoute) {

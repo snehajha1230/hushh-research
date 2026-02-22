@@ -61,12 +61,37 @@ function normalizeTickerKey(
   ticker: string
 ): string | null {
   const wanted = String(ticker || "").trim().toUpperCase();
-  if (!wanted) return null;
+  const canonicalWanted = wanted.replace(/[^A-Z0-9]/g, "");
+  if (!wanted && !canonicalWanted) return null;
   if (Object.prototype.hasOwnProperty.call(historyMap, wanted)) return wanted;
-  const matched = Object.keys(historyMap).find(
-    (key) => key.toUpperCase() === wanted
-  );
+  const matched = Object.keys(historyMap).find((key) => {
+    const keyUpper = key.toUpperCase();
+    if (keyUpper === wanted) return true;
+    return keyUpper.replace(/[^A-Z0-9]/g, "") === canonicalWanted;
+  });
   return matched ?? null;
+}
+
+function toEpochMs(value: string | null | undefined): number | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const epoch = Date.parse(trimmed);
+  return Number.isFinite(epoch) ? epoch : null;
+}
+
+function timestampsMatch(left: string | null | undefined, right: string | null | undefined): boolean {
+  const leftTrimmed = typeof left === "string" ? left.trim() : "";
+  const rightTrimmed = typeof right === "string" ? right.trim() : "";
+  if (!leftTrimmed || !rightTrimmed) return false;
+  if (leftTrimmed === rightTrimmed) return true;
+
+  const leftEpoch = toEpochMs(leftTrimmed);
+  const rightEpoch = toEpochMs(rightTrimmed);
+  if (leftEpoch === null || rightEpoch === null) return false;
+
+  // Keep a small tolerance for source formatting differences.
+  return Math.abs(leftEpoch - rightEpoch) <= 1000;
 }
 
 function extractStreamId(entry: AnalysisHistoryEntry): string | null {
@@ -338,14 +363,34 @@ export class KaiHistoryService {
       if (currentTickerHistory.length === 0) return false;
 
       const originalLen = currentTickerHistory.length;
-      historyMap[tickerKey] = currentTickerHistory.filter((entry) => {
-        const byTimestamp =
-          wantedTimestamp.length > 0 &&
-          String(entry.timestamp || "").trim() === wantedTimestamp;
-        const byStreamId =
-          wantedStreamId !== null && extractStreamId(entry) === wantedStreamId;
-        return !(byTimestamp || byStreamId);
-      });
+      let nextTickerHistory = currentTickerHistory;
+
+      if (wantedTimestamp.length === 0 && wantedStreamId === null) {
+        // Fallback: if no stable identifiers are available, remove the newest entry.
+        nextTickerHistory = currentTickerHistory.slice(1);
+      } else {
+        nextTickerHistory = currentTickerHistory.filter((entry) => {
+          const byTimestamp =
+            wantedTimestamp.length > 0 &&
+            timestampsMatch(String(entry.timestamp || ""), wantedTimestamp);
+          const byStreamId =
+            wantedStreamId !== null && extractStreamId(entry) === wantedStreamId;
+          return !(byTimestamp || byStreamId);
+        });
+
+        // Last-resort guard for broken historical rows that cannot be matched by timestamp/stream id.
+        if (nextTickerHistory.length === originalLen) {
+          // No stream_id means we likely came from the latest-row table action.
+          // Drop newest entry so users are never stuck with an undeletable row.
+          if (wantedStreamId === null) {
+            nextTickerHistory = currentTickerHistory.slice(1);
+          } else if (originalLen === 1) {
+            nextTickerHistory = [];
+          }
+        }
+      }
+
+      historyMap[tickerKey] = nextTickerHistory;
 
       if (historyMap[tickerKey].length === 0) {
         delete historyMap[tickerKey];

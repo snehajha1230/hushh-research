@@ -19,6 +19,7 @@ import {
   Bar,
   XAxis,
   YAxis,
+  CartesianGrid,
   Cell,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
@@ -163,7 +164,7 @@ export function SectorAllocationChart({
   }
 
   return (
-    <Card variant="muted" effect="glass" className={className}>
+    <Card variant="none" effect="glass" className={className}>
       <CardHeader className="pb-2 pt-4 px-4">
         <CardTitle className="text-sm flex items-center gap-2">
           <PieChartIcon className="w-5 h-5 text-primary" />
@@ -183,6 +184,12 @@ export function SectorAllocationChart({
               axisLine={false}
               tickLine={false}
               tick={{ fontSize: 10 }}
+            />
+            <CartesianGrid
+              horizontal={false}
+              strokeDasharray="3 3"
+              stroke="hsl(var(--border))"
+              strokeOpacity={0.9}
             />
             <YAxis
               type="category"
