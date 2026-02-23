@@ -464,10 +464,16 @@ export function KaiFlow({
 
         const hasFinancialData =
           financialDomain && financialDomain.attributeCount > 0;
+        const cachedPortfolioData = getPortfolioData(userId) ?? undefined;
+        const hasCachedPortfolioData = Boolean(
+          cachedPortfolioData &&
+            Array.isArray(cachedPortfolioData.holdings) &&
+            cachedPortfolioData.holdings.length > 0
+        );
 
         if (hasFinancialData) {
           // Prefer CacheProvider (in-memory) for reuse with Manage page
-          let portfolioData: PortfolioData | undefined = getPortfolioData(userId) ?? undefined;
+          let portfolioData: PortfolioData | undefined = cachedPortfolioData;
 
           if (!portfolioData && vaultKey) {
             // No cache - try to decrypt from World Model
@@ -539,23 +545,85 @@ export function KaiFlow({
           }
           setState(isDashboardMode ? "dashboard" : "import_required");
         } else {
+          // Metadata can temporarily report an empty financial domain during startup/race conditions.
+          // If we already have a portfolio cached for this user, trust it instead of bouncing to import.
+          if (hasCachedPortfolioData && cachedPortfolioData) {
+            const normalizedCachedHoldings = normalizeHoldingsWithPct(
+              cachedPortfolioData.holdings
+            );
+            const normalizedCachedPortfolio: PortfolioData = {
+              ...cachedPortfolioData,
+              holdings: normalizedCachedHoldings,
+            };
+            setPortfolioData(userId, normalizedCachedPortfolio);
+            setFlowData({
+              hasFinancialData: true,
+              holdingsCount: normalizedCachedPortfolio.holdings?.length || 0,
+              portfolioData: normalizedCachedPortfolio,
+              holdings: normalizedCachedPortfolio.holdings?.map((h) => h.symbol) || [],
+            });
+            if (isDashboardMode) {
+              setOnboardingFlowActiveCookie(false);
+            }
+            setState(isDashboardMode ? "dashboard" : "import_required");
+            return;
+          }
+
+          // Secondary fallback: metadata can lag while full blob already contains holdings.
+          if (vaultKey && effectiveVaultOwnerToken) {
+            try {
+              const allData = await WorldModelService.loadFullBlob({
+                userId,
+                vaultKey,
+                vaultOwnerToken: effectiveVaultOwnerToken,
+              });
+              const rawFinancial = allData.financial;
+              if (hasValidFinancialDomainData(rawFinancial)) {
+                let recoveredPortfolioData = normalizeStoredPortfolio(rawFinancial) as PortfolioData;
+                if (recoveredPortfolioData.holdings) {
+                  recoveredPortfolioData = {
+                    ...recoveredPortfolioData,
+                    holdings: normalizeHoldingsWithPct(recoveredPortfolioData.holdings),
+                  };
+                }
+                setPortfolioData(userId, recoveredPortfolioData);
+                setFlowData({
+                  hasFinancialData: true,
+                  holdingsCount: recoveredPortfolioData.holdings?.length || 0,
+                  portfolioData: recoveredPortfolioData,
+                  holdings: recoveredPortfolioData.holdings?.map((h) => h.symbol) || [],
+                });
+                if (isDashboardMode) {
+                  setOnboardingFlowActiveCookie(false);
+                }
+                setState(isDashboardMode ? "dashboard" : "import_required");
+                return;
+              }
+            } catch (fallbackError) {
+              console.warn(
+                "[KaiFlow] Metadata reported no financial domain and full-blob fallback failed:",
+                fallbackError
+              );
+            }
+          }
+
           // No financial data.
           // Ensure stale frontend cache never leaks into first-time user experience.
           invalidateDomain(userId, "financial");
           setFlowData({ hasFinancialData: false });
           if (isDashboardMode) {
-            router.replace(ROUTES.KAI_IMPORT);
-            setState("checking");
+            // Stay on dashboard route and show import CTA instead of hard-redirecting.
+            // This avoids navigation thrash during transient metadata issues.
+            setState("dashboard");
             return;
           }
           setState("import_required");
         }
       } catch (err) {
-        console.error("[KaiFlow] Error checking financial data:", err);
-        // Default to import_required on error (new user)
+        console.warn("[KaiFlow] Error checking financial data:", err);
+        // Keep dashboard stable on transient failures instead of forcing import redirect.
         if (isDashboardMode) {
-          router.replace(ROUTES.KAI_IMPORT);
-          setState("checking");
+          setState("dashboard");
           return;
         }
         setFlowData({ hasFinancialData: false });

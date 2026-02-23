@@ -12,8 +12,8 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Save } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Calendar, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
 import {
@@ -59,6 +59,7 @@ export function EditHoldingModal({
   holding,
   onSave,
 }: EditHoldingModalProps) {
+  const acquisitionDateInputRef = useRef<HTMLInputElement | null>(null);
   const [formData, setFormData] = useState<Holding>({
     symbol: "",
     name: "",
@@ -153,6 +154,28 @@ export function EditHoldingModal({
       symbol: formData.symbol.toUpperCase(),
     });
   }, [formData, validate, onSave]);
+
+  const handleOpenDatePicker = useCallback(() => {
+    const input = acquisitionDateInputRef.current;
+    if (!input) return;
+
+    // showPicker is supported in modern Chromium; click/focus fallback keeps Safari/iOS usable.
+    try {
+      (input as HTMLInputElement & { showPicker?: () => void }).showPicker?.();
+      return;
+    } catch {
+      // no-op: fallback below
+    }
+    input.focus({ preventScroll: true });
+    input.click();
+  }, []);
+
+  const formatAcquisitionDate = useCallback((value?: string) => {
+    if (!value) return "";
+    const [year, month, day] = value.split("-");
+    if (!year || !month || !day) return value;
+    return `${month}/${day}/${year}`;
+  }, []);
 
   const isNewHolding = !holding?.symbol;
 
@@ -297,12 +320,39 @@ export function EditHoldingModal({
             <label className="block text-sm font-medium mb-1">
               Acquisition Date
             </label>
-            <input
-              type="date"
-              value={formData.acquisition_date || ""}
-              onChange={(e) => handleChange("acquisition_date", e.target.value)}
-              className="w-full px-4 py-3 h-12 rounded-xl border border-border bg-background outline-none focus:border-primary transition-colors"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                value={formatAcquisitionDate(formData.acquisition_date)}
+                placeholder="MM/DD/YYYY"
+                readOnly
+                onClick={handleOpenDatePicker}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleOpenDatePicker();
+                  }
+                }}
+                className="w-full px-4 py-3 pr-12 h-12 rounded-xl border border-border bg-background outline-none focus:border-primary transition-colors cursor-pointer"
+              />
+              <button
+                type="button"
+                onClick={handleOpenDatePicker}
+                aria-label="Open acquisition date picker"
+                className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+              >
+                <Calendar className="h-4 w-4" />
+              </button>
+              <input
+                ref={acquisitionDateInputRef}
+                type="date"
+                value={formData.acquisition_date || ""}
+                onChange={(e) => handleChange("acquisition_date", e.target.value)}
+                tabIndex={-1}
+                aria-hidden="true"
+                className="absolute h-px w-px opacity-0 pointer-events-none"
+              />
+            </div>
           </div>
 
           {/* Gain/Loss Preview */}

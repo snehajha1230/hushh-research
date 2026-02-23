@@ -41,11 +41,6 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
         return;
       }
 
-      if (chromeState.onboardingFlowActive && !onImportRoute && !onOnboardingRoute) {
-        router.replace(ROUTES.KAI_IMPORT);
-        return;
-      }
-
       try {
         const hasVault = await VaultService.checkVault(user.uid);
         if (cancelled) return;
@@ -122,15 +117,10 @@ export function KaiOnboardingGuard({ children }: { children: React.ReactNode }) 
           return;
         }
 
-        if (!onboardingIncomplete && onImportRoute && chromeState.onboardingFlowActive) {
-          // Import can be used outside onboarding. If profile is already completed,
-          // clear stale onboarding chrome state for returning users.
+        if (!onboardingIncomplete && chromeState.onboardingFlowActive) {
+          // Cookie can remain set after completed onboarding/import and cause
+          // repeated redirects back to /kai/import for returning users.
           setOnboardingFlowActiveCookie(false);
-        }
-
-        if (!onboardingIncomplete && chromeState.onboardingFlowActive && !onImportRoute) {
-          router.replace(ROUTES.KAI_IMPORT);
-          return;
         }
 
         if (!onboardingIncomplete && onOnboardingRoute) {

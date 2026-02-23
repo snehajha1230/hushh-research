@@ -350,6 +350,7 @@ export class WorldModelService {
 
     const request = (async (): Promise<WorldModelMetadata> => {
       let result: WorldModelMetadata;
+      let cacheTtlMs = CACHE_TTL.MEDIUM;
 
       if (Capacitor.isNativePlatform()) {
         // Use Capacitor plugin for native platforms
@@ -413,6 +414,22 @@ export class WorldModelService {
           console.warn(
             `[WorldModelService] Metadata unauthorized for ${userId}; returning empty state (${response.status})`
           );
+          cacheTtlMs = CACHE_TTL.SHORT;
+          result = {
+            userId,
+            domains: [],
+            totalAttributes: 0,
+            modelCompleteness: 0,
+            suggestedDomains: [],
+            lastUpdated: null,
+          };
+        } else if (response.status === 408 || response.status === 429 || response.status >= 500) {
+          // Upstream timeout / temporary backend issue.
+          // Return an empty shape so callers can apply local fallbacks (cache/blob) without hard crash.
+          console.warn(
+            `[WorldModelService] Metadata temporarily unavailable for ${userId}; returning empty state (${response.status})`
+          );
+          cacheTtlMs = CACHE_TTL.SHORT;
           result = {
             userId,
             domains: [],
@@ -422,7 +439,20 @@ export class WorldModelService {
             lastUpdated: null,
           };
         } else if (!response.ok) {
-          throw new Error(`Failed to get metadata: ${response.status}`);
+          // Any remaining non-OK status should fail open for dashboard bootstrap.
+          // Callers already apply local cache/blob fallbacks.
+          console.warn(
+            `[WorldModelService] Metadata request failed for ${userId}; returning empty state (${response.status})`
+          );
+          cacheTtlMs = CACHE_TTL.SHORT;
+          result = {
+            userId,
+            domains: [],
+            totalAttributes: 0,
+            modelCompleteness: 0,
+            suggestedDomains: [],
+            lastUpdated: null,
+          };
         } else {
           const data = await response.json();
 
@@ -448,7 +478,7 @@ export class WorldModelService {
       }
 
       // Cache the result
-      cache.set(cacheKey, result, CACHE_TTL.MEDIUM);
+      cache.set(cacheKey, result, cacheTtlMs);
       console.log("[WorldModelService] Cached metadata for", userId);
 
       return result;
