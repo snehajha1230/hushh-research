@@ -102,16 +102,25 @@ describe("KaiCommandBarGlobal visibility", () => {
     pathname = "/kai/onboarding";
     render(<KaiCommandBarGlobal />);
     expect(screen.queryByTestId("kai-search-bar")).toBeNull();
+  });
 
+  it("renders command bar on import route for returning users", () => {
     pathname = "/kai/import";
+    render(<KaiCommandBarGlobal />);
+    expect(screen.queryByTestId("kai-search-bar")).toBeTruthy();
+  });
+
+  it("hides command bar on import route when onboarding flow cookie is active", () => {
+    pathname = "/kai/import";
+    document.cookie = "kai_onboarding_flow_active=1; path=/";
     render(<KaiCommandBarGlobal />);
     expect(screen.queryByTestId("kai-search-bar")).toBeNull();
   });
 
-  it("hides command bar when onboarding flow cookie is active", () => {
+  it("keeps command bar visible on dashboard when onboarding flow cookie is active", () => {
     pathname = "/kai/dashboard";
     document.cookie = "kai_onboarding_flow_active=1; path=/";
     render(<KaiCommandBarGlobal />);
-    expect(screen.queryByTestId("kai-search-bar")).toBeNull();
+    expect(screen.queryByTestId("kai-search-bar")).toBeTruthy();
   });
 });

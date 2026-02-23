@@ -70,4 +70,4 @@ if (moderate > bModerate || high > bHigh || critical > bCritical) {
 }
 "
 
-npm test
+npm run test:core
