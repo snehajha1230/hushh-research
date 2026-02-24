@@ -8,9 +8,6 @@ cd "$WEB_DIR"
 
 npm --version
 
-rm -rf node_modules
-npm ci
-
 if [ -f scripts/verify-route-contracts.cjs ]; then
   npm run verify:routes
 else

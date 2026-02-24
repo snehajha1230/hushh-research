@@ -24,8 +24,13 @@ import {
   LabelList,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
-import { PieChart as PieChartIcon } from "lucide-react";
+import { ChevronDown, ChevronUp, PieChart as PieChartIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   ChartContainer,
   ChartTooltip,
@@ -93,8 +98,8 @@ function _formatPercent(value: number): string {
 }
 
 function compactSectorLabel(value: string): string {
-  if (value.length <= 18) return value;
-  return `${value.slice(0, 17)}…`;
+  if (value.length <= 16) return value;
+  return `${value.slice(0, 15)}…`;
 }
 
 export function SectorAllocationChart({
@@ -108,6 +113,7 @@ export function SectorAllocationChart({
     typeof window !== "undefined" ? window.innerWidth : 1024
   );
   const [sectorHoldingPages, setSectorHoldingPages] = useState<Record<string, number>>({});
+  const [openSectors, setOpenSectors] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!responsive) return;
@@ -179,28 +185,44 @@ export function SectorAllocationChart({
     });
   }, [sectorData.data]);
 
+  useEffect(() => {
+    setOpenSectors((prev) => {
+      const next: Record<string, boolean> = {};
+      sectorData.data.forEach((sector, index) => {
+        const existingState = prev[sector.name];
+        if (typeof existingState === "boolean") {
+          next[sector.name] = existingState;
+        } else {
+          next[sector.name] = index === 0;
+        }
+      });
+      return next;
+    });
+  }, [sectorData.data]);
+
   // Responsive dimensions
   const chartHeight = useMemo(() => {
     if (!responsive) return 184;
-    // Leaner chart heights for dense dashboard cards.
-    if (windowWidth < 640) return 128;
-    if (windowWidth < 1024) return 148;
-    return 184;
+    // Give bars more breathing room while still fitting dashboard density.
+    if (windowWidth < 640) return 168;
+    if (windowWidth < 1024) return 196;
+    return 224;
   }, [responsive, windowWidth]);
 
-  const leftMargin = useMemo(() => {
-    if (!responsive) return 96;
-    // Reserve more room for sector labels in horizontal bars.
-    if (windowWidth < 640) return 72;
-    if (windowWidth < 1024) return 88;
-    return 96;
-  }, [responsive, windowWidth]);
+  const leftMargin = 0;
 
   const rightMargin = useMemo(() => {
-    if (!responsive) return 56;
-    // Reserve right space for inline value labels (especially mobile)
+    if (!responsive) return 18;
+    // Reserve right space for inline value labels while keeping usable plot width.
+    if (windowWidth < 640) return 12;
+    return 18;
+  }, [responsive, windowWidth]);
+
+  const yAxisWidth = useMemo(() => {
+    if (!responsive) return 96;
     if (windowWidth < 640) return 66;
-    return 56;
+    if (windowWidth < 1024) return 82;
+    return 96;
   }, [responsive, windowWidth]);
 
   const showInlineValueLabels = windowWidth < 768;
@@ -232,7 +254,7 @@ export function SectorAllocationChart({
           <p className="text-xs text-muted-foreground pt-1">{subtitle}</p>
         ) : null}
       </CardHeader>
-      <CardContent className="px-4 pb-4 min-w-0 overflow-hidden">
+      <CardContent className="px-3 pb-4 min-w-0 overflow-hidden sm:px-4">
         <ChartContainer config={chartConfig} className="w-full min-w-0" style={{ height: `${chartHeight}px` }}>
           <BarChart
             data={sectorData.data}
@@ -257,7 +279,7 @@ export function SectorAllocationChart({
               tickFormatter={(value) => compactSectorLabel(String(value))}
               axisLine={false}
               tickLine={false}
-              width={92}
+              width={yAxisWidth}
               tick={{ fontSize: 10, fill: "hsl(var(--foreground) / 0.72)" }}
             />
             <ChartTooltip
@@ -291,7 +313,7 @@ export function SectorAllocationChart({
               dataKey="value"
               radius={[0, 4, 4, 0]}
               animationDuration={800}
-              maxBarSize={16}
+              maxBarSize={24}
             >
               {showInlineValueLabels ? (
                 <LabelList
@@ -323,79 +345,97 @@ export function SectorAllocationChart({
               const start = clampedPage * HOLDINGS_PAGE_SIZE;
               const end = start + HOLDINGS_PAGE_SIZE;
               const visibleHoldings = sector.holdings.slice(start, end);
+              const isOpen = openSectors[sector.name] ?? false;
 
               return (
-                <div
+                <Collapsible
                   key={sector.name}
-                  className="rounded-lg border border-border/60 bg-background/70 p-2.5"
+                  open={isOpen}
+                  onOpenChange={(nextOpen) =>
+                    setOpenSectors((prev) => ({ ...prev, [sector.name]: nextOpen }))
+                  }
+                  className="rounded-lg border border-border/60 bg-background/70"
                 >
-                  <div className="flex items-center gap-2 text-sm">
-                    <div
-                      className="w-3 h-3 rounded-full shrink-0"
-                      style={{ backgroundColor: sector.color }}
-                    />
-                    <span className="text-foreground font-medium">{sector.name}</span>
-                    <span className="text-foreground/80 text-xs font-medium">
-                      {formatCurrency(sector.value)} ({sector.percent.toFixed(1)}%)
-                    </span>
-                    <span className="ml-auto text-[11px] text-muted-foreground">
-                      {sector.count} holding{sector.count !== 1 ? "s" : ""}
-                    </span>
-                  </div>
-
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {visibleHoldings.map((holding) => (
-                      <span
-                        key={`${sector.name}-${holding.symbol}-${holding.name}`}
-                        className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/60 bg-background/90 px-2 py-0.5 text-[11px]"
-                        title={`${holding.symbol} · ${holding.name} · ${formatCurrency(holding.marketValue)}`}
-                      >
-                        <span className="font-semibold">{holding.symbol}</span>
-                        <span className="truncate text-muted-foreground">{holding.name}</span>
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 p-2.5 text-left transition-colors hover:bg-background/60"
+                    >
+                      <div
+                        className="h-3 w-3 shrink-0 rounded-full"
+                        style={{ backgroundColor: sector.color }}
+                      />
+                      <span className="text-sm font-medium text-foreground">{sector.name}</span>
+                      <span className="text-xs font-medium text-foreground/80">
+                        {formatCurrency(sector.value)} ({sector.percent.toFixed(1)}%)
                       </span>
-                    ))}
-                  </div>
-
-                  {totalPages > 1 ? (
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="text-[11px] text-muted-foreground">
-                        Showing {start + 1}-{Math.min(end, sector.holdings.length)} of {sector.holdings.length}
+                      <span className="ml-auto text-[11px] text-muted-foreground">
+                        {sector.count} holding{sector.count !== 1 ? "s" : ""}
                       </span>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-6 px-2 text-[11px]"
-                          disabled={clampedPage === 0}
-                          onClick={() =>
-                            setSectorHoldingPages((prev) => ({
-                              ...prev,
-                              [sector.name]: Math.max(0, (prev[sector.name] ?? 0) - 1),
-                            }))
-                          }
-                        >
-                          Prev
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-6 px-2 text-[11px]"
-                          disabled={clampedPage >= totalPages - 1}
-                          onClick={() =>
-                            setSectorHoldingPages((prev) => ({
-                              ...prev,
-                              [sector.name]: Math.min(totalPages - 1, (prev[sector.name] ?? 0) + 1),
-                            }))
-                          }
-                        >
-                          Next
-                        </Button>
+                      {isOpen ? (
+                        <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="overflow-hidden border-t border-border/50 data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down">
+                    <div className="space-y-2 p-2.5">
+                      <div className="flex flex-wrap gap-1.5">
+                        {visibleHoldings.map((holding) => (
+                          <span
+                            key={`${sector.name}-${holding.symbol}-${holding.name}`}
+                            className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/60 bg-background/90 px-2 py-0.5 text-[11px]"
+                            title={`${holding.symbol} · ${holding.name} · ${formatCurrency(holding.marketValue)}`}
+                          >
+                            <span className="font-semibold">{holding.symbol}</span>
+                            <span className="truncate text-muted-foreground">{holding.name}</span>
+                          </span>
+                        ))}
                       </div>
+
+                      {totalPages > 1 ? (
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-[11px] text-muted-foreground">
+                            Showing {start + 1}-{Math.min(end, sector.holdings.length)} of {sector.holdings.length}
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2 text-[11px]"
+                              disabled={clampedPage === 0}
+                              onClick={() =>
+                                setSectorHoldingPages((prev) => ({
+                                  ...prev,
+                                  [sector.name]: Math.max(0, (prev[sector.name] ?? 0) - 1),
+                                }))
+                              }
+                            >
+                              Prev
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-6 px-2 text-[11px]"
+                              disabled={clampedPage >= totalPages - 1}
+                              onClick={() =>
+                                setSectorHoldingPages((prev) => ({
+                                  ...prev,
+                                  [sector.name]: Math.min(totalPages - 1, (prev[sector.name] ?? 0) + 1),
+                                }))
+                              }
+                            >
+                              Next
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
+                  </CollapsibleContent>
+                </Collapsible>
               );
             })}
           </div>

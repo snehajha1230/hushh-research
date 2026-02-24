@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -17,10 +17,25 @@ import { KaiHistoryService, type AnalysisHistoryEntry } from "@/lib/services/kai
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { useVault } from "@/lib/vault/vault-context";
 import { RoundTabsCard } from "@/components/kai/views/round-tabs-card";
+import {
+  fetchLatestMarketSnapshot,
+  getLatestMarketSnapshotFromCache,
+  pickPreferredMarketSnapshot,
+  type TickerMarketSnapshot,
+} from "@/lib/kai/market-snapshot";
+import { cn } from "@/lib/utils";
 
 const ANALYSIS_INTENT_FRESH_MS = 15_000;
-const WORKSPACE_TABS = ["debate", "summary", "detailed"] as const;
-type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
+type WorkspaceTab = "debate" | "summary" | "detailed";
+
+function formatCurrency(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "Price unavailable";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
 
 function extractDebateId(entry: AnalysisHistoryEntry | null): string | null {
   if (!entry || typeof entry !== "object") return null;
@@ -93,6 +108,7 @@ export default function KaiAnalysisPage() {
   const [resolvingEntry, setResolvingEntry] = useState(false);
   const [liveEntry, setLiveEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("debate");
+  const [headerSnapshot, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
 
   const hasFreshAnalysisIntent =
     Boolean(analysisParams) &&
@@ -262,6 +278,56 @@ export default function KaiAnalysisPage() {
     });
   }, []);
 
+  const activeEntry = liveIntentReady ? liveEntry : resolvedEntry;
+  const showWorkspace = Boolean(liveIntentReady || resolvedEntry);
+  const activeTicker = useMemo(() => {
+    if (liveIntentReady && analysisParams?.ticker) {
+      return String(analysisParams.ticker).trim().toUpperCase();
+    }
+    return activeEntry?.ticker ? String(activeEntry.ticker).trim().toUpperCase() : "";
+  }, [activeEntry?.ticker, analysisParams?.ticker, liveIntentReady]);
+  const headerPriceLabel = formatCurrency(headerSnapshot?.last_price ?? null);
+  const headerChangePct = headerSnapshot?.change_pct ?? null;
+
+  useEffect(() => {
+    if (!showWorkspace || !activeTicker || !userId) {
+      setHeaderSnapshot(null);
+      return;
+    }
+
+    let cancelled = false;
+    const cached = getLatestMarketSnapshotFromCache(userId, activeTicker);
+    if (!cancelled) {
+      setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, cached));
+    }
+
+    if (!vaultOwnerToken) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      try {
+        const live = await fetchLatestMarketSnapshot({
+          userId,
+          ticker: activeTicker,
+          vaultOwnerToken,
+          daysBack: 7,
+        });
+        if (!cancelled) {
+          setHeaderSnapshot((prev) => pickPreferredMarketSnapshot(prev, live));
+        }
+      } catch {
+        // Keep best known cached value.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTicker, showWorkspace, userId, vaultOwnerToken]);
+
   if (!user || !userId || !vaultKey) {
     return (
       <div className="flex min-h-96 items-center justify-center">
@@ -269,9 +335,6 @@ export default function KaiAnalysisPage() {
       </div>
     );
   }
-
-  const activeEntry = liveIntentReady ? liveEntry : resolvedEntry;
-  const showWorkspace = Boolean(liveIntentReady || resolvedEntry);
 
   return (
     <div className="pt-4">
@@ -283,6 +346,42 @@ export default function KaiAnalysisPage() {
                 <Icon icon={ArrowLeft} size="sm" className="mr-1" />
                 Back to history
               </Button>
+            </div>
+            <div className="rounded-2xl border border-border/60 bg-background/70 px-4 py-3 shadow-sm backdrop-blur-md">
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+                <div />
+                <h1 className="justify-self-center text-3xl font-black tracking-tighter text-foreground">
+                  {activeTicker}
+                </h1>
+                <div className="justify-self-end flex items-center gap-2">
+                  <span className="text-sm font-semibold tabular-nums text-muted-foreground">
+                    {headerPriceLabel}
+                  </span>
+                  {headerChangePct !== null ? (
+                    <span
+                      className={cn(
+                        "rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums",
+                        headerChangePct >= 0
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                      )}
+                    >
+                      {headerChangePct >= 0 ? "+" : ""}
+                      {headerChangePct.toFixed(2)}%
+                    </span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Today N/A</span>
+                  )}
+                </div>
+              </div>
+              {liveIntentReady ? (
+                <div className="mt-3 flex justify-end">
+                  <Button variant="none" effect="fade" size="sm" onClick={handleCloseLiveDebate}>
+                    <Icon icon={X} size="xs" className="mr-1" />
+                    Cancel
+                  </Button>
+                </div>
+              ) : null}
             </div>
             <Tabs
               value={workspaceTab}
@@ -296,7 +395,7 @@ export default function KaiAnalysisPage() {
                   <TabsTrigger value="detailed">Detailed View</TabsTrigger>
                 </TabsList>
               </div>
-              <TabsContent value="debate" className="mt-4" forceMount>
+              <TabsContent value="debate" className="mt-4 data-[state=inactive]:hidden" forceMount>
                 {liveIntentReady && analysisParams ? (
                   <DebateStreamView
                     ticker={analysisParams.ticker}
@@ -306,6 +405,7 @@ export default function KaiAnalysisPage() {
                     vaultKey={vaultKey}
                     onClose={handleCloseLiveDebate}
                     onDecisionSaved={setLiveEntry}
+                    showHeader={false}
                   />
                 ) : activeEntry ? (
                   <HistoryDebateReplay entry={activeEntry} />
@@ -323,6 +423,7 @@ export default function KaiAnalysisPage() {
                     embedded
                     userId={userId}
                     vaultOwnerToken={vaultOwnerToken || undefined}
+                    showHeader={false}
                   />
                 ) : (
                   <div className="rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-sm text-muted-foreground">
@@ -338,6 +439,7 @@ export default function KaiAnalysisPage() {
                     embedded
                     userId={userId}
                     vaultOwnerToken={vaultOwnerToken || undefined}
+                    showHeader={false}
                   />
                 ) : (
                   <div className="rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-sm text-muted-foreground">

@@ -1,11 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import {
   Zap,
-  ChevronDown,
-  ChevronUp,
   ExternalLink,
   Shield,
   BarChart3,
@@ -33,11 +31,13 @@ import {
   CartesianGrid,
   XAxis,
   YAxis,
-  ResponsiveContainer,
   LabelList, // Added LabelList
+  Label,
 } from "recharts";
 import {
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
@@ -229,6 +229,24 @@ function SourceLink({ source }: { source: string }) {
   );
 }
 
+function getDecisionPresentation(decision: string): {
+  label: string;
+  tone: "positive" | "negative" | "neutral";
+} {
+  const normalized = String(decision || "").trim().toLowerCase();
+  if (normalized === "buy") return { label: "BUY", tone: "positive" };
+  if (normalized === "sell" || normalized === "reduce") {
+    return { label: "REDUCE", tone: "negative" };
+  }
+  if (normalized === "hold") {
+    return { label: "HOLD / WATCH", tone: "neutral" };
+  }
+  return {
+    label: String(decision || "HOLD / WATCH").trim().toUpperCase(),
+    tone: "neutral",
+  };
+}
+
 // ============================================================================
 // Chart Sub-Components
 // ============================================================================
@@ -238,23 +256,19 @@ const RESULT_CHART_COLORS = {
   positive: "var(--chart-2)",
   neutral: "var(--chart-4)",
   accent: "var(--chart-3)",
-  negative: "var(--destructive)",
+  negative: "var(--chart-5)",
 } as const;
 
 const voteChartConfig = {
-  score: {
-    label: "Score",
-    color: RESULT_CHART_COLORS.primary,
-  },
-  voteBullish: {
+  bullish: {
     label: "Bullish",
     color: RESULT_CHART_COLORS.positive,
   },
-  voteNeutral: {
+  neutral: {
     label: "Neutral",
     color: RESULT_CHART_COLORS.neutral,
   },
-  voteBearish: {
+  bearish: {
     label: "Bearish",
     color: RESULT_CHART_COLORS.negative,
   },
@@ -276,33 +290,64 @@ function AgentVoteBar({ result }: { result: DecisionResult }) {
     return {
       agent: agent.charAt(0).toUpperCase() + agent.slice(1),
       vote: vote.toUpperCase(),
-      score,
-      fill:
-        score > 0
-          ? "var(--color-voteBullish)"
-          : score < 0
-          ? "var(--color-voteBearish)"
-          : "var(--color-voteNeutral)",
+      bullish: score > 0 ? 1 : 0,
+      neutral: score === 0 ? 1 : 0,
+      bearish: score < 0 ? 1 : 0,
     };
   });
 
   return (
-    <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
         Agent Votes
       </p>
-      <ChartContainer config={voteChartConfig} className="h-[140px] w-full">
-        <BarChart accessibilityLayer data={data}>
-          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.45} />
-          <XAxis dataKey="agent" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickMargin={10} />
-          <YAxis domain={[-1, 1]} hide />
-          <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-          <Bar dataKey="score" radius={8}>
-            {data.map((entry) => (
-              <Cell key={entry.agent} fill={entry.fill} />
-            ))}
-            <LabelList dataKey="vote" position="top" fontSize={10} fill="hsl(var(--foreground))" />
-          </Bar>
+      <ChartContainer config={voteChartConfig} className="h-[210px] w-full">
+        <BarChart
+          accessibilityLayer
+          data={data}
+          layout="vertical"
+          margin={{ top: 4, right: 10, left: 6, bottom: 6 }}
+        >
+          <CartesianGrid horizontal={false} strokeDasharray="3 3" strokeOpacity={0.55} />
+          <XAxis
+            type="number"
+            domain={[0, 1]}
+            axisLine={false}
+            tickLine={false}
+            hide
+          />
+          <YAxis
+            type="category"
+            dataKey="agent"
+            width={106}
+            axisLine={false}
+            tickLine={false}
+            tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
+          />
+          <ChartTooltip
+            cursor={false}
+            content={
+              <ChartTooltipContent
+                hideLabel
+                formatter={(value, _name, item) => {
+                  const payload = item?.payload as { agent?: string; vote?: string } | undefined;
+                  return (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Agent Votes
+                      </span>
+                      <span className="text-xs text-muted-foreground">{payload?.agent || "Agent"}</span>
+                      <span className="text-sm font-semibold">{payload?.vote || String(value)}</span>
+                    </div>
+                  );
+                }}
+              />
+            }
+          />
+          <ChartLegend content={<ChartLegendContent />} />
+          <Bar dataKey="bullish" stackId="vote" fill="var(--color-bullish)" radius={[4, 0, 0, 4]} barSize={14} />
+          <Bar dataKey="neutral" stackId="vote" fill="var(--color-neutral)" barSize={14} />
+          <Bar dataKey="bearish" stackId="vote" fill="var(--color-bearish)" radius={[0, 4, 4, 0]} barSize={14} />
         </BarChart>
       </ChartContainer>
     </div>
@@ -481,12 +526,43 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
         <Icon icon={TrendingUp} size="xs" />
         Price Scenarios
       </p>
-      <ChartContainer config={barChartConfig} className="w-full h-[160px]">
-        <BarChart accessibilityLayer data={data}>
-          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.45} />
-          <XAxis dataKey="scenario" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-          <YAxis hide />
-          <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+      <ChartContainer config={barChartConfig} className="w-full h-[190px]">
+        <BarChart accessibilityLayer data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+          <CartesianGrid vertical={false} strokeDasharray="3 3" strokeOpacity={0.55} />
+          <XAxis
+            dataKey="scenario"
+            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+            axisLine={false}
+            tickLine={false}
+            tickMargin={8}
+          />
+          <YAxis
+            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={(value) => `$${Number(value).toFixed(0)}`}
+            width={56}
+          />
+          <ChartTooltip
+            cursor={false}
+            content={
+              <ChartTooltipContent
+                hideLabel
+                formatter={(value, _name, item) => {
+                  const payload = item?.payload as { scenario?: string } | undefined;
+                  return (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Price Scenarios
+                      </span>
+                      <span className="text-xs text-muted-foreground">{payload?.scenario || "Scenario"}</span>
+                      <span className="text-sm font-semibold">${Number(value).toFixed(2)}</span>
+                    </div>
+                  );
+                }}
+              />
+            }
+          />
           <Bar dataKey="value" radius={8} fill="var(--color-scenario)">
             <LabelList
               dataKey="value"
@@ -504,42 +580,82 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
 
 // NEW: Confidence Gauge (Semi-circle Pie)
 function ConfidenceGauge({ confidence }: { confidence: number }) {
-  const score = Math.round(confidence * 100);
-  
-  const data = [
-    { name: "Score", value: score, fill: "hsl(var(--primary))" },
-    { name: "Max", value: 100 - score, fill: "hsl(var(--muted))" },
+  const normalized = Number.isFinite(confidence)
+    ? Math.max(0, Math.min(1, confidence > 1 ? confidence / 100 : confidence))
+    : 0;
+  const score = Math.round(normalized * 100);
+  const tone =
+    score >= 70
+      ? RESULT_CHART_COLORS.positive
+      : score >= 40
+      ? RESULT_CHART_COLORS.primary
+      : RESULT_CHART_COLORS.negative;
+  const chartData = [
+    { key: "score", name: "Confidence", value: score, fill: "var(--color-score)" },
+    { key: "remaining", name: "Remaining", value: Math.max(0, 100 - score), fill: "var(--color-remaining)" },
   ];
+  const confidenceChartConfig = {
+    score: {
+      label: "Confidence",
+      color: tone,
+    },
+    remaining: {
+      label: "Remaining",
+      color: "hsl(var(--muted))",
+    },
+  } satisfies ChartConfig;
 
   return (
-    <div className="relative flex flex-col items-center justify-center h-[100px] w-full">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="w-full">
+      <ChartContainer config={confidenceChartConfig} className="mx-auto aspect-square max-h-[170px] w-full max-w-[210px]">
         <PieChart>
+          <ChartTooltip
+            cursor={false}
+            content={<ChartTooltipContent hideLabel nameKey="name" />}
+          />
           <Pie
-            data={data}
-            cx="50%"
-            cy="100%"
-            startAngle={180}
-            endAngle={0}
-            innerRadius={60}
-            outerRadius={80}
-            paddingAngle={0}
+            data={chartData}
             dataKey="value"
-            stroke="none"
+            nameKey="name"
+            innerRadius={52}
+            outerRadius={74}
+            strokeWidth={4}
           >
-            <Cell key="score" fill="hsl(var(--primary))" />
-            <Cell key="remainder" fill="hsl(var(--muted))" />
+            <Cell fill="var(--color-score)" />
+            <Cell fill="var(--color-remaining)" />
+            <Label
+              content={({ viewBox }) => {
+                if (viewBox && "cx" in viewBox && "cy" in viewBox) {
+                  return (
+                    <text
+                      x={viewBox.cx}
+                      y={viewBox.cy}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                    >
+                      <tspan
+                        x={viewBox.cx}
+                        y={viewBox.cy}
+                        className="fill-foreground text-3xl font-black tracking-tighter"
+                      >
+                        {score}%
+                      </tspan>
+                      <tspan
+                        x={viewBox.cx}
+                        y={(viewBox.cy || 0) + 18}
+                        className="fill-muted-foreground text-[10px] uppercase tracking-wider font-semibold"
+                      >
+                        Confidence
+                      </tspan>
+                    </text>
+                  );
+                }
+                return null;
+              }}
+            />
           </Pie>
         </PieChart>
-      </ResponsiveContainer>
-      <div className="absolute bottom-0 text-center pb-2">
-        <div className="text-3xl font-black tracking-tighter tabular-nums leading-none">
-          {score}%
-        </div>
-        <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
-          Confidence
-        </div>
-      </div>
+      </ChartContainer>
     </div>
   );
 }
@@ -585,18 +701,47 @@ function RenaissanceBadge({ tier, score }: { tier: "ACE" | "KING" | "QUEEN" | "J
 // ============================================================================
 
 export function DecisionCard({ result }: { result: DecisionResult }) {
-  const [showSources, setShowSources] = useState(false);
-  const isBuy = result.decision.toLowerCase() === "buy";
-  const isReduce = result.decision.toLowerCase() === "reduce" || result.decision.toLowerCase() === "sell";
+  const decisionPresentation = useMemo(
+    () => getDecisionPresentation(result.decision),
+    [result.decision]
+  );
+  const isBuy = decisionPresentation.tone === "positive";
+  const isReduce = decisionPresentation.tone === "negative";
 
   const rawCard = result.raw_card;
-  const sources = rawCard?.all_sources || [];
+  const sources = useMemo(() => {
+    const sourceList: string[] = [];
+    for (const source of rawCard?.all_sources || []) {
+      if (typeof source === "string" && source.trim()) {
+        sourceList.push(source.trim());
+      }
+    }
+    for (const highlight of rawCard?.debate_highlights || []) {
+      if (typeof highlight?.source === "string" && highlight.source.trim()) {
+        sourceList.push(highlight.source.trim());
+      }
+    }
+    const alphaAgentsPaper = rawCard?.alphaagents_trace?.paper;
+    if (typeof alphaAgentsPaper === "string" && alphaAgentsPaper.trim()) {
+      sourceList.push(`AlphaAgents Reference: ${alphaAgentsPaper.trim()}`);
+    }
+
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    for (const value of sourceList) {
+      const key = value.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(value);
+    }
+    return deduped;
+  }, [rawCard?.all_sources, rawCard?.alphaagents_trace?.paper, rawCard?.debate_highlights]);
   const hasQuantMetrics = rawCard?.quant_metrics && Object.keys(rawCard.quant_metrics).filter(
     (k) => rawCard.quant_metrics![k] !== null && rawCard.quant_metrics![k] !== undefined && typeof rawCard.quant_metrics![k] !== "object"
   ).length > 0;
 
   // Fallback for empty/missing decision to prevent layout shift
-  const safeDecision = result.decision || "HOLD";
+  const safeDecision = decisionPresentation.label || "HOLD / WATCH";
   const safeConfidence = result.confidence || 0;
   const llmSynthesis = rawCard?.llm_synthesis;
   const synthesisDrivers = (llmSynthesis?.key_drivers || []).filter(Boolean).slice(0, 6);
@@ -962,25 +1107,15 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
           <>
             <Separator className="opacity-30" />
             <div>
-              <button
-                onClick={() => setShowSources(!showSources)}
-                className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors duration-200"
-              >
+              <p className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider">
                 <Icon icon={ExternalLink} size="xs" />
                 Sources ({sources.length})
-                {showSources ? (
-                  <Icon icon={ChevronUp} size={12} />
-                ) : (
-                  <Icon icon={ChevronDown} size={12} />
-                )}
-              </button>
-              {showSources && (
-                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {sources.map((src, i) => (
-                    <SourceLink key={i} source={src} />
-                  ))}
-                </div>
-              )}
+              </p>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {sources.map((src, i) => (
+                  <SourceLink key={`${src}-${i}`} source={src} />
+                ))}
+              </div>
             </div>
           </>
         )}

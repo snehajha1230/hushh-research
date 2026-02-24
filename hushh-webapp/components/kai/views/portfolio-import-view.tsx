@@ -15,7 +15,15 @@ import { useState, useCallback, useRef } from "react";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 
-import { Upload, FileText, CheckCircle, AlertCircle, Link2 } from "lucide-react";
+import {
+  Upload,
+  FileText,
+  CheckCircle,
+  AlertCircle,
+  Link2,
+  Database,
+  Loader2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -27,7 +35,9 @@ import { Icon } from "@/lib/morphy-ux/ui";
 interface PortfolioImportViewProps {
   onFileSelect: (file: File) => void;
   onSkip: () => void;
+  onPreloadSchema?: () => void;
   isUploading?: boolean;
+  isPreloadingSchema?: boolean;
 }
 
 // =============================================================================
@@ -37,7 +47,9 @@ interface PortfolioImportViewProps {
 export function PortfolioImportView({
   onFileSelect,
   onSkip,
+  onPreloadSchema,
   isUploading = false,
+  isPreloadingSchema = false,
 }: PortfolioImportViewProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -105,6 +117,11 @@ export function PortfolioImportView({
     if (!selectedFile || isUploading) return;
     onFileSelect(selectedFile);
   }, [selectedFile, isUploading, onFileSelect]);
+
+  const handlePreloadSchema = useCallback(() => {
+    if (!onPreloadSchema || isUploading || isPreloadingSchema) return;
+    onPreloadSchema();
+  }, [onPreloadSchema, isPreloadingSchema, isUploading]);
 
   return (
     <div className="w-full max-w-md mx-auto space-y-4 px-4 pt-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
@@ -247,7 +264,7 @@ export function PortfolioImportView({
         size="default"
         className="w-full font-black shadow-xl border-none"
         onClick={handleContinue}
-        disabled={isUploading || !selectedFile}
+        disabled={isUploading || isPreloadingSchema || !selectedFile}
         icon={{
           icon: Upload,
           gradient: false,
@@ -256,13 +273,35 @@ export function PortfolioImportView({
         {isUploading ? "Parsing..." : "Continue"}
       </MorphyButton>
 
+      {onPreloadSchema ? (
+        <div className="space-y-1.5">
+          <MorphyButton
+            variant="none"
+            effect="fade"
+            size="default"
+            className="w-full border border-border/70 bg-background/75"
+            onClick={handlePreloadSchema}
+            disabled={isUploading || isPreloadingSchema}
+            icon={{
+              icon: isPreloadingSchema ? Loader2 : Database,
+              gradient: false,
+            }}
+          >
+            {isPreloadingSchema ? "Preloading..." : "Preload Schema Data"}
+          </MorphyButton>
+          <p className="px-1 text-[11px] text-muted-foreground">
+            First-time option: load sample world model data to test vault flows.
+          </p>
+        </div>
+      ) : null}
+
       {/* Skip Option */}
       <div className="text-center pt-1">
         <MorphyButton
           variant="none"
           effect="fade"
           onClick={onSkip}
-          disabled={isUploading}
+          disabled={isUploading || isPreloadingSchema}
           className="text-muted-foreground hover:text-foreground text-base"
         >
           Skip for now

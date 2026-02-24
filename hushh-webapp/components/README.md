@@ -53,7 +53,6 @@ Run from `hushh-webapp`:
 
 ```bash
 npm run verify:design-system
-npm run verify:shadcn-parity
 npm run verify:cache
 npm run typecheck
 npm run lint

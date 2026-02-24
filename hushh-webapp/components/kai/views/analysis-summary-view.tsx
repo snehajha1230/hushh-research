@@ -6,6 +6,7 @@ import { ArrowLeft, RefreshCw, Scale } from "lucide-react";
 import { Button } from "@/lib/morphy-ux/button";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { Badge } from "@/components/ui/badge";
 import type { AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
 import { cn } from "@/lib/utils";
 import {
@@ -23,6 +24,7 @@ interface AnalysisSummaryViewProps {
   embedded?: boolean;
   userId?: string;
   vaultOwnerToken?: string;
+  showHeader?: boolean;
 }
 
 function readNumber(value: unknown): number | null {
@@ -62,6 +64,40 @@ function formatTimestamp(value: string | undefined): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function getDecisionPresentation(decision: string): {
+  label: string;
+  toneClass: string;
+  guidance: string;
+} {
+  const normalized = String(decision || "").trim().toLowerCase();
+  if (normalized === "buy") {
+    return {
+      label: "BUY",
+      toneClass: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400 border-emerald-500/30",
+      guidance: "Initiate or add exposure.",
+    };
+  }
+  if (normalized === "sell" || normalized === "reduce") {
+    return {
+      label: "REDUCE",
+      toneClass: "bg-rose-500/12 text-rose-600 dark:text-rose-400 border-rose-500/30",
+      guidance: "Trim exposure or exit based on risk limits.",
+    };
+  }
+  if (normalized === "hold") {
+    return {
+      label: "HOLD / WATCH",
+      toneClass: "bg-blue-500/12 text-blue-600 dark:text-blue-400 border-blue-500/30",
+      guidance: "Hold if owned; otherwise keep on watchlist.",
+    };
+  }
+  return {
+    label: String(decision || "HOLD / WATCH").toUpperCase(),
+    toneClass: "bg-muted text-muted-foreground border-border",
+    guidance: "Review conviction and position sizing before action.",
+  };
 }
 
 function resolveCurrentPrice(rawCard: Record<string, unknown>): number | null {
@@ -213,6 +249,7 @@ export function AnalysisSummaryView({
   embedded = false,
   userId,
   vaultOwnerToken,
+  showHeader = true,
 }: AnalysisSummaryViewProps) {
   const rawCard = (entry.raw_card || {}) as Record<string, unknown>;
   const entryRecord = entry as unknown as Record<string, unknown>;
@@ -299,6 +336,7 @@ export function AnalysisSummaryView({
     rawCard.short_recommendation || entry.final_statement || "Recommendation unavailable."
   );
   const updatedAt = formatTimestamp(String(rawCard.analysis_updated_at || entry.timestamp || ""));
+  const decisionPresentation = getDecisionPresentation(entry.decision);
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4 px-4 pb-safe pt-4">
@@ -321,43 +359,57 @@ export function AnalysisSummaryView({
         </div>
       ) : null}
 
-      <div className="flex items-center gap-4 px-1">
-        <div className="grid h-14 w-14 place-items-center rounded-full bg-black text-lg font-black text-white dark:bg-white dark:text-black">
-          {entry.ticker.slice(0, 1)}
-        </div>
-        <div>
-          <h2 className="text-2xl font-black tracking-tight leading-tight">{entry.ticker} Insight</h2>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className="font-mono text-sm text-muted-foreground">{priceLabel}</span>
-            {todayChangePct !== null ? (
-              <span
-                className={cn(
-                  "rounded px-1.5 py-0.5 text-xs font-semibold",
-                  todayChangePct >= 0
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                )}
-              >
-                Today {todayChangePct >= 0 ? "+" : ""}
-                {todayChangePct.toFixed(2)}%
-              </span>
-            ) : (
-              <span className="text-xs text-muted-foreground">Today's status unavailable</span>
-            )}
-            {fairValueGapLabel ? (
-              <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                {fairValueGapLabel}
-              </span>
-            ) : null}
+      {showHeader ? (
+        <div className="flex items-center gap-4 px-1">
+          <div className="grid h-14 w-14 place-items-center rounded-full bg-black text-lg font-black text-white dark:bg-white dark:text-black">
+            {entry.ticker.slice(0, 1)}
+          </div>
+          <div>
+            <h2 className="text-2xl font-black tracking-tight leading-tight">{entry.ticker} Insight</h2>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="font-mono text-sm text-muted-foreground">{priceLabel}</span>
+              {todayChangePct !== null ? (
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-xs font-semibold",
+                    todayChangePct >= 0
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                  )}
+                >
+                  Today {todayChangePct >= 0 ? "+" : ""}
+                  {todayChangePct.toFixed(2)}%
+                </span>
+              ) : (
+                <span className="text-xs text-muted-foreground">Today's status unavailable</span>
+              )}
+              {fairValueGapLabel ? (
+                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  {fairValueGapLabel}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       <Card variant="none" effect="glass" className="rounded-3xl p-0">
         <CardContent className="space-y-5 p-6">
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs font-bold uppercase tracking-widest text-primary">Analysis</span>
             <span className="text-xs font-medium text-muted-foreground">{updatedAt}</span>
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                Overall Decision
+              </p>
+              <Badge variant="outline" className={decisionPresentation.toneClass}>
+                {decisionPresentation.label}
+              </Badge>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">{decisionPresentation.guidance}</p>
           </div>
 
           <ScoreBar

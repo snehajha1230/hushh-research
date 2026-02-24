@@ -38,6 +38,7 @@ interface HistoryDetailViewProps {
   embedded?: boolean;
   userId?: string;
   vaultOwnerToken?: string;
+  showHeader?: boolean;
 }
 
 // ============================================================================
@@ -92,6 +93,7 @@ export function HistoryDetailView({
   embedded = false,
   userId,
   vaultOwnerToken,
+  showHeader = true,
 }: HistoryDetailViewProps) {
   // State for collapsible transcript rounds
   const [collapsedRounds, setCollapsedRounds] = useState<Record<number, boolean>>({ 1: true, 2: true });
@@ -161,29 +163,31 @@ export function HistoryDetailView({
   if (embedded) {
     return (
       <div className="px-4 pb-safe max-w-2xl mx-auto w-full space-y-4">
-        <Card variant="none" effect="glass" className="rounded-2xl">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-black tracking-tight">{entry.ticker}</h2>
-              <span className="text-sm font-semibold tabular-nums text-muted-foreground">{priceLabel}</span>
-              {todayChangePct !== null ? (
-                <span
-                  className={cn(
-                    "rounded px-1.5 py-0.5 text-xs font-semibold",
-                    todayChangePct >= 0
-                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                      : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                  )}
-                >
-                  Today {todayChangePct >= 0 ? "+" : ""}
-                  {todayChangePct.toFixed(2)}%
-                </span>
-              ) : (
-                <span className="text-xs text-muted-foreground">Today's status unavailable</span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        {showHeader ? (
+          <Card variant="none" effect="glass" className="rounded-2xl">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-black tracking-tight">{entry.ticker}</h2>
+                <span className="text-sm font-semibold tabular-nums text-muted-foreground">{priceLabel}</span>
+                {todayChangePct !== null ? (
+                  <span
+                    className={cn(
+                      "rounded px-1.5 py-0.5 text-xs font-semibold",
+                      todayChangePct >= 0
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                        : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                    )}
+                  >
+                    Today {todayChangePct >= 0 ? "+" : ""}
+                    {todayChangePct.toFixed(2)}%
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Today's status unavailable</span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
         <DecisionCard result={decisionResult} />
       </div>
     );

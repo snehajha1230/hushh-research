@@ -377,6 +377,139 @@ function normalizeHoldingsWithPct<T extends {
   });
 }
 
+function createPreloadedPortfolioTemplate(now?: Date): ReviewPortfolioData {
+  const base = now ?? new Date();
+  const nowIso = base.toISOString();
+  const statementStart = new Date(base.getFullYear(), base.getMonth(), 1)
+    .toISOString()
+    .slice(0, 10);
+  const statementEnd = nowIso.slice(0, 10);
+
+  const holdings: ReviewPortfolioData["holdings"] = [
+    {
+      symbol: "NVDA",
+      name: "NVIDIA Corporation",
+      quantity: 12,
+      price: 850,
+      market_value: 10200,
+      instrument_kind: "equity",
+      is_cash_equivalent: false,
+      is_investable: true,
+      analyze_eligible: true,
+      debate_eligible: true,
+      optimize_eligible: true,
+    },
+    {
+      symbol: "MSFT",
+      name: "Microsoft Corporation",
+      quantity: 15,
+      price: 430,
+      market_value: 6450,
+      instrument_kind: "equity",
+      is_cash_equivalent: false,
+      is_investable: true,
+      analyze_eligible: true,
+      debate_eligible: true,
+      optimize_eligible: true,
+    },
+    {
+      symbol: "AMZN",
+      name: "Amazon.com Inc.",
+      quantity: 20,
+      price: 170,
+      market_value: 3400,
+      instrument_kind: "equity",
+      is_cash_equivalent: false,
+      is_investable: true,
+      analyze_eligible: true,
+      debate_eligible: true,
+      optimize_eligible: true,
+    },
+    {
+      symbol: "TSLA",
+      name: "Tesla Inc.",
+      quantity: 15,
+      price: 250,
+      market_value: 3750,
+      instrument_kind: "equity",
+      is_cash_equivalent: false,
+      is_investable: true,
+      analyze_eligible: true,
+      debate_eligible: true,
+      optimize_eligible: true,
+    },
+    {
+      symbol: "CASH",
+      name: "Cash Sweep",
+      quantity: 1,
+      price: 3750,
+      market_value: 3750,
+      instrument_kind: "cash_equivalent",
+      is_cash_equivalent: true,
+      is_investable: false,
+      analyze_eligible: false,
+      debate_eligible: false,
+      optimize_eligible: false,
+    },
+  ];
+
+  return {
+    account_info: {
+      holder_name: "Demo Investor",
+      brokerage: "Hushh Sandbox",
+      account_number: "XXXX-TEST",
+      account_type: "Individual Brokerage",
+      statement_period_start: statementStart,
+      statement_period_end: statementEnd,
+    },
+    account_summary: {
+      beginning_value: 25000,
+      ending_value: 27550,
+      change_in_value: 2550,
+      cash_balance: 3750,
+      equities_value: 23800,
+      investment_gain_loss: 2550,
+      total_income_period: 0,
+      total_income_ytd: 0,
+    },
+    asset_allocation: {
+      cash_pct: 13.61,
+      cash_value: 3750,
+      equities_pct: 86.39,
+      equities_value: 23800,
+      bonds_pct: 0,
+      bonds_value: 0,
+      other_pct: 0,
+      other_value: 0,
+    },
+    holdings,
+    income_summary: {
+      dividends_taxable: 0,
+      interest_income: 0,
+      total_income: 0,
+    },
+    realized_gain_loss: {
+      short_term_gain: 0,
+      long_term_gain: 0,
+      net_realized: 0,
+    },
+    cash_balance: 3750,
+    total_value: 27550,
+    parse_fallback: false,
+    domain_intent: {
+      primary: "financial",
+      source: "kai_schema_preload",
+      captured_sections: [
+        "account_info",
+        "account_summary",
+        "asset_allocation",
+        "holdings",
+      ],
+      updated_at: nowIso,
+    },
+  };
+}
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -405,6 +538,9 @@ export function KaiFlow({
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [resumeImportAfterVault, setResumeImportAfterVault] = useState(false);
+  const [pendingSchemaPreload, setPendingSchemaPreload] = useState(false);
+  const [resumePreloadAfterVault, setResumePreloadAfterVault] = useState(false);
+  const [isPreloadingSchema, setIsPreloadingSchema] = useState(false);
   
   // Streaming state for real-time progress
   const [streaming, setStreaming] = useState<StreamingState>({
@@ -1341,14 +1477,29 @@ export function KaiFlow({
   ]);
 
   useEffect(() => {
-    if (vaultDialogOpen || resumeImportAfterVault) return;
+    if (vaultDialogOpen || resumeImportAfterVault || resumePreloadAfterVault) return;
     if (!pendingImportFile) return;
     if (vaultKey && effectiveVaultOwnerToken) return;
     setPendingImportFile(null);
   }, [
     vaultDialogOpen,
     resumeImportAfterVault,
+    resumePreloadAfterVault,
     pendingImportFile,
+    vaultKey,
+    effectiveVaultOwnerToken,
+  ]);
+
+  useEffect(() => {
+    if (vaultDialogOpen || resumeImportAfterVault || resumePreloadAfterVault) return;
+    if (!pendingSchemaPreload) return;
+    if (vaultKey && effectiveVaultOwnerToken) return;
+    setPendingSchemaPreload(false);
+  }, [
+    vaultDialogOpen,
+    resumeImportAfterVault,
+    resumePreloadAfterVault,
+    pendingSchemaPreload,
     vaultKey,
     effectiveVaultOwnerToken,
   ]);
@@ -1529,6 +1680,152 @@ export function KaiFlow({
     setState("import_required");
   }, [mode, router]);
 
+  const handlePreloadSchema = useCallback(async () => {
+    if (isPreloadingSchema) return;
+
+    if (!vaultKey || !effectiveVaultOwnerToken) {
+      setPendingImportFile(null);
+      setResumeImportAfterVault(false);
+      setPendingSchemaPreload(true);
+      setVaultDialogOpen(true);
+      toast.info("Create or unlock vault to preload schema data.");
+      return;
+    }
+
+    setIsPreloadingSchema(true);
+    setError(null);
+
+    try {
+      const nowIso = new Date().toISOString();
+      const template = createPreloadedPortfolioTemplate();
+      const baseFullBlob = await WorldModelService.loadFullBlob({
+        userId,
+        vaultKey,
+        vaultOwnerToken: effectiveVaultOwnerToken,
+      }).catch(() => ({} as Record<string, unknown>));
+
+      const existingFinancialRaw = baseFullBlob.financial;
+      const existingFinancial =
+        existingFinancialRaw &&
+        typeof existingFinancialRaw === "object" &&
+        !Array.isArray(existingFinancialRaw)
+          ? ({ ...(existingFinancialRaw as Record<string, unknown>) } as Record<string, unknown>)
+          : {};
+
+      const existingDocumentsRaw = existingFinancial.documents;
+      const documentsDomain =
+        existingDocumentsRaw &&
+        typeof existingDocumentsRaw === "object" &&
+        !Array.isArray(existingDocumentsRaw)
+          ? (existingDocumentsRaw as Record<string, unknown>)
+          : null;
+
+      const nextFinancialDomain = {
+        ...existingFinancial,
+        schema_version: 3,
+        domain_intent: {
+          primary: "financial",
+          source: "domain_registry_prepopulate",
+          contract_version: 2,
+          updated_at: nowIso,
+        },
+        portfolio: {
+          ...template,
+          domain_intent: {
+            primary: "financial",
+            secondary: "portfolio",
+            source: "kai_schema_preload",
+            captured_sections: ["account_info", "account_summary", "asset_allocation", "holdings"],
+            updated_at: nowIso,
+          },
+        },
+        documents:
+          documentsDomain ??
+          {
+            schema_version: 1,
+            statements: [],
+            domain_intent: {
+              primary: "financial",
+              secondary: "documents",
+              source: "kai_schema_preload",
+              captured_sections: ["account_info", "holdings"],
+              updated_at: nowIso,
+            },
+          },
+        updated_at: nowIso,
+      };
+
+      const investableCount =
+        template.holdings?.filter((holding) => holding.is_investable).length ?? 0;
+      const cashCount =
+        template.holdings?.filter((holding) => holding.is_cash_equivalent).length ?? 0;
+      const holdingsCount = template.holdings?.length ?? 0;
+
+      const result = await WorldModelService.storeMergedDomainWithPreparedBlob({
+        userId,
+        vaultKey,
+        domain: "financial",
+        domainData: nextFinancialDomain as Record<string, unknown>,
+        summary: {
+          intent_source: "kai_schema_preload",
+          has_portfolio: true,
+          holdings_count: holdingsCount,
+          attribute_count: holdingsCount,
+          item_count: holdingsCount,
+          investable_positions_count: investableCount,
+          cash_positions_count: cashCount,
+          allocation_coverage_pct: 1,
+          parser_quality_score: 1,
+          last_statement_total_value: template.total_value ?? 0,
+          parse_fallback_last_import: false,
+          domain_contract_version: 2,
+          intent_map: [
+            "portfolio",
+            "analytics",
+            "profile",
+            "documents",
+            "analysis_history",
+            "runtime",
+            "analysis.decisions",
+          ],
+          last_updated: nowIso,
+        },
+        baseFullBlob,
+        vaultOwnerToken: effectiveVaultOwnerToken,
+      });
+
+      if (!result.success) {
+        throw new Error("Failed to preload schema data.");
+      }
+
+      await handleSaveComplete(template);
+      toast.success("Schema data preloaded into your vault.");
+    } catch (preloadError) {
+      console.error("[KaiFlow] Failed to preload schema data:", preloadError);
+      toast.error(
+        preloadError instanceof Error
+          ? preloadError.message
+          : "Failed to preload schema data"
+      );
+    } finally {
+      setPendingSchemaPreload(false);
+      setIsPreloadingSchema(false);
+    }
+  }, [
+    effectiveVaultOwnerToken,
+    handleSaveComplete,
+    isPreloadingSchema,
+    userId,
+    vaultKey,
+  ]);
+
+  useEffect(() => {
+    if (!resumePreloadAfterVault) return;
+    if (!vaultKey || !effectiveVaultOwnerToken) return;
+    setResumePreloadAfterVault(false);
+    void handlePreloadSchema();
+  }, [resumePreloadAfterVault, vaultKey, effectiveVaultOwnerToken, handlePreloadSchema]);
+
   // Handle analyze stock - starts streaming analysis
   const handleAnalyzeStock = useCallback((symbol: string) => {
     console.log("[KaiFlow] handleAnalyzeStock called with:", symbol);
@@ -1619,7 +1916,11 @@ export function KaiFlow({
         <PortfolioImportView
           onFileSelect={handleFileUpload}
           onSkip={handleSkipImport}
+          onPreloadSchema={
+            flowData.hasFinancialData ? undefined : () => void handlePreloadSchema()
+          }
           isUploading={false}
+          isPreloadingSchema={isPreloadingSchema}
         />
       )}
 
@@ -1751,7 +2052,13 @@ export function KaiFlow({
               enableGeneratedDefault
               onSuccess={() => {
                 setVaultDialogOpen(false);
-                setResumeImportAfterVault(true);
+                if (pendingImportFile) {
+                  setResumeImportAfterVault(true);
+                  return;
+                }
+                if (pendingSchemaPreload) {
+                  setResumePreloadAfterVault(true);
+                }
               }}
             />
           </DialogContent>

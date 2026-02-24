@@ -11,6 +11,7 @@ import {
   TrendingDown,
   TrendingUp,
   Undo2,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -32,6 +33,16 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { KAI_EXPERIENCE_CONTRACT } from "@/lib/kai/experience-contract";
 import { ROUTES } from "@/lib/navigation/routes";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { WorldModelService } from "@/lib/services/world-model-service";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
@@ -333,6 +344,8 @@ export function DashboardMasterView({
     return map;
   });
   const [isSavingHoldings, setIsSavingHoldings] = useState(false);
+  const [isDeletingImportedData, setIsDeletingImportedData] = useState(false);
+  const [deleteImportedDialogOpen, setDeleteImportedDialogOpen] = useState(false);
   const [editingHolding, setEditingHolding] = useState<ManagedHolding | null>(null);
   const [editingHoldingId, setEditingHoldingId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -806,6 +819,162 @@ export function DashboardMasterView({
       setIsSavingHoldings(false);
     }
   }, [activeHoldings, portfolioData, setCachePortfolioData, userId, vaultKey, vaultOwnerToken]);
+
+  const handleDeleteImportedData = useCallback(async () => {
+    if (!userId || !vaultKey) {
+      toast.error("Unlock your vault to delete imported data.");
+      return;
+    }
+
+    setIsDeletingImportedData(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const baseFullBlob = await WorldModelService.loadFullBlob({
+        userId,
+        vaultKey,
+        vaultOwnerToken: vaultOwnerToken || undefined,
+      }).catch(() => ({} as Record<string, unknown>));
+
+      const existingFinancialRaw = baseFullBlob.financial;
+      const existingFinancial =
+        existingFinancialRaw &&
+        typeof existingFinancialRaw === "object" &&
+        !Array.isArray(existingFinancialRaw)
+          ? ({ ...(existingFinancialRaw as Record<string, unknown>) } as Record<string, unknown>)
+          : {};
+
+      const existingDocumentsRaw = existingFinancial.documents;
+      const existingDocuments =
+        existingDocumentsRaw &&
+        typeof existingDocumentsRaw === "object" &&
+        !Array.isArray(existingDocumentsRaw)
+          ? ({ ...(existingDocumentsRaw as Record<string, unknown>) } as Record<string, unknown>)
+          : {};
+
+      const clearedPortfolioData: PortfolioData = {
+        account_info: portfolioData.account_info,
+        account_summary: {
+          beginning_value: 0,
+          ending_value: 0,
+          change_in_value: 0,
+          cash_balance: 0,
+          equities_value: 0,
+        },
+        holdings: [],
+        transactions: [],
+        asset_allocation: {
+          cash_percent: 0,
+          equities_percent: 0,
+          bonds_percent: 0,
+          other_percent: 0,
+          cash_value: 0,
+          equities_value: 0,
+          bonds_value: 0,
+          other_value: 0,
+        },
+        income_summary: {
+          dividends_taxable: 0,
+          interest_income: 0,
+          total_income: 0,
+        },
+        realized_gain_loss: {
+          short_term_gain: 0,
+          long_term_gain: 0,
+          net_realized: 0,
+        },
+        cash_balance: 0,
+        total_value: 0,
+      };
+
+      const nextFinancialDomain = {
+        ...existingFinancial,
+        schema_version: 3,
+        domain_intent: {
+          primary: "financial",
+          source: "domain_registry_prepopulate",
+          contract_version: 2,
+          updated_at: nowIso,
+        },
+        portfolio: {
+          ...clearedPortfolioData,
+          domain_intent: {
+            primary: "financial",
+            secondary: "portfolio",
+            source: "kai_dashboard_delete_import",
+            captured_sections: ["account_info", "account_summary", "holdings", "documents"],
+            updated_at: nowIso,
+          },
+        },
+        documents: {
+          ...existingDocuments,
+          schema_version: 1,
+          statements: [],
+          documents_count: 0,
+          last_statement_end: null,
+          last_brokerage: null,
+          parse_fallback_last_import: null,
+          sparse_sections_last_import: [],
+          last_updated: nowIso,
+          domain_intent: {
+            primary: "financial",
+            secondary: "documents",
+            source: "kai_dashboard_delete_import",
+            updated_at: nowIso,
+          },
+        },
+        updated_at: nowIso,
+      };
+
+      const result = await WorldModelService.storeMergedDomainWithPreparedBlob({
+        userId,
+        vaultKey,
+        domain: "financial",
+        domainData: nextFinancialDomain as Record<string, unknown>,
+        summary: {
+          intent_source: "kai_dashboard_delete_import",
+          has_portfolio: false,
+          holdings_count: 0,
+          attribute_count: 0,
+          item_count: 0,
+          investable_positions_count: 0,
+          cash_positions_count: 0,
+          allocation_coverage_pct: 0,
+          parser_quality_score: 0,
+          last_statement_total_value: 0,
+          documents_count: 0,
+          last_statement_end: null,
+          last_brokerage: null,
+          parse_fallback_last_import: null,
+          sparse_sections_last_import: [],
+          domain_contract_version: 2,
+          intent_map: [...FINANCIAL_INTENT_MAP],
+          last_updated: nowIso,
+        },
+        baseFullBlob,
+        vaultOwnerToken: vaultOwnerToken || undefined,
+      });
+
+      if (!result.success) {
+        throw new Error("Failed to delete imported data");
+      }
+
+      setCachePortfolioData(userId, clearedPortfolioData as CachedPortfolioData);
+      CacheSyncService.onPortfolioUpserted(userId, clearedPortfolioData as CachedPortfolioData);
+      baselineBySourceRef.current = new Map();
+      setHoldingsDraft([]);
+      setDeleteImportedDialogOpen(false);
+      toast.success("Imported portfolio data deleted.");
+
+      if (typeof onReupload === "function") {
+        onReupload();
+      }
+    } catch (error) {
+      console.error("[DashboardMasterView] Failed to delete imported data:", error);
+      toast.error("Failed to delete imported data");
+    } finally {
+      setIsDeletingImportedData(false);
+    }
+  }, [onReupload, portfolioData.account_info, setCachePortfolioData, userId, vaultKey, vaultOwnerToken]);
 
   const handleEditHolding = useCallback(
     (holdingId: string) => {
@@ -1428,9 +1597,32 @@ export function DashboardMasterView({
       <Card variant="none" effect="glass" className="rounded-[24px]">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5 text-xs text-muted-foreground sm:p-6">
           <p>Imported statement data is synced across dashboard and holdings views.</p>
-          <MorphyButton variant="none" effect="fade" size="sm" onClick={onReupload}>
-            Import New Statement
-          </MorphyButton>
+          <div className="flex items-center gap-2">
+            <MorphyButton
+              variant="none"
+              effect="fade"
+              size="sm"
+              disabled={isDeletingImportedData}
+              onClick={onReupload}
+            >
+              Import New Statement
+            </MorphyButton>
+            <MorphyButton
+              variant="none"
+              effect="fade"
+              size="sm"
+              className="text-rose-600 hover:text-rose-700 dark:text-rose-400 dark:hover:text-rose-300"
+              disabled={isDeletingImportedData}
+              onClick={() => setDeleteImportedDialogOpen(true)}
+            >
+              {isDeletingImportedData ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="mr-1 h-4 w-4" />
+              )}
+              Delete Imported Data
+            </MorphyButton>
+          </div>
         </CardContent>
       </Card>
 
@@ -1440,6 +1632,44 @@ export function DashboardMasterView({
         holding={editingHolding}
         onSave={handleSaveHolding}
       />
+
+      <AlertDialog
+        open={deleteImportedDialogOpen}
+        onOpenChange={(open) => {
+          if (isDeletingImportedData) return;
+          setDeleteImportedDialogOpen(open);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Imported Portfolio Data?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the imported holdings and statement snapshots from your vault. Profile
+              and consent data are kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingImportedData}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeletingImportedData}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeleteImportedData();
+              }}
+            >
+              {isDeletingImportedData ? (
+                <>
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

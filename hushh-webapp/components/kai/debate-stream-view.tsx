@@ -7,7 +7,7 @@ import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckC
 import { Icon } from "@/lib/morphy-ux/ui";
 import { setKaiVaultOwnerToken } from "@/lib/services/kai-service";
 import { KaiHistoryService, type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";
-import { DecisionCard, type DecisionResult } from "./views/decision-card";
+import { type DecisionResult } from "./views/decision-card";
 import { RoundTabsCard } from "./views/round-tabs-card";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/lib/morphy-ux/card";
@@ -21,6 +21,7 @@ import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { KaiProfileService } from "@/lib/services/kai-profile-service";
 import { WorldModelService } from "@/lib/services/world-model-service";
+import { cn } from "@/lib/utils";
 import {
   getLatestMarketSnapshotFromCache,
   pickPreferredMarketSnapshot,
@@ -101,6 +102,13 @@ function classifyError(status: number | null, message: string): ErrorType {
   if (status && status >= 500) return "server_error";
   if (message.includes("fetch") || message.includes("network") || message.includes("abort")) return "connection_lost";
   return "unknown";
+}
+
+function sanitizeStatusMessage(message: unknown): string {
+  const next = typeof message === "string" ? message.trim() : "";
+  if (!next) return "";
+  if (/initializ/i.test(next)) return "";
+  return next;
 }
 
 function getErrorDisplay(errorType: ErrorType, retryIn?: number): { icon: React.ReactNode; title: string; message: string } {
@@ -364,6 +372,7 @@ interface DebateStreamViewProps {
   vaultKey?: string;
   onClose: () => void;
   onDecisionSaved?: (entry: AnalysisHistoryEntry) => void;
+  showHeader?: boolean;
 }
 
 type MarketSnapshot = {
@@ -577,7 +586,16 @@ function formatHeaderPrice(value: number | null): string {
   }).format(value);
 }
 
-export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp, vaultOwnerToken, vaultKey, onClose, onDecisionSaved }: DebateStreamViewProps) {
+export function DebateStreamView({
+  ticker,
+  userId,
+  riskProfile: riskProfileProp,
+  vaultOwnerToken,
+  vaultKey,
+  onClose,
+  onDecisionSaved,
+  showHeader = true,
+}: DebateStreamViewProps) {
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
   const normalizedTicker = useMemo(
     () => String(ticker || "").trim().toUpperCase(),
@@ -702,6 +720,10 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
   }, [onClose, setBusyOperation]);
 
   useEffect(() => {
+    if (!showHeader) {
+      setHeaderMarketQuote(null);
+      return;
+    }
     if (!userId || !normalizedTicker) {
       setHeaderMarketQuote(null);
       return;
@@ -744,7 +766,7 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
     return () => {
       cancelled = true;
     };
-  }, [normalizedTicker, userId, vaultOwnerToken]);
+  }, [normalizedTicker, showHeader, userId, vaultOwnerToken]);
 
   // Reset state for retry
   const resetState = useCallback(() => {
@@ -929,8 +951,9 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                 const message =
                   (typeof data.message === "string" && data.message) ||
                   (typeof data.text === "string" ? data.text : "");
-                if (message) {
-                  setKaiThinking(message);
+                const statusMessage = sanitizeStatusMessage(message);
+                if (statusMessage) {
+                  setKaiThinking(statusMessage);
                 }
                 break;
               }
@@ -938,17 +961,18 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                 const message =
                   (typeof data.message === "string" && data.message) ||
                   (typeof data.code === "string" ? data.code : "Streaming warning");
-                if (message) {
-                  setKaiThinking(message);
+                const statusMessage = sanitizeStatusMessage(message);
+                if (statusMessage) {
+                  setKaiThinking(statusMessage);
                   toast.warning("Streaming warning", { description: message });
                 }
                 break;
               }
               case "kai_thinking": {
-                setKaiThinking(
+                setKaiThinking(sanitizeStatusMessage(
                   (typeof data.message === "string" && data.message) ||
                     (typeof data.text === "string" ? data.text : "")
-                );
+                ));
                 const r = resolveRound(data);
                 if (r === 2 && activeRoundRef.current !== 2) {
                   activeRoundRef.current = 2;
@@ -1348,46 +1372,46 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
   }
 
   return (
-    <div className="flex flex-col h-full bg-transparent relative">
-      {/* Header - continuous glass layer aligned with top app chrome */}
-      <div className="relative flex-none z-10 mb-4 overflow-hidden rounded-b-3xl border-b border-border/30">
-        <div className="absolute inset-0 bg-background/55 pointer-events-none" />
-        <div className="relative px-4 pt-3 pb-2 md:max-w-2xl md:mx-auto">
-          {/* Hero row: Centered ticker with close button on right */}
-          <div className="grid grid-cols-[40px_1fr_40px] items-center">
-            {/* Left spacer */}
+    <div className="relative flex h-full flex-col bg-transparent">
+      {showHeader ? (
+        <div className="relative z-10 mb-4 overflow-hidden rounded-2xl border border-border/50 bg-background/65 px-4 py-3 shadow-sm backdrop-blur-md">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
             <div />
-            {/* Center: Ticker + status */}
-            <div className="flex flex-col items-center gap-1">
-              <div className="flex items-center gap-2">
-                <h1 className="text-3xl font-black tracking-tighter text-foreground">{normalizedTicker}</h1>
-                {headerPrice !== null ? (
-                  <span className="text-sm font-semibold tabular-nums text-muted-foreground">
-                    {formatHeaderPrice(headerPrice)}
-                  </span>
-                ) : null}
-              </div>
+            <h1 className="justify-self-center text-3xl font-black tracking-tighter text-foreground">
+              {normalizedTicker}
+            </h1>
+            <div className="justify-self-end flex items-center gap-2">
+              <span className="text-sm font-semibold tabular-nums text-muted-foreground">
+                {formatHeaderPrice(headerPrice)}
+              </span>
               {headerChangePct !== null ? (
-                <p
-                  className={`text-xs font-semibold ${
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-xs font-semibold tabular-nums",
                     headerChangePct >= 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-rose-600 dark:text-rose-400"
-                  }`}
+                      ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                      : "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                  )}
                 >
-                  Today {headerChangePct >= 0 ? "+" : ""}
+                  {headerChangePct >= 0 ? "+" : ""}
                   {headerChangePct.toFixed(2)}%
-                </p>
+                </span>
               ) : (
-                <p className="text-xs text-muted-foreground">Today's status unavailable</p>
+                <span className="text-xs text-muted-foreground">Today N/A</span>
               )}
-              {/* Status badge */}
+            </div>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div>
               {decision ? (
                 <Badge className="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-semibold">
                   <Icon icon={CheckCircle2} size={12} className="mr-1" /> Complete
                 </Badge>
               ) : loading && kaiThinking ? (
-                <Badge variant="outline" className="text-[10px] bg-primary/10 text-primary border-primary/30 font-medium max-w-[240px] truncate">
+                <Badge
+                  variant="outline"
+                  className="max-w-[260px] truncate text-[10px] bg-primary/10 text-primary border-primary/30 font-medium"
+                >
                   <Icon icon={Loader2} size={12} className="mr-1 animate-spin" /> {kaiThinking}
                 </Badge>
               ) : retryCountdown !== null ? (
@@ -1396,136 +1420,102 @@ export function DebateStreamView({ ticker, userId, riskProfile: riskProfileProp,
                 </Badge>
               ) : null}
             </div>
-            {/* Right: Back button */}
-            <div className="flex justify-end">
-              <Button
-                variant="none"
-                effect="fade"
-                size="sm"
-                showRipple={false}
-                onClick={handleClose}
-                className="shrink-0 h-8 gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-              >
-                <Icon icon={X} size="xs" />
-              </Button>
-            </div>
+            <Button
+              variant="none"
+              effect="fade"
+              size="sm"
+              showRipple={false}
+              onClick={handleClose}
+              className="h-8 gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              <Icon icon={X} size="xs" />
+              Cancel
+            </Button>
           </div>
-
-          {/* Overall Progress Bar */}
-          {!decision && loading && (
+          {!decision && loading ? (
             <div className="mt-3">
               <Progress value={overallProgress} className="h-1.5 rounded-full" />
-              <p className="text-[10px] text-muted-foreground mt-1 text-center">
-                {progressLabel}
-              </p>
+              <p className="mt-1 text-center text-[10px] text-muted-foreground">{progressLabel}</p>
             </div>
-          )}
-          {decision && (
-            <div className="mt-3">
-              <Progress value={100} className="h-1.5 rounded-full" />
-            </div>
-          )}
+          ) : null}
         </div>
-      </div>
+      ) : null}
 
-      {/* Content - Scrollable */}
-      {/* Content - Scrollable split view */}
-      <ScrollArea className="flex-1 p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto px-4 sm:px-6 pb-10">
-          <div className="space-y-6">
-            {!decision && (
+      <ScrollArea className={cn("flex-1 p-4", !showHeader && "pt-0")}>
+        <div className="mx-auto w-full max-w-3xl space-y-6 px-1 pb-10 sm:px-4">
+          {decision ? (
+            <Card variant="none" className="border border-emerald-500/30 bg-emerald-500/5 p-4">
+              <CardContent className="p-0">
+                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                  Debate complete.
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Use Summary or Detailed View tabs to review the recommendation outputs.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card variant="none" className="border-dashed p-4">
+              <CardContent className="p-0">
+                <p className="text-sm font-medium">Final recommendation is building...</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Debate rounds stream here. Switch tabs anytime; this run continues in the background.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
+          {!decision ? (
+            <RoundTabsCard
+              roundNumber={1}
+              title="Initial Deep Analysis"
+              description="Agents analyze raw data independently."
+              isCollapsed={collapsedRounds[1] || false}
+              onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
+              activeAgent={activeRound === 1 ? activeAgent : undefined}
+              agentStates={round1States}
+              onTabChange={setActiveAgent}
+            />
+          ) : null}
+
+          {!decision &&
+          (activeRound >= 2 || AGENTS.some((agent) => round2States[agent]?.stage !== "idle")) ? (
+            <RoundTabsCard
+              roundNumber={2}
+              title="Strategic Debate"
+              description="Agents challenge and refine positions."
+              isCollapsed={collapsedRounds[2] || false}
+              onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 2: !prev[2] }))}
+              activeAgent={activeRound === 2 ? activeAgent : undefined}
+              agentStates={round2States}
+              onTabChange={setActiveAgent}
+            />
+          ) : null}
+
+          {decision ? (
+            <>
               <RoundTabsCard
                 roundNumber={1}
                 title="Initial Deep Analysis"
                 description="Agents analyze raw data independently."
-                isCollapsed={collapsedRounds[1] || false}
+                isCollapsed={collapsedRounds[1] ?? true}
                 onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
-                activeAgent={activeRound === 1 ? activeAgent : undefined}
+                activeAgent={undefined}
                 agentStates={round1States}
                 onTabChange={setActiveAgent}
               />
-            )}
-
-            {!decision &&
-              (activeRound >= 2 ||
-                AGENTS.some((agent) => round2States[agent]?.stage !== "idle")) && (
               <RoundTabsCard
                 roundNumber={2}
                 title="Strategic Debate"
                 description="Agents challenge and refine positions."
-                isCollapsed={collapsedRounds[2] || false}
+                isCollapsed={collapsedRounds[2] ?? true}
                 onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 2: !prev[2] }))}
-                activeAgent={activeRound === 2 ? activeAgent : undefined}
+                activeAgent={undefined}
                 agentStates={round2States}
                 onTabChange={setActiveAgent}
               />
-            )}
-
-            {decision && (
-              <>
-                <RoundTabsCard
-                  roundNumber={1}
-                  title="Initial Deep Analysis"
-                  description="Agents analyze raw data independently."
-                  isCollapsed={collapsedRounds[1] ?? true}
-                  onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
-                  activeAgent={undefined}
-                  agentStates={round1States}
-                  onTabChange={setActiveAgent}
-                />
-                <RoundTabsCard
-                  roundNumber={2}
-                  title="Strategic Debate"
-                  description="Agents challenge and refine positions."
-                  isCollapsed={collapsedRounds[2] ?? true}
-                  onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 2: !prev[2] }))}
-                  activeAgent={undefined}
-                  agentStates={round2States}
-                  onTabChange={setActiveAgent}
-                />
-              </>
-            )}
-          </div>
-
-          <div className="space-y-6 lg:sticky lg:top-4 h-fit">
-            {decision ? (
-              <div className="animate-in fade-in slide-in-from-bottom-4 ">
-                <Card
-                  variant="none"
-                  showRipple={false}
-                  className="mb-4 rounded-2xl border border-border/60 bg-background/75 shadow-sm"
-                >
-                  <CardContent className="space-y-2 p-4">
-                    <p className="text-[11px] font-black uppercase tracking-[0.16em] text-muted-foreground">
-                      Quick Recommendation
-                    </p>
-                    <p className="text-sm font-medium leading-relaxed">
-                      {decision.short_recommendation || decision.raw_card?.short_recommendation}
-                    </p>
-                    {(decision.analysis_degraded || decision.raw_card?.analysis_degraded) && (
-                      <p className="text-xs text-amber-600 dark:text-amber-400">
-                        Partial fallback used:{" "}
-                        {(decision.degraded_agents || decision.raw_card?.degraded_agents || [])
-                          .map((agent) => String(agent).toUpperCase())
-                          .join(", ") || "one or more agents"}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-                <DecisionCard result={decision} />
-              </div>
-            ) : (
-              <Card variant="none" className="p-5 border-dashed">
-                <CardContent className="p-0">
-                  <p className="text-sm font-medium">Final recommendation is building...</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Debate rounds are streaming on the left. Decision card appears here as soon as a terminal decision event arrives.
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
+            </>
+          ) : null}
         </div>
       </ScrollArea>
     </div>
