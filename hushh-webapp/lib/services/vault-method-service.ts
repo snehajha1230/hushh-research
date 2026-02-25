@@ -44,6 +44,15 @@ export class VaultMethodService {
         };
       }
 
+      if (support.mode === "generated_default_native_passkey_prf") {
+        return {
+          passphrase: true,
+          generatedNativeBiometric: true,
+          generatedWebPrf: true,
+          recommendedMethod: "generated_default_native_passkey_prf",
+        };
+      }
+
       return {
         passphrase: true,
         generatedNativeBiometric: false,
@@ -122,15 +131,28 @@ export class VaultMethodService {
         vaultKeyHash,
         wrapper: {
           method: material.mode,
+          wrapperId:
+            material.passkeyCredentialId ??
+            (material.mode === "generated_default_native_biometric"
+              ? "default"
+              : "default"),
           encryptedVaultKey: wrapped.encryptedVaultKey,
           salt: wrapped.salt,
           iv: wrapped.iv,
           passkeyCredentialId: material.passkeyCredentialId,
           passkeyPrfSalt: material.passkeyPrfSalt,
+          passkeyRpId: material.passkeyRpId,
+          passkeyProvider: material.passkeyProvider,
+          passkeyDeviceLabel: material.passkeyDeviceLabel,
+          passkeyLastUsedAt: Date.now(),
         },
       });
 
-      await VaultService.setPrimaryVaultMethod(params.userId, material.mode);
+      await VaultService.setPrimaryVaultMethod(
+        params.userId,
+        material.mode,
+        material.passkeyCredentialId ?? "default"
+      );
       return { method: material.mode };
     } catch (error) {
       if (material.mode === "generated_default_native_biometric" && Capacitor.isNativePlatform()) {

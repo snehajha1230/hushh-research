@@ -27,6 +27,39 @@ Required env:
 - `NEXT_PUBLIC_BACKEND_URL` must point to your dev/staging Python backend.
   - If you use a local backend on your host machine, remember Android emulator needs `10.0.2.2` instead of `localhost`.
 
+### Passkey domain association (production)
+
+Passkeys for native apps require domain association files served at:
+
+- `/.well-known/apple-app-site-association`
+- `/.well-known/assetlinks.json`
+
+This repo now serves both from Next.js route handlers:
+
+- `hushh-webapp/app/.well-known/apple-app-site-association/route.ts`
+- `hushh-webapp/app/.well-known/assetlinks.json/route.ts`
+
+Required configuration:
+
+- `APPLE_TEAM_ID` (or `NEXT_PUBLIC_APPLE_TEAM_ID`)
+- `NEXT_PUBLIC_IOS_BUNDLE_ID` (default `com.hushh.app`)
+- `ANDROID_SHA256_CERT_FINGERPRINTS` (comma-separated SHA-256)
+- `NEXT_PUBLIC_ANDROID_APP_ID` (default `com.hushh.app`)
+- Backend allowlist: `PASSKEY_ALLOWED_RP_IDS` in `consent-protocol/.env`
+
+Notes:
+
+- For dual-domain migration, keep both production hosts in `PASSKEY_ALLOWED_RP_IDS`.
+- Keep `NEXT_PUBLIC_PASSKEY_RP_ID` unset for dual-domain web behavior (host-based RP ID).
+- `localhost` is valid for web dev passkeys, but not for iOS associated domains.
+
+### Firebase artifact safety (no secret leak in git)
+
+- `hushh-webapp/android/app/google-services.json` is committed as a template placeholder.
+- Real artifacts should be injected at build time with:
+  - `npm run inject:mobile-firebase`
+- Root-level local files like `google-services.json` are ignored and must remain untracked.
+
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │              CAPACITOR MOBILE APP (iOS/Android)                │

@@ -10,11 +10,16 @@ const PYTHON_API_URL = getPythonApiUrl();
 
 type VaultWrapper = {
   method: string;
+  wrapperId?: string;
   encryptedVaultKey: string;
   salt: string;
   iv: string;
   passkeyCredentialId?: string;
   passkeyPrfSalt?: string;
+  passkeyRpId?: string;
+  passkeyProvider?: string;
+  passkeyDeviceLabel?: string;
+  passkeyLastUsedAt?: number;
 };
 
 export async function POST(request: NextRequest) {
@@ -24,6 +29,7 @@ export async function POST(request: NextRequest) {
       userId,
       vaultKeyHash,
       primaryMethod,
+      primaryWrapperId,
       recoveryEncryptedVaultKey,
       recoverySalt,
       recoveryIv,
@@ -32,6 +38,7 @@ export async function POST(request: NextRequest) {
       userId?: string;
       vaultKeyHash?: string;
       primaryMethod?: string;
+      primaryWrapperId?: string;
       recoveryEncryptedVaultKey?: string;
       recoverySalt?: string;
       recoveryIv?: string;
@@ -72,16 +79,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const clientVersion =
+      request.headers.get("x-hushh-client-version") ||
+      request.headers.get("x-client-version") ||
+      process.env.NEXT_PUBLIC_CLIENT_VERSION ||
+      "2.0.0";
+
     const response = await fetch(`${PYTHON_API_URL}/db/vault/setup`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-hushh-client-version": clientVersion,
         ...(authHeader ? { Authorization: authHeader } : {}),
       },
       body: JSON.stringify({
         userId,
         vaultKeyHash,
         primaryMethod,
+        primaryWrapperId,
         recoveryEncryptedVaultKey,
         recoverySalt,
         recoveryIv,

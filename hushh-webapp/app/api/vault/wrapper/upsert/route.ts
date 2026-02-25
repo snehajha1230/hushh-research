@@ -15,20 +15,30 @@ export async function POST(request: NextRequest) {
       userId,
       vaultKeyHash,
       method,
+      wrapperId,
       encryptedVaultKey,
       salt,
       iv,
       passkeyCredentialId,
       passkeyPrfSalt,
+      passkeyRpId,
+      passkeyProvider,
+      passkeyDeviceLabel,
+      passkeyLastUsedAt,
     } = body as {
       userId?: string;
       vaultKeyHash?: string;
       method?: string;
+      wrapperId?: string;
       encryptedVaultKey?: string;
       salt?: string;
       iv?: string;
       passkeyCredentialId?: string;
       passkeyPrfSalt?: string;
+      passkeyRpId?: string;
+      passkeyProvider?: string;
+      passkeyDeviceLabel?: string;
+      passkeyLastUsedAt?: number;
     };
 
     if (!userId || !vaultKeyHash || !method || !encryptedVaultKey || !salt || !iv) {
@@ -49,21 +59,33 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const clientVersion =
+      request.headers.get("x-hushh-client-version") ||
+      request.headers.get("x-client-version") ||
+      process.env.NEXT_PUBLIC_CLIENT_VERSION ||
+      "2.0.0";
+
     const response = await fetch(`${PYTHON_API_URL}/db/vault/wrapper/upsert`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-hushh-client-version": clientVersion,
         ...(authHeader ? { Authorization: authHeader } : {}),
       },
       body: JSON.stringify({
         userId,
         vaultKeyHash,
         method,
+        wrapperId,
         encryptedVaultKey,
         salt,
         iv,
         passkeyCredentialId,
         passkeyPrfSalt,
+        passkeyRpId,
+        passkeyProvider,
+        passkeyDeviceLabel,
+        passkeyLastUsedAt,
       }),
     });
 

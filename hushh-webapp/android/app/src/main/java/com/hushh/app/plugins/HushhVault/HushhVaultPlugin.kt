@@ -48,6 +48,7 @@ class HushhVaultPlugin : Plugin() {
 
     // Default Cloud Run backend URL (fallback if not provided by JS layer)
     private val defaultBackendUrl = "https://consent-protocol-1006304528804.us-central1.run.app"
+    private val defaultClientVersion = "2.0.0"
 
     private fun normalizeBackendUrl(raw: String): String {
         return BackendUrl.normalize(raw)
@@ -68,6 +69,12 @@ class HushhVaultPlugin : Plugin() {
 
         // 4) Final fallback
         return normalizeBackendUrl(defaultBackendUrl)
+    }
+
+    private fun getClientVersion(call: PluginCall? = null): String {
+        val callVersion = call?.getString("clientVersion")
+        if (!callVersion.isNullOrBlank()) return callVersion.trim()
+        return defaultClientVersion
     }
 
     // ==================== Derive Key ====================
@@ -313,6 +320,7 @@ class HushhVaultPlugin : Plugin() {
                         val raw = wrappersJson.optJSONObject(index) ?: continue
                         val normalized = JSObject().apply {
                             put("method", raw.optString("method", "passphrase"))
+                            put("wrapperId", raw.optString("wrapperId", raw.optString("wrapper_id", "default")))
                             put("encryptedVaultKey", raw.optString("encryptedVaultKey", raw.optString("encrypted_vault_key", "")))
                             put("salt", raw.optString("salt", ""))
                             put("iv", raw.optString("iv", ""))
@@ -324,12 +332,30 @@ class HushhVaultPlugin : Plugin() {
                             if (passkeyPrfSalt.isNotBlank() && passkeyPrfSalt.lowercase() != "null") {
                                 put("passkeyPrfSalt", passkeyPrfSalt)
                             }
+                            val passkeyRpId = raw.optString("passkeyRpId", raw.optString("passkey_rp_id", ""))
+                            if (passkeyRpId.isNotBlank() && passkeyRpId.lowercase() != "null") {
+                                put("passkeyRpId", passkeyRpId)
+                            }
+                            val passkeyProvider = raw.optString("passkeyProvider", raw.optString("passkey_provider", ""))
+                            if (passkeyProvider.isNotBlank() && passkeyProvider.lowercase() != "null") {
+                                put("passkeyProvider", passkeyProvider)
+                            }
+                            val passkeyDeviceLabel = raw.optString("passkeyDeviceLabel", raw.optString("passkey_device_label", ""))
+                            if (passkeyDeviceLabel.isNotBlank() && passkeyDeviceLabel.lowercase() != "null") {
+                                put("passkeyDeviceLabel", passkeyDeviceLabel)
+                            }
+                            if (!raw.isNull("passkeyLastUsedAt")) {
+                                put("passkeyLastUsedAt", raw.optLong("passkeyLastUsedAt"))
+                            } else if (!raw.isNull("passkey_last_used_at")) {
+                                put("passkeyLastUsedAt", raw.optLong("passkey_last_used_at"))
+                            }
                         }
                         wrappers.put(normalized)
                     }
                     val result = JSObject().apply {
                         put("vaultKeyHash", json.optString("vaultKeyHash", ""))
                         put("primaryMethod", json.optString("primaryMethod", "passphrase"))
+                        put("primaryWrapperId", json.optString("primaryWrapperId", "default"))
                         put("recoveryEncryptedVaultKey", json.optString("recoveryEncryptedVaultKey", ""))
                         put("recoverySalt", json.optString("recoverySalt", ""))
                         put("recoveryIv", json.optString("recoveryIv", ""))
@@ -363,6 +389,7 @@ class HushhVaultPlugin : Plugin() {
         val recoveryEncryptedVaultKey = call.getString("recoveryEncryptedVaultKey")
         val recoverySalt = call.getString("recoverySalt")
         val recoveryIv = call.getString("recoveryIv")
+        val primaryWrapperId = call.getString("primaryWrapperId") ?: "default"
         val wrappers = call.getArray("wrappers")
 
         if (userId == null || vaultKeyHash == null || primaryMethod == null || wrappers == null) {
@@ -387,6 +414,7 @@ class HushhVaultPlugin : Plugin() {
 
                     val normalized = JSONObject().apply {
                         put("method", method)
+                        put("wrapperId", raw.optString("wrapperId", raw.optString("wrapper_id", "default")))
                         put("encryptedVaultKey", encryptedVaultKey)
                         put("salt", salt)
                         put("iv", iv)
@@ -400,6 +428,26 @@ class HushhVaultPlugin : Plugin() {
                         if (passkeyPrfSalt.isNotBlank() && passkeyPrfSalt.lowercase() != "null") {
                             put("passkeyPrfSalt", passkeyPrfSalt)
                         }
+                        val passkeyRpId =
+                            raw.optString("passkeyRpId", raw.optString("passkey_rp_id", ""))
+                        if (passkeyRpId.isNotBlank() && passkeyRpId.lowercase() != "null") {
+                            put("passkeyRpId", passkeyRpId)
+                        }
+                        val passkeyProvider =
+                            raw.optString("passkeyProvider", raw.optString("passkey_provider", ""))
+                        if (passkeyProvider.isNotBlank() && passkeyProvider.lowercase() != "null") {
+                            put("passkeyProvider", passkeyProvider)
+                        }
+                        val passkeyDeviceLabel =
+                            raw.optString("passkeyDeviceLabel", raw.optString("passkey_device_label", ""))
+                        if (passkeyDeviceLabel.isNotBlank() && passkeyDeviceLabel.lowercase() != "null") {
+                            put("passkeyDeviceLabel", passkeyDeviceLabel)
+                        }
+                        if (!raw.isNull("passkeyLastUsedAt")) {
+                            put("passkeyLastUsedAt", raw.optLong("passkeyLastUsedAt"))
+                        } else if (!raw.isNull("passkey_last_used_at")) {
+                            put("passkeyLastUsedAt", raw.optLong("passkey_last_used_at"))
+                        }
                     }
                     normalizedWrappers.put(normalized)
                 }
@@ -408,6 +456,7 @@ class HushhVaultPlugin : Plugin() {
                     put("userId", userId)
                     put("vaultKeyHash", vaultKeyHash)
                     put("primaryMethod", primaryMethod)
+                    put("primaryWrapperId", primaryWrapperId)
                     put("recoveryEncryptedVaultKey", recoveryEncryptedVaultKey ?: "")
                     put("recoverySalt", recoverySalt ?: "")
                     put("recoveryIv", recoveryIv ?: "")
@@ -419,6 +468,7 @@ class HushhVaultPlugin : Plugin() {
                     .url("$backendUrl/db/vault/setup")
                     .post(requestBody)
                     .addHeader("Content-Type", "application/json")
+                    .addHeader("X-Hushh-Client-Version", getClientVersion(call))
 
                 if (authToken != null) {
                     requestBuilder.addHeader("Authorization", "Bearer $authToken")
@@ -461,6 +511,12 @@ class HushhVaultPlugin : Plugin() {
 
         val passkeyCredentialId = call.getString("passkeyCredentialId")
         val passkeyPrfSalt = call.getString("passkeyPrfSalt")
+        val passkeyRpId = call.getString("passkeyRpId")
+        val passkeyProvider = call.getString("passkeyProvider")
+        val passkeyDeviceLabel = call.getString("passkeyDeviceLabel")
+        val passkeyLastUsedAt = call.getString("passkeyLastUsedAt")?.toLongOrNull()
+            ?: call.getInt("passkeyLastUsedAt")?.toLong()
+        val wrapperId = call.getString("wrapperId") ?: "default"
         val authToken = call.getString("authToken")
         val backendUrl = getBackendUrl(call)
 
@@ -470,11 +526,16 @@ class HushhVaultPlugin : Plugin() {
                     put("userId", userId)
                     put("vaultKeyHash", vaultKeyHash)
                     put("method", method)
+                    put("wrapperId", wrapperId)
                     put("encryptedVaultKey", encryptedVaultKey)
                     put("salt", salt)
                     put("iv", iv)
                     if (passkeyCredentialId != null) put("passkeyCredentialId", passkeyCredentialId)
                     if (passkeyPrfSalt != null) put("passkeyPrfSalt", passkeyPrfSalt)
+                    if (passkeyRpId != null) put("passkeyRpId", passkeyRpId)
+                    if (passkeyProvider != null) put("passkeyProvider", passkeyProvider)
+                    if (passkeyDeviceLabel != null) put("passkeyDeviceLabel", passkeyDeviceLabel)
+                    if (passkeyLastUsedAt != null) put("passkeyLastUsedAt", passkeyLastUsedAt)
                 }
 
                 val requestBody = json.toString().toRequestBody("application/json".toMediaType())
@@ -482,6 +543,7 @@ class HushhVaultPlugin : Plugin() {
                     .url("$backendUrl/db/vault/wrapper/upsert")
                     .post(requestBody)
                     .addHeader("Content-Type", "application/json")
+                    .addHeader("X-Hushh-Client-Version", getClientVersion(call))
 
                 if (authToken != null) {
                     requestBuilder.addHeader("Authorization", "Bearer $authToken")
@@ -511,6 +573,7 @@ class HushhVaultPlugin : Plugin() {
     fun setPrimaryVaultMethod(call: PluginCall) {
         val userId = call.getString("userId")
         val primaryMethod = call.getString("primaryMethod")
+        val primaryWrapperId = call.getString("primaryWrapperId") ?: "default"
         if (userId == null || primaryMethod == null) {
             call.reject("Missing required parameters")
             return
@@ -524,12 +587,14 @@ class HushhVaultPlugin : Plugin() {
                 val json = JSONObject().apply {
                     put("userId", userId)
                     put("primaryMethod", primaryMethod)
+                    put("primaryWrapperId", primaryWrapperId)
                 }
                 val requestBody = json.toString().toRequestBody("application/json".toMediaType())
                 val requestBuilder = Request.Builder()
                     .url("$backendUrl/db/vault/primary/set")
                     .post(requestBody)
                     .addHeader("Content-Type", "application/json")
+                    .addHeader("X-Hushh-Client-Version", getClientVersion(call))
                 if (authToken != null) {
                     requestBuilder.addHeader("Authorization", "Bearer $authToken")
                 }
@@ -551,6 +616,26 @@ class HushhVaultPlugin : Plugin() {
                 }
             }
         }.start()
+    }
+
+    @PluginMethod
+    fun isPasskeyAvailable(call: PluginCall) {
+        call.resolve(
+            JSObject().apply {
+                put("available", false)
+                put("reason", "native_passkey_not_implemented")
+            }
+        )
+    }
+
+    @PluginMethod
+    fun registerPasskeyPrf(call: PluginCall) {
+        call.reject("Native passkey PRF registration is not implemented on Android plugin yet.")
+    }
+
+    @PluginMethod
+    fun authenticatePasskeyPrf(call: PluginCall) {
+        call.reject("Native passkey PRF authentication is not implemented on Android plugin yet.")
     }
 
     // ==================== Domain Data Methods ====================

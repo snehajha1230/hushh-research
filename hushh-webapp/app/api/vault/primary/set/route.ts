@@ -11,9 +11,10 @@ const PYTHON_API_URL = getPythonApiUrl();
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, primaryMethod } = body as {
+    const { userId, primaryMethod, primaryWrapperId } = body as {
       userId?: string;
       primaryMethod?: string;
+      primaryWrapperId?: string;
     };
 
     if (!userId || !primaryMethod) {
@@ -34,13 +35,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const clientVersion =
+      request.headers.get("x-hushh-client-version") ||
+      request.headers.get("x-client-version") ||
+      process.env.NEXT_PUBLIC_CLIENT_VERSION ||
+      "2.0.0";
+
     const response = await fetch(`${PYTHON_API_URL}/db/vault/primary/set`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-hushh-client-version": clientVersion,
         ...(authHeader ? { Authorization: authHeader } : {}),
       },
-      body: JSON.stringify({ userId, primaryMethod }),
+      body: JSON.stringify({ userId, primaryMethod, primaryWrapperId }),
     });
 
     if (!response.ok) {

@@ -23,6 +23,9 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "setupVault", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "upsertVaultWrapper", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setPrimaryVaultMethod", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "isPasskeyAvailable", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "registerPasskeyPrf", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "authenticatePasskeyPrf", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getFoodPreferences", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getProfessionalData", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "storePreferencesToCloud", returnType: CAPPluginReturnPromise),
@@ -40,6 +43,9 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
     private let TAG = "HushhVault"
     private var defaultBackendUrl: String {
         return (bridge?.config.getPluginConfig(jsName).getString("backendUrl")) ?? "https://consent-protocol-1006304528804.us-central1.run.app"
+    }
+    private var clientVersionHeaderValue: String {
+        return Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.0.0"
     }
 
     private func resolvedBackendUrl(_ call: CAPPluginCall) -> String {
@@ -257,6 +263,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
                 var normalized: [String: Any] = [
                     "vaultKeyHash": (json["vaultKeyHash"] as? String) ?? "",
                     "primaryMethod": (json["primaryMethod"] as? String) ?? "passphrase",
+                    "primaryWrapperId": (json["primaryWrapperId"] as? String) ?? "default",
                     "recoveryEncryptedVaultKey": (json["recoveryEncryptedVaultKey"] as? String) ?? "",
                     "recoverySalt": (json["recoverySalt"] as? String) ?? "",
                     "recoveryIv": (json["recoveryIv"] as? String) ?? ""
@@ -274,6 +281,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
                 let wrappers: [[String: Any]] = wrappersArray.map { raw in
                     var wrapper: [String: Any] = [
                         "method": (raw["method"] as? String) ?? "passphrase",
+                        "wrapperId": (raw["wrapperId"] as? String) ?? (raw["wrapper_id"] as? String) ?? "default",
                         "encryptedVaultKey": (raw["encryptedVaultKey"] as? String) ?? (raw["encrypted_vault_key"] as? String) ?? "",
                         "salt": (raw["salt"] as? String) ?? "",
                         "iv": (raw["iv"] as? String) ?? ""
@@ -291,6 +299,29 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
                         if !trimmed.isEmpty && trimmed.lowercased() != "null" {
                             wrapper["passkeyPrfSalt"] = trimmed
                         }
+                    }
+                    if let passkeyRpId = (raw["passkeyRpId"] as? String) ?? (raw["passkey_rp_id"] as? String) {
+                        let trimmed = passkeyRpId.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty && trimmed.lowercased() != "null" {
+                            wrapper["passkeyRpId"] = trimmed
+                        }
+                    }
+                    if let passkeyProvider = (raw["passkeyProvider"] as? String) ?? (raw["passkey_provider"] as? String) {
+                        let trimmed = passkeyProvider.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty && trimmed.lowercased() != "null" {
+                            wrapper["passkeyProvider"] = trimmed
+                        }
+                    }
+                    if let passkeyDeviceLabel = (raw["passkeyDeviceLabel"] as? String) ?? (raw["passkey_device_label"] as? String) {
+                        let trimmed = passkeyDeviceLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty && trimmed.lowercased() != "null" {
+                            wrapper["passkeyDeviceLabel"] = trimmed
+                        }
+                    }
+                    if let passkeyLastUsedAt = raw["passkeyLastUsedAt"] as? Int {
+                        wrapper["passkeyLastUsedAt"] = passkeyLastUsedAt
+                    } else if let passkeyLastUsedAt = raw["passkey_last_used_at"] as? Int {
+                        wrapper["passkeyLastUsedAt"] = passkeyLastUsedAt
                     }
 
                     return wrapper
@@ -327,8 +358,9 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         
         let authToken = call.getString("authToken")
-        let backendUrl = call.getString("backendUrl") ?? defaultBackendUrl
+        let backendUrl = resolvedBackendUrl(call)
         let urlStr = "\(backendUrl)/db/vault/setup"
+        let primaryWrapperId = call.getString("primaryWrapperId") ?? "default"
         
         print("[\(TAG)] 🌐 URL: \(urlStr)")
         print("[\(TAG)] userId: \(userId), primaryMethod: \(primaryMethod)")
@@ -346,6 +378,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
             var wrapper: [String: Any] = [
                 "method": (method?.isEmpty == false ? method! : "passphrase"),
+                "wrapperId": ((raw["wrapperId"] as? String) ?? (raw["wrapper_id"] as? String) ?? "default"),
                 "encryptedVaultKey": encrypted,
                 "salt": salt,
                 "iv": iv
@@ -363,6 +396,27 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
                passkeyPrfSalt.lowercased() != "null" {
                 wrapper["passkeyPrfSalt"] = passkeyPrfSalt
             }
+            if let passkeyRpId = ((raw["passkeyRpId"] as? String) ?? (raw["passkey_rp_id"] as? String))?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !passkeyRpId.isEmpty,
+               passkeyRpId.lowercased() != "null" {
+                wrapper["passkeyRpId"] = passkeyRpId
+            }
+            if let passkeyProvider = ((raw["passkeyProvider"] as? String) ?? (raw["passkey_provider"] as? String))?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !passkeyProvider.isEmpty,
+               passkeyProvider.lowercased() != "null" {
+                wrapper["passkeyProvider"] = passkeyProvider
+            }
+            if let passkeyDeviceLabel = ((raw["passkeyDeviceLabel"] as? String) ?? (raw["passkey_device_label"] as? String))?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !passkeyDeviceLabel.isEmpty,
+               passkeyDeviceLabel.lowercased() != "null" {
+                wrapper["passkeyDeviceLabel"] = passkeyDeviceLabel
+            }
+            if let passkeyLastUsedAt = (raw["passkeyLastUsedAt"] as? Int) ?? (raw["passkey_last_used_at"] as? Int) {
+                wrapper["passkeyLastUsedAt"] = passkeyLastUsedAt
+            }
             return wrapper
         }
 
@@ -370,6 +424,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             "userId": userId,
             "vaultKeyHash": vaultKeyHash,
             "primaryMethod": primaryMethod,
+            "primaryWrapperId": primaryWrapperId,
             "recoveryEncryptedVaultKey": recoveryEncryptedVaultKey,
             "recoverySalt": recoverySalt,
             "recoveryIv": recoveryIv,
@@ -404,13 +459,15 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let authToken = call.getString("authToken")
-        let backendUrl = call.getString("backendUrl") ?? defaultBackendUrl
+        let backendUrl = resolvedBackendUrl(call)
         let urlStr = "\(backendUrl)/db/vault/wrapper/upsert"
+        let wrapperId = call.getString("wrapperId") ?? "default"
 
         var body: [String: Any] = [
             "userId": userId,
             "vaultKeyHash": vaultKeyHash,
             "method": method,
+            "wrapperId": wrapperId,
             "encryptedVaultKey": encryptedVaultKey,
             "salt": salt,
             "iv": iv
@@ -420,6 +477,18 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         if let passkeyPrfSalt = call.getString("passkeyPrfSalt"), !passkeyPrfSalt.isEmpty {
             body["passkeyPrfSalt"] = passkeyPrfSalt
+        }
+        if let passkeyRpId = call.getString("passkeyRpId"), !passkeyRpId.isEmpty {
+            body["passkeyRpId"] = passkeyRpId
+        }
+        if let passkeyProvider = call.getString("passkeyProvider"), !passkeyProvider.isEmpty {
+            body["passkeyProvider"] = passkeyProvider
+        }
+        if let passkeyDeviceLabel = call.getString("passkeyDeviceLabel"), !passkeyDeviceLabel.isEmpty {
+            body["passkeyDeviceLabel"] = passkeyDeviceLabel
+        }
+        if let passkeyLastUsedAt = call.getInt("passkeyLastUsedAt") {
+            body["passkeyLastUsedAt"] = passkeyLastUsedAt
         }
 
         performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
@@ -443,11 +512,13 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let authToken = call.getString("authToken")
-        let backendUrl = call.getString("backendUrl") ?? defaultBackendUrl
+        let backendUrl = resolvedBackendUrl(call)
         let urlStr = "\(backendUrl)/db/vault/primary/set"
+        let primaryWrapperId = call.getString("primaryWrapperId") ?? "default"
         let body: [String: Any] = [
             "userId": userId,
-            "primaryMethod": primaryMethod
+            "primaryMethod": primaryMethod,
+            "primaryWrapperId": primaryWrapperId
         ]
 
         performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
@@ -461,6 +532,21 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             call.reject("Failed to set primary method: invalid success response")
         }
+    }
+
+    @objc func isPasskeyAvailable(_ call: CAPPluginCall) {
+        call.resolve([
+            "available": false,
+            "reason": "native_passkey_not_implemented"
+        ])
+    }
+
+    @objc func registerPasskeyPrf(_ call: CAPPluginCall) {
+        call.reject("Native passkey PRF registration is not implemented on iOS plugin yet.")
+    }
+
+    @objc func authenticatePasskeyPrf(_ call: CAPPluginCall) {
+        call.reject("Native passkey PRF authentication is not implemented on iOS plugin yet.")
     }
     
     // MARK: - Domain Data
@@ -721,6 +807,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue(clientVersionHeaderValue, forHTTPHeaderField: "X-Hushh-Client-Version")
         if let token = authToken {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -786,6 +873,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.addValue(clientVersionHeaderValue, forHTTPHeaderField: "X-Hushh-Client-Version")
         if let token = authToken {
             request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }

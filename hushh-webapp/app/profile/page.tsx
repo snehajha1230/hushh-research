@@ -373,6 +373,7 @@ export default function ProfilePage() {
 
   const readableMethod = (method: VaultMethod | null): string => {
     if (method === "generated_default_native_biometric") return "Device biometric";
+    if (method === "generated_default_native_passkey_prf") return "Passkey (Native PRF)";
     if (method === "generated_default_web_prf") return "Passkey (PRF)";
     if (method === "passphrase") return "Passphrase";
     return "Unknown";
@@ -380,6 +381,7 @@ export default function ProfilePage() {
 
   const readableQuickMethod = (method: VaultMethod | null): string => {
     if (method === "generated_default_native_biometric") return "device biometric";
+    if (method === "generated_default_native_passkey_prf") return "passkey";
     if (method === "generated_default_web_prf") return "passkey";
     return "quick unlock";
   };

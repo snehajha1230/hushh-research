@@ -87,12 +87,14 @@ export function VaultFlow({
 
   const isGeneratedVaultMode =
     vaultMode === "generated_default_native_biometric" ||
-    vaultMode === "generated_default_web_prf";
+    vaultMode === "generated_default_web_prf" ||
+    vaultMode === "generated_default_native_passkey_prf";
   const hasActiveGeneratedWrapper =
     isGeneratedVaultMode && availableGeneratedMethod === vaultMode;
 
   const generatedUnlockLabel =
-    vaultMode === "generated_default_web_prf"
+    vaultMode === "generated_default_web_prf" ||
+    vaultMode === "generated_default_native_passkey_prf"
       ? "Passkey"
       : vaultMode === "generated_default_native_biometric"
         ? "Device security"
@@ -127,17 +129,25 @@ export function VaultFlow({
 
         try {
           const vaultData = await VaultService.getVaultState(user.uid);
-          const quickMethod = vaultData.wrappers.find(
-            (wrapper) =>
-              wrapper.method === "generated_default_native_biometric" ||
-              wrapper.method === "generated_default_web_prf"
-          );
+          const primaryWrapper = VaultService.getPrimaryWrapper(vaultData);
+          const quickMethod =
+            (primaryWrapper.method === "generated_default_native_biometric" ||
+              primaryWrapper.method === "generated_default_web_prf" ||
+              primaryWrapper.method === "generated_default_native_passkey_prf")
+              ? primaryWrapper
+              : vaultData.wrappers.find(
+                  (wrapper) =>
+                    wrapper.method === "generated_default_native_biometric" ||
+                    wrapper.method === "generated_default_web_prf" ||
+                    wrapper.method === "generated_default_native_passkey_prf"
+                );
           const nextQuickMethod =
             (quickMethod?.method as GeneratedVaultKeyMode | undefined) ?? null;
           setAvailableGeneratedMethod(nextQuickMethod);
           if (
             (vaultData.primaryMethod === "generated_default_native_biometric" ||
-              vaultData.primaryMethod === "generated_default_web_prf") &&
+              vaultData.primaryMethod === "generated_default_web_prf" ||
+              vaultData.primaryMethod === "generated_default_native_passkey_prf") &&
             !nextQuickMethod
           ) {
             setVaultMode("passphrase");
@@ -250,7 +260,12 @@ export function VaultFlow({
     try {
       setError(null);
       const vaultData = await VaultService.getVaultState(user.uid);
-      const generatedWrapper = VaultService.getWrapperByMethod(vaultData, vaultMode);
+      const generatedWrapper = VaultService.getWrapperByMethod(vaultData, vaultMode, {
+        wrapperId:
+          vaultData.primaryMethod === vaultMode
+            ? vaultData.primaryWrapperId
+            : undefined,
+      });
       if (!generatedWrapper) {
         throw new Error("Quick unlock wrapper not enrolled.");
       }
@@ -261,9 +276,9 @@ export function VaultFlow({
         iv: generatedWrapper.iv,
         keyMode: generatedWrapper.method,
         authMethod: generatedWrapper.method,
-        passkeyCredentialId: generatedWrapper.passkeyCredentialId,
-        passkeyPrfSalt: generatedWrapper.passkeyPrfSalt,
-      });
+                        passkeyCredentialId: generatedWrapper.passkeyCredentialId,
+                        passkeyPrfSalt: generatedWrapper.passkeyPrfSalt,
+                      });
 
       if (!decryptedKey) {
         throw new Error("Generated vault mode unavailable. Use passphrase.");
@@ -653,7 +668,8 @@ export function VaultFlow({
                       disabled={isUnlocking}
                     >
                       Use{" "}
-                      {availableGeneratedMethod === "generated_default_web_prf"
+                      {availableGeneratedMethod === "generated_default_web_prf" ||
+                      availableGeneratedMethod === "generated_default_native_passkey_prf"
                         ? "passkey"
                         : "device security"}
                     </Button>
@@ -751,7 +767,8 @@ export function VaultFlow({
               <div className="text-center">
                 <Icon
                   icon={
-                    recommendedQuickMethod === "generated_default_web_prf"
+                    recommendedQuickMethod === "generated_default_web_prf" ||
+                    recommendedQuickMethod === "generated_default_native_passkey_prf"
                       ? Key
                       : Fingerprint
                   }
@@ -761,7 +778,8 @@ export function VaultFlow({
                 <h3 className="font-semibold text-xl">Enable quicker unlock?</h3>
                 <p className="text-base text-muted-foreground mt-2">
                   You can keep passphrase unlock, or enable{" "}
-                  {recommendedQuickMethod === "generated_default_web_prf"
+                  {recommendedQuickMethod === "generated_default_web_prf" ||
+                  recommendedQuickMethod === "generated_default_native_passkey_prf"
                     ? "passkey"
                     : "device biometric"}{" "}
                   and still retain recovery-key fallback.
@@ -789,7 +807,8 @@ export function VaultFlow({
                       const finalized = await finalizeUnlock(pendingUnlockKey);
                       if (!finalized) return;
                       toast.success(
-                        result.method === "generated_default_web_prf"
+                        result.method === "generated_default_web_prf" ||
+                        result.method === "generated_default_native_passkey_prf"
                           ? "Passkey unlock enabled."
                           : "Biometric unlock enabled."
                       );
@@ -810,7 +829,8 @@ export function VaultFlow({
                     </>
                   ) : (
                     `Enable ${
-                      recommendedQuickMethod === "generated_default_web_prf"
+                      recommendedQuickMethod === "generated_default_web_prf" ||
+                      recommendedQuickMethod === "generated_default_native_passkey_prf"
                         ? "Passkey"
                         : "Biometric"
                     }`

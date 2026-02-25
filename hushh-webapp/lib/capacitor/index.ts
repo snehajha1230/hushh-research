@@ -287,16 +287,22 @@ export interface HushhVaultPlugin {
   getVault(options: { userId: string; authToken?: string }): Promise<{
     vaultKeyHash: string;
     primaryMethod: string;
+    primaryWrapperId?: string;
     recoveryEncryptedVaultKey: string;
     recoverySalt: string;
     recoveryIv: string;
     wrappers: Array<{
       method: string;
+      wrapperId?: string;
       encryptedVaultKey: string;
       salt: string;
       iv: string;
       passkeyCredentialId?: string;
       passkeyPrfSalt?: string;
+      passkeyRpId?: string;
+      passkeyProvider?: string;
+      passkeyDeviceLabel?: string;
+      passkeyLastUsedAt?: number;
     }>;
   }>;
 
@@ -308,16 +314,22 @@ export interface HushhVaultPlugin {
     userId: string;
     vaultKeyHash: string;
     primaryMethod: string;
+    primaryWrapperId?: string;
     recoveryEncryptedVaultKey: string;
     recoverySalt: string;
     recoveryIv: string;
     wrappers: Array<{
       method: string;
+      wrapperId?: string;
       encryptedVaultKey: string;
       salt: string;
       iv: string;
       passkeyCredentialId?: string;
       passkeyPrfSalt?: string;
+      passkeyRpId?: string;
+      passkeyProvider?: string;
+      passkeyDeviceLabel?: string;
+      passkeyLastUsedAt?: number;
     }>;
     authToken?: string;
   }): Promise<{ success: boolean }>;
@@ -326,19 +338,50 @@ export interface HushhVaultPlugin {
     userId: string;
     vaultKeyHash: string;
     method: string;
+    wrapperId?: string;
     encryptedVaultKey: string;
     salt: string;
     iv: string;
     passkeyCredentialId?: string;
     passkeyPrfSalt?: string;
+    passkeyRpId?: string;
+    passkeyProvider?: string;
+    passkeyDeviceLabel?: string;
+    passkeyLastUsedAt?: number;
     authToken?: string;
   }): Promise<{ success: boolean }>;
 
   setPrimaryVaultMethod(options: {
     userId: string;
     primaryMethod: string;
+    primaryWrapperId?: string;
     authToken?: string;
   }): Promise<{ success: boolean }>;
+
+  isPasskeyAvailable(options?: { rpId?: string }): Promise<{
+    available: boolean;
+    reason?: string;
+  }>;
+
+  registerPasskeyPrf(options: {
+    userId: string;
+    displayName: string;
+    rpId: string;
+  }): Promise<{
+    credentialId: string;
+    prfSalt: string;
+    vaultKeyHex: string;
+  }>;
+
+  authenticatePasskeyPrf(options: {
+    userId: string;
+    rpId: string;
+    credentialId?: string;
+    prfSalt: string;
+  }): Promise<{
+    credentialId: string;
+    vaultKeyHex: string;
+  }>;
 
   // Consents (New)
   /**

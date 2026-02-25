@@ -290,16 +290,22 @@ export class HushhVaultWeb extends WebPlugin {
   async getVault(options: { userId: string; authToken?: string }): Promise<{
     vaultKeyHash: string;
     primaryMethod: string;
+    primaryWrapperId?: string;
     recoveryEncryptedVaultKey: string;
     recoverySalt: string;
     recoveryIv: string;
     wrappers: Array<{
       method: string;
+      wrapperId?: string;
       encryptedVaultKey: string;
       salt: string;
       iv: string;
       passkeyCredentialId?: string;
       passkeyPrfSalt?: string;
+      passkeyRpId?: string;
+      passkeyProvider?: string;
+      passkeyDeviceLabel?: string;
+      passkeyLastUsedAt?: number;
     }>;
   }> {
     const response = await fetch(`/api/vault/get?userId=${options.userId}`);
@@ -314,16 +320,22 @@ export class HushhVaultWeb extends WebPlugin {
     userId: string;
     vaultKeyHash: string;
     primaryMethod: string;
+    primaryWrapperId?: string;
     recoveryEncryptedVaultKey: string;
     recoverySalt: string;
     recoveryIv: string;
     wrappers: Array<{
       method: string;
+      wrapperId?: string;
       encryptedVaultKey: string;
       salt: string;
       iv: string;
       passkeyCredentialId?: string;
       passkeyPrfSalt?: string;
+      passkeyRpId?: string;
+      passkeyProvider?: string;
+      passkeyDeviceLabel?: string;
+      passkeyLastUsedAt?: number;
     }>;
     authToken?: string;
   }): Promise<{ success: boolean }> {
@@ -340,11 +352,16 @@ export class HushhVaultWeb extends WebPlugin {
     userId: string;
     vaultKeyHash: string;
     method: string;
+    wrapperId?: string;
     encryptedVaultKey: string;
     salt: string;
     iv: string;
     passkeyCredentialId?: string;
     passkeyPrfSalt?: string;
+    passkeyRpId?: string;
+    passkeyProvider?: string;
+    passkeyDeviceLabel?: string;
+    passkeyLastUsedAt?: number;
     authToken?: string;
   }): Promise<{ success: boolean }> {
     const response = await fetch("/api/vault/wrapper/upsert", {
@@ -359,6 +376,7 @@ export class HushhVaultWeb extends WebPlugin {
   async setPrimaryVaultMethod(options: {
     userId: string;
     primaryMethod: string;
+    primaryWrapperId?: string;
     authToken?: string;
   }): Promise<{ success: boolean }> {
     const response = await fetch("/api/vault/primary/set", {
@@ -368,6 +386,36 @@ export class HushhVaultWeb extends WebPlugin {
     });
     if (!response.ok) throw new Error("Failed to set primary method");
     return { success: true };
+  }
+
+  async isPasskeyAvailable(_options?: {
+    rpId?: string;
+  }): Promise<{ available: boolean; reason?: string }> {
+    return { available: false, reason: "Native passkey plugin path unavailable in web fallback" };
+  }
+
+  async registerPasskeyPrf(_options: {
+    userId: string;
+    displayName: string;
+    rpId: string;
+  }): Promise<{
+    credentialId: string;
+    prfSalt: string;
+    vaultKeyHex: string;
+  }> {
+    throw new Error("registerPasskeyPrf is not available in web fallback");
+  }
+
+  async authenticatePasskeyPrf(_options: {
+    userId: string;
+    rpId: string;
+    credentialId?: string;
+    prfSalt: string;
+  }): Promise<{
+    credentialId: string;
+    vaultKeyHex: string;
+  }> {
+    throw new Error("authenticatePasskeyPrf is not available in web fallback");
   }
 
   // ==================== Domain Data Methods (Web Fallback) ====================

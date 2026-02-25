@@ -81,7 +81,7 @@ export async function checkPrfSupport(): Promise<boolean> {
 /**
  * Get the appropriate RP ID for the current environment
  */
-function getRpId(): string {
+export function getRpId(): string {
   // For localhost, use 'localhost'
   if (
     window.location.hostname === "localhost" ||

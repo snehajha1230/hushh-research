@@ -30,6 +30,7 @@ interface VaultMethodPromptProps {
 
 function readableMethod(method: VaultMethod): string {
   if (method === "generated_default_native_biometric") return "device biometric";
+  if (method === "generated_default_native_passkey_prf") return "passkey";
   if (method === "generated_default_web_prf") return "passkey";
   return "passphrase";
 }
@@ -171,7 +172,12 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icon
-              icon={targetMethod === "generated_default_web_prf" ? KeyRound : Fingerprint}
+              icon={
+                targetMethod === "generated_default_web_prf" ||
+                targetMethod === "generated_default_native_passkey_prf"
+                  ? KeyRound
+                  : Fingerprint
+              }
               size="md"
               className="text-[var(--brand-600)]"
             />

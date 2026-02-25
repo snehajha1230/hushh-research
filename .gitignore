@@ -18,6 +18,8 @@ cloud-sql-proxy.exe
 service-account.json
 firebase-service-account.json
 **/firebase-service-account.json
+google-services.json
+**/google-services.json
 GoogleService-Info.plist
 **/GoogleService-Info.plist
 

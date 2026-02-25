@@ -22,20 +22,27 @@ import type {
 export type VaultMethod =
   | "passphrase"
   | "generated_default_native_biometric"
-  | "generated_default_web_prf";
+  | "generated_default_web_prf"
+  | "generated_default_native_passkey_prf";
 
 export interface VaultWrapper {
   method: VaultMethod;
+  wrapperId?: string;
   encryptedVaultKey: string;
   salt: string;
   iv: string;
   passkeyCredentialId?: string;
   passkeyPrfSalt?: string;
+  passkeyRpId?: string;
+  passkeyProvider?: string;
+  passkeyDeviceLabel?: string;
+  passkeyLastUsedAt?: number;
 }
 
 export interface VaultState {
   vaultKeyHash: string;
   primaryMethod: VaultMethod;
+  primaryWrapperId?: string;
   recoveryEncryptedVaultKey: string;
   recoverySalt: string;
   recoveryIv: string;
@@ -48,6 +55,7 @@ export class VaultService {
     "passphrase",
     "generated_default_native_biometric",
     "generated_default_web_prf",
+    "generated_default_native_passkey_prf",
   ];
   private static vaultStateCache = new Map<
     string,
@@ -116,11 +124,23 @@ export class VaultService {
   private static normalizeWrapper(wrapper: Partial<VaultWrapper>): VaultWrapper {
     const maybeWrapper = wrapper as Partial<VaultWrapper> & {
       encrypted_vault_key?: string;
+      wrapper_id?: string;
       passkey_credential_id?: string;
       passkey_prf_salt?: string;
+      passkey_rp_id?: string;
+      passkey_provider?: string;
+      passkey_device_label?: string;
+      passkey_last_used_at?: number;
     };
+    const passkeyLastUsedAtRaw =
+      wrapper.passkeyLastUsedAt ?? maybeWrapper.passkey_last_used_at;
+    const passkeyLastUsedAt =
+      typeof passkeyLastUsedAtRaw === "number" ? passkeyLastUsedAtRaw : undefined;
     return {
       method: this.normalizeMethod(wrapper.method),
+      wrapperId:
+        this.normalizeNullableString(wrapper.wrapperId ?? maybeWrapper.wrapper_id) ??
+        "default",
       encryptedVaultKey:
         this.normalizeNullableString(
           wrapper.encryptedVaultKey ?? maybeWrapper.encrypted_vault_key
@@ -133,7 +153,25 @@ export class VaultService {
       passkeyPrfSalt: this.normalizeNullableString(
         wrapper.passkeyPrfSalt ?? maybeWrapper.passkey_prf_salt
       ),
+      passkeyRpId: this.normalizeNullableString(
+        wrapper.passkeyRpId ?? maybeWrapper.passkey_rp_id
+      ),
+      passkeyProvider: this.normalizeNullableString(
+        wrapper.passkeyProvider ?? maybeWrapper.passkey_provider
+      ),
+      passkeyDeviceLabel: this.normalizeNullableString(
+        wrapper.passkeyDeviceLabel ?? maybeWrapper.passkey_device_label
+      ),
+      passkeyLastUsedAt,
     };
+  }
+
+  private static getCurrentRpId(): string | null {
+    if (typeof window === "undefined") return null;
+    const host = window.location.hostname;
+    if (!host) return null;
+    if (host === "127.0.0.1") return "localhost";
+    return host;
   }
 
   private static describeWrapperPayload(input: unknown): string {
@@ -242,6 +280,8 @@ export class VaultService {
     return {
       vaultKeyHash: this.normalizeNullableString(vault.vaultKeyHash) ?? "",
       primaryMethod: this.normalizeMethod(vault.primaryMethod),
+      primaryWrapperId:
+        this.normalizeNullableString(vault.primaryWrapperId) ?? "default",
       recoveryEncryptedVaultKey:
         this.normalizeNullableString(vault.recoveryEncryptedVaultKey) ?? "",
       recoverySalt: this.normalizeNullableString(vault.recoverySalt) ?? "",
@@ -259,14 +299,45 @@ export class VaultService {
 
   static getWrapperByMethod(
     state: VaultState,
-    method: VaultMethod
+    method: VaultMethod,
+    options?: {
+      wrapperId?: string;
+      preferCurrentRpId?: boolean;
+    }
   ): VaultWrapper | null {
-    return this.findWrapperByMethod(state, method);
+    const all = state.wrappers.filter((wrapper) => wrapper.method === method);
+    if (!all.length) return null;
+
+    const requestedWrapperId = this.normalizeNullableString(options?.wrapperId);
+    if (requestedWrapperId) {
+      return (
+        all.find((wrapper) => (wrapper.wrapperId ?? "default") === requestedWrapperId) ??
+        null
+      );
+    }
+
+    if (
+      method === "generated_default_web_prf" ||
+      method === "generated_default_native_passkey_prf"
+    ) {
+      const shouldPreferRp = options?.preferCurrentRpId ?? true;
+      if (shouldPreferRp) {
+        const rpId = this.getCurrentRpId();
+        if (rpId) {
+          const rpMatch = all.find((wrapper) => wrapper.passkeyRpId === rpId);
+          if (rpMatch) return rpMatch;
+        }
+      }
+    }
+
+    return all[0] ?? null;
   }
 
   static getPrimaryWrapper(state: VaultState): VaultWrapper {
     const wrapper =
-      this.findWrapperByMethod(state, state.primaryMethod) ??
+      this.getWrapperByMethod(state, state.primaryMethod, {
+        wrapperId: state.primaryWrapperId,
+      }) ??
       this.findWrapperByMethod(state, "passphrase") ??
       state.wrappers[0];
     if (!wrapper) {
@@ -343,8 +414,13 @@ export class VaultService {
     if (!methods.has("passphrase")) {
       throw new Error("Passphrase wrapper is mandatory.");
     }
-    if (!methods.has(state.primaryMethod)) {
-      throw new Error("primaryMethod must reference an enrolled wrapper.");
+    const hasPrimaryWrapper = state.wrappers.some(
+      (wrapper) =>
+        wrapper.method === state.primaryMethod &&
+        (wrapper.wrapperId ?? "default") === (state.primaryWrapperId ?? "default")
+    );
+    if (!hasPrimaryWrapper) {
+      throw new Error("primaryMethod + primaryWrapperId must reference an enrolled wrapper.");
     }
   }
 
@@ -718,6 +794,7 @@ export class VaultService {
           userId,
           vaultKeyHash: normalized.vaultKeyHash,
           primaryMethod: normalized.primaryMethod,
+          primaryWrapperId: normalized.primaryWrapperId ?? "default",
           recoveryEncryptedVaultKey: normalized.recoveryEncryptedVaultKey,
           recoverySalt: normalized.recoverySalt,
           recoveryIv: normalized.recoveryIv,
@@ -738,7 +815,10 @@ export class VaultService {
 
     const url = this.getApiUrl("/api/vault/setup");
     const authToken = await this.getFirebaseToken();
-    const headers: HeadersInit = { "Content-Type": "application/json" };
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+      "x-hushh-client-version": process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+    };
     if (authToken) {
       headers.Authorization = `Bearer ${authToken}`;
     }
@@ -749,6 +829,7 @@ export class VaultService {
         userId,
         vaultKeyHash: normalized.vaultKeyHash,
         primaryMethod: normalized.primaryMethod,
+        primaryWrapperId: normalized.primaryWrapperId ?? "default",
         recoveryEncryptedVaultKey: normalized.recoveryEncryptedVaultKey,
         recoverySalt: normalized.recoverySalt,
         recoveryIv: normalized.recoveryIv,
@@ -778,11 +859,16 @@ export class VaultService {
         userId: params.userId,
         vaultKeyHash: params.vaultKeyHash,
         method: wrapper.method,
+        wrapperId: wrapper.wrapperId ?? "default",
         encryptedVaultKey: wrapper.encryptedVaultKey,
         salt: wrapper.salt,
         iv: wrapper.iv,
         passkeyCredentialId: wrapper.passkeyCredentialId,
         passkeyPrfSalt: wrapper.passkeyPrfSalt,
+        passkeyRpId: wrapper.passkeyRpId,
+        passkeyProvider: wrapper.passkeyProvider,
+        passkeyDeviceLabel: wrapper.passkeyDeviceLabel,
+        passkeyLastUsedAt: wrapper.passkeyLastUsedAt,
         authToken,
       });
       if (!result?.success) {
@@ -794,7 +880,10 @@ export class VaultService {
 
     const url = this.getApiUrl("/api/vault/wrapper/upsert");
     const authToken = await this.getFirebaseToken();
-    const headers: HeadersInit = { "Content-Type": "application/json" };
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+      "x-hushh-client-version": process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+    };
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
     const response = await fetch(url, {
@@ -804,11 +893,16 @@ export class VaultService {
         userId: params.userId,
         vaultKeyHash: params.vaultKeyHash,
         method: wrapper.method,
+        wrapperId: wrapper.wrapperId ?? "default",
         encryptedVaultKey: wrapper.encryptedVaultKey,
         salt: wrapper.salt,
         iv: wrapper.iv,
         passkeyCredentialId: wrapper.passkeyCredentialId,
         passkeyPrfSalt: wrapper.passkeyPrfSalt,
+        passkeyRpId: wrapper.passkeyRpId,
+        passkeyProvider: wrapper.passkeyProvider,
+        passkeyDeviceLabel: wrapper.passkeyDeviceLabel,
+        passkeyLastUsedAt: wrapper.passkeyLastUsedAt,
       }),
     });
     if (!response.ok) {
@@ -819,15 +913,19 @@ export class VaultService {
 
   static async setPrimaryVaultMethod(
     userId: string,
-    primaryMethod: VaultMethod
+    primaryMethod: VaultMethod,
+    primaryWrapperId?: string
   ): Promise<void> {
     const normalizedMethod = this.normalizeMethod(primaryMethod);
+    const normalizedWrapperId =
+      this.normalizeNullableString(primaryWrapperId) ?? "default";
 
     if (Capacitor.isNativePlatform()) {
       const authToken = await this.getFirebaseToken();
       const result = await HushhVault.setPrimaryVaultMethod({
         userId,
         primaryMethod: normalizedMethod,
+        primaryWrapperId: normalizedWrapperId,
         authToken,
       });
       if (!result?.success) {
@@ -839,13 +937,20 @@ export class VaultService {
 
     const url = this.getApiUrl("/api/vault/primary/set");
     const authToken = await this.getFirebaseToken();
-    const headers: HeadersInit = { "Content-Type": "application/json" };
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+      "x-hushh-client-version": process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+    };
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
     const response = await fetch(url, {
       method: "POST",
       headers,
-      body: JSON.stringify({ userId, primaryMethod: normalizedMethod }),
+      body: JSON.stringify({
+        userId,
+        primaryMethod: normalizedMethod,
+        primaryWrapperId: normalizedWrapperId,
+      }),
     });
     if (!response.ok) {
       throw new Error("Failed to set primary vault method.");
