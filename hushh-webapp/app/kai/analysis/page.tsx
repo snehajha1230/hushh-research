@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, Search, X } from "lucide-react";
 
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -28,6 +28,7 @@ import {
   type TickerMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
 import { cn } from "@/lib/utils";
+import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 
 const ANALYSIS_INTENT_FRESH_MS = 15_000;
 type WorkspaceTab = "debate" | "summary" | "detailed";
@@ -342,6 +343,10 @@ export default function KaiAnalysisPage() {
     });
   }, []);
 
+  const handleOpenCommandBar = useCallback(() => {
+    openKaiCommandBar();
+  }, []);
+
   const handleLiveDecisionSaved = useCallback((entry: AnalysisHistoryEntry) => {
     setLiveEntry(entry);
     setShowHistoryWhileActive(false);
@@ -414,7 +419,7 @@ export default function KaiAnalysisPage() {
 
   if (!vaultKey) {
     return (
-      <div className="mx-auto w-full max-w-xl px-4 pt-6">
+      <div className="mx-auto w-full max-w-xl px-4 pt-[var(--kai-view-top-gap,16px)]">
         <div className="rounded-2xl border border-border/60 bg-background/80 p-5 text-center">
           <h2 className="text-lg font-semibold">Set up your portfolio first</h2>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -438,9 +443,20 @@ export default function KaiAnalysisPage() {
   }
 
   return (
-    <div className="overflow-x-hidden pt-2">
+    <div className="overflow-x-hidden pt-[var(--kai-view-top-gap,16px)]">
+      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
+        <button
+          type="button"
+          onClick={handleOpenCommandBar}
+          className="flex h-11 w-full items-center gap-2 rounded-full border border-border/60 bg-background/75 px-4 text-left text-sm text-muted-foreground shadow-sm backdrop-blur-md transition hover:bg-background/90"
+          aria-label="Analyze a stock"
+        >
+          <Search className="h-4 w-4 shrink-0" />
+          <span className="font-medium">Analyze a stock</span>
+        </button>
+      </div>
       {showWorkspace ? (
-        <div ref={workspaceTopRef} className="mx-auto w-full max-w-6xl space-y-4 px-4 sm:px-6">
+        <div ref={workspaceTopRef} className="mx-auto w-full max-w-6xl space-y-4 px-4 pt-3 sm:px-6">
           <div className="space-y-3">
             <div className="flex items-center justify-start">
               <MorphyButton variant="none" effect="fade" size="sm" onClick={handleBackToHistory}>
@@ -563,7 +579,7 @@ export default function KaiAnalysisPage() {
           </div>
         </div>
       ) : !resolvingEntry ? (
-        <div className="space-y-3 pt-2">
+        <div className="space-y-3 pt-3">
           {activeRunTask ? (
             <div className="mx-auto w-full max-w-4xl rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
               Debate for <span className="font-semibold">{activeRunTask.ticker}</span> is still

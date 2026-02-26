@@ -50,6 +50,30 @@ export function useScrollReset(
 
   useEffect(() => {
     if (!enabled) return;
-    scrollAppToTop(behavior);
+    let cancelled = false;
+    let rafA = 0;
+    let rafB = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const run = () => {
+      if (cancelled) return;
+      scrollAppToTop(behavior);
+    };
+
+    // Immediate reset
+    run();
+    // Follow-up resets after paint/layout to beat route transition jitter.
+    rafA = window.requestAnimationFrame(run);
+    rafB = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(run);
+    });
+    timeoutId = setTimeout(run, 120);
+
+    return () => {
+      cancelled = true;
+      if (rafA) window.cancelAnimationFrame(rafA);
+      if (rafB) window.cancelAnimationFrame(rafB);
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [enabled, behavior, key]);
 }

@@ -9,9 +9,11 @@ import {
   activeKaiRouteTabFromPath,
   KAI_ROUTE_TABS,
 } from "@/lib/navigation/kai-route-tabs";
+import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 const SWIPE_MIN_DISTANCE_PX = 54;
 const SWIPE_VERTICAL_LIMIT_PX = 56;
@@ -70,6 +72,7 @@ export function DashboardRouteTabs() {
     pathname.startsWith(ROUTES.KAI_ONBOARDING) || pathname.startsWith(ROUTES.KAI_IMPORT);
   const [mounted, setMounted] = useState(false);
   const { hidden: hideRouteTabs } = useKaiBottomChromeVisibility(!hideTabsForPath);
+  const busyOperations = useKaiSession((s) => s.busyOperations);
 
   const activeTab = useMemo(
     () => activeKaiRouteTabFromPath(pathname || ROUTES.KAI_HOME),
@@ -90,12 +93,16 @@ export function DashboardRouteTabs() {
 
   const handleTabChange = useCallback(
     (nextTab: string) => {
+      if (busyOperations["portfolio_save"]) {
+        toast.info("Saving to vault. Please wait until encryption completes.");
+        return;
+      }
       const target = KAI_ROUTE_TABS.find((tab) => tab.id === nextTab);
       if (!target || target.id === activeTab) return;
       scrollAppToTop("auto");
       router.push(target.href);
     },
-    [activeTab, router]
+    [activeTab, busyOperations, router]
   );
 
   useEffect(() => {
@@ -223,6 +230,10 @@ export function DashboardRouteTabs() {
       const direction = deltaX < 0 ? 1 : -1;
       const target = KAI_ROUTE_TABS[activeIndex + direction];
       if (!target) return;
+      if (busyOperations["portfolio_save"]) {
+        toast.info("Saving to vault. Please wait until encryption completes.");
+        return;
+      }
 
       scrollAppToTop("auto");
       router.push(target.href);
@@ -246,7 +257,7 @@ export function DashboardRouteTabs() {
       swipeSurface.removeEventListener("touchend", touchEndListener);
       swipeSurface.removeEventListener("touchcancel", touchCancelListener);
     };
-  }, [mounted, hideTabsForPath, activeTab, router]);
+  }, [mounted, hideTabsForPath, activeTab, busyOperations, router]);
 
   if (!mounted || typeof document === "undefined" || hideTabsForPath) {
     return null;

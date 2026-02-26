@@ -24,6 +24,10 @@ import {
   DebateRunManagerService,
   type DebateRunTask,
 } from "@/lib/services/debate-run-manager";
+import {
+  AppBackgroundTaskService,
+  type AppBackgroundTask,
+} from "@/lib/services/app-background-task-service";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -47,15 +51,36 @@ function statusIcon(task: DebateRunTask) {
   return <Icon icon={Ban} size="sm" className="text-amber-500" />;
 }
 
+function appTaskStatusLabel(task: AppBackgroundTask): string {
+  if (task.status === "running") return "Running";
+  if (task.status === "completed") return "Completed";
+  return "Failed";
+}
+
+function appTaskStatusIcon(task: AppBackgroundTask) {
+  if (task.status === "running") {
+    return <Icon icon={Loader2} size="sm" className="animate-spin text-sky-500" />;
+  }
+  if (task.status === "completed") {
+    return <Icon icon={CheckCircle2} size="sm" className="text-emerald-500" />;
+  }
+  return <Icon icon={XCircle} size="sm" className="text-rose-500" />;
+}
+
 export function DebateTaskCenter() {
   const router = useRouter();
   const { userId } = useAuth();
   const { vaultOwnerToken } = useVault();
-  const [state, setState] = useState(DebateRunManagerService.getState());
+  const [debateState, setDebateState] = useState(DebateRunManagerService.getState());
+  const [appTaskState, setAppTaskState] = useState(AppBackgroundTaskService.getState());
   const [isBusy, setIsBusy] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    return DebateRunManagerService.subscribe(setState);
+    return DebateRunManagerService.subscribe(setDebateState);
+  }, []);
+
+  useEffect(() => {
+    return AppBackgroundTaskService.subscribe(setAppTaskState);
   }, []);
 
   useEffect(() => {
@@ -66,19 +91,28 @@ export function DebateTaskCenter() {
     }).catch(() => undefined);
   }, [userId, vaultOwnerToken]);
 
-  const tasks = useMemo(() => {
+  const debateTasks = useMemo(() => {
     if (!userId) return [];
-    return state.tasks.filter((task) => task.userId === userId && !task.dismissedAt);
-  }, [state.tasks, userId]);
+    return debateState.tasks.filter((task) => task.userId === userId && !task.dismissedAt);
+  }, [debateState.tasks, userId]);
 
-  const activeCount = tasks.filter((task) => task.status === "running").length;
-  const completedCount = tasks.filter((task) => task.status !== "running").length;
+  const appTasks = useMemo(() => {
+    if (!userId) return [];
+    return appTaskState.tasks.filter((task) => task.userId === userId && !task.dismissedAt);
+  }, [appTaskState.tasks, userId]);
+
+  const activeCount =
+    debateTasks.filter((task) => task.status === "running").length +
+    appTasks.filter((task) => task.status === "running").length;
+  const completedCount =
+    debateTasks.filter((task) => task.status !== "running").length +
+    appTasks.filter((task) => task.status !== "running").length;
   const badgeCount = activeCount + completedCount;
   const latestActiveTask = useMemo(() => {
-    return tasks
+    return debateTasks
       .filter((task) => task.status === "running")
       .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
-  }, [tasks]);
+  }, [debateTasks]);
 
   const openAnalysis = (focusActive = false) => {
     if (focusActive && latestActiveTask) {
@@ -129,12 +163,13 @@ export function DebateTaskCenter() {
           <p className="text-sm font-semibold">Background tasks</p>
         </div>
         <div className="max-h-[360px] overflow-y-auto">
-          {tasks.length === 0 ? (
+          {debateTasks.length === 0 && appTasks.length === 0 ? (
             <div className="px-3 py-6 text-center text-sm text-muted-foreground">
-              No debate tasks yet.
+              No background tasks yet.
             </div>
           ) : (
-            tasks.map((task) => (
+            <>
+              {debateTasks.map((task) => (
               <div
                 key={task.runId}
                 className="border-b border-border/40 px-3 py-3 last:border-b-0"
@@ -224,7 +259,60 @@ export function DebateTaskCenter() {
                   </div>
                 </div>
               </div>
-            ))
+            ))}
+
+              {appTasks.map((task) => (
+                <div
+                  key={task.taskId}
+                  className="border-b border-border/40 px-3 py-3 last:border-b-0"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        {appTaskStatusIcon(task)}
+                        <span className="text-sm font-semibold">{task.title}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {appTaskStatusLabel(task)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">{task.description}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Started {new Date(task.startedAt).toLocaleTimeString()}
+                      </p>
+                      {task.error ? (
+                        <p className="mt-1 text-xs text-rose-500">{task.error}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {task.routeHref ? (
+                        <Button
+                          variant="none"
+                          effect="fade"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => router.push(task.routeHref!)}
+                          aria-label="Open related screen"
+                        >
+                          <Icon icon={ExternalLink} size="xs" />
+                        </Button>
+                      ) : null}
+                      {task.status !== "running" ? (
+                        <Button
+                          variant="none"
+                          effect="fade"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => AppBackgroundTaskService.dismissTask(task.taskId)}
+                          aria-label="Dismiss task"
+                        >
+                          <Icon icon={X} size="xs" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
           )}
         </div>
         <div className="border-t border-border/40 px-3 py-2">

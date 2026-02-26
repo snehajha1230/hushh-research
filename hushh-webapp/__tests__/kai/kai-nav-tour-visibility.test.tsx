@@ -69,10 +69,30 @@ describe("KaiNavTour", () => {
     render(<KaiNavTour />);
 
     await waitFor(() => {
-      expect(screen.getByText("Bottom Navigation Tour")).toBeTruthy();
+      expect(screen.getByText("Kai Navigation Tour")).toBeTruthy();
     });
 
-    expect(screen.queryByText("Agent Nav")).toBeNull();
-    expect(screen.getByText(/1\/3/)).toBeTruthy();
+    expect(screen.getByText(/1\/5/)).toBeTruthy();
+  });
+
+  it("hides tour when vault profile indicates completed on another device", async () => {
+    getProfileMock.mockResolvedValue({
+      onboarding: {
+        nav_tour_completed_at: "2026-02-20T12:00:00.000Z",
+        nav_tour_skipped_at: null,
+      },
+    });
+
+    render(<KaiNavTour />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Kai Navigation Tour")).toBeNull();
+    });
+
+    expect(markCompletedMock).toHaveBeenCalledWith(
+      "user-1",
+      expect.any(Date)
+    );
+    expect(markSyncedMock).toHaveBeenCalledWith("user-1");
   });
 });

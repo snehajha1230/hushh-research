@@ -40,6 +40,7 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
+import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -243,6 +244,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.error("Sign out error", e);
     } finally {
       CacheSyncService.onAuthSignedOut(currentUid);
+      if (currentUid) {
+        await UserLocalStateService.clearForUser(currentUid);
+      }
 
       setUser(null);
       setPhoneNumber(null);

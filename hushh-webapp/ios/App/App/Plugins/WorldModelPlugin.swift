@@ -46,8 +46,11 @@ public class WorldModelPlugin: CAPPlugin, CAPBridgedPlugin {
     // URLSession with reasonable timeouts
     private lazy var urlSession: URLSession = {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 60
+        // Financial-domain blob payloads can be large on mobile.
+        // Keep request/resource windows long enough to avoid false timeouts
+        // while still bounded for reliability.
+        config.timeoutIntervalForRequest = 90
+        config.timeoutIntervalForResource = 180
         return URLSession(configuration: config)
     }()
     

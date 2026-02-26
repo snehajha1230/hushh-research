@@ -491,8 +491,12 @@ export function VaultFlow({
 
   return (
     <>
-      <Card variant="none" effect="fill">
-        <CardContent className="space-y-3 p-4 sm:space-y-4 sm:p-6">
+      <Card
+        variant="none"
+        effect="fill"
+        className="overflow-hidden"
+      >
+        <CardContent className="max-h-[calc(100svh-8rem)] space-y-3 overflow-y-auto p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] sm:max-h-[calc(100svh-10rem)] sm:space-y-4 sm:p-6">
           {/* Intro / Education Step */}
           {step === "intro" && (
             <div className="space-y-6 text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -550,16 +554,16 @@ export function VaultFlow({
 
           {/* Create Passphrase */}
           {step === "create" && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="text-center">
-                <Icon icon={Lock} size={48} className="mx-auto text-primary mb-4" />
-                <h3 className="font-semibold text-xl">Create Your Vault Passphrase</h3>
-                <p className="text-base text-muted-foreground mt-2">
+                <Icon icon={Lock} size={36} className="mx-auto text-primary mb-3" />
+                <h3 className="text-lg font-semibold sm:text-xl">Create Your Vault Passphrase</h3>
+                <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">
                   This passphrase encrypts your data. We never see it.
                 </p>
               </div>
-              <div className="space-y-3">
-                <Label htmlFor="passphrase" className="text-base">Passphrase</Label>
+              <div className="space-y-2">
+                <Label htmlFor="passphrase" className="text-sm sm:text-base">Passphrase</Label>
                 <Input
                   id="passphrase"
                   type="password"
@@ -567,37 +571,37 @@ export function VaultFlow({
                   value={passphrase}
                   onChange={(e) => setPassphrase(e.target.value)}
                   autoFocus
-                  className="h-14 text-lg px-4"
+                  className="h-11 px-3 text-base sm:h-12 sm:px-4 sm:text-lg"
                 />
               </div>
-              <div className="space-y-3">
-                <Label htmlFor="confirm" className="text-base">Confirm Passphrase</Label>
+              <div className="space-y-2">
+                <Label htmlFor="confirm" className="text-sm sm:text-base">Confirm Passphrase</Label>
                 <Input
                   id="confirm"
                   type="password"
                   placeholder="Re-enter passphrase"
                   value={confirmPassphrase}
                   onChange={(e) => setConfirmPassphrase(e.target.value)}
-                  className="h-14 text-lg px-4"
+                  className="h-11 px-3 text-base sm:h-12 sm:px-4 sm:text-lg"
                 />
               </div>
-              <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground sm:text-sm">
+              <div className="rounded-xl border border-border/60 bg-muted/20 p-2.5 text-[11px] text-muted-foreground sm:p-3 sm:text-sm">
                 <p className="font-semibold text-foreground">Passphrase requirements</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4">
                   <li>Minimum 8 characters</li>
                   <li>Use a memorable phrase unique to you</li>
                   <li>Avoid reused passwords from other apps</li>
                 </ul>
-                <p className="mt-2 text-[11px] text-muted-foreground sm:text-xs">
+                <p className="mt-1.5 text-[10px] text-muted-foreground sm:mt-2 sm:text-xs">
                   You can enable passkey or biometric later from Profile.
                 </p>
               </div>
               <Button
                 variant="gradient"
                 effect="glass"
-                size={ACTION_BUTTON_SIZE}
+                size="default"
                 fullWidth
-                className="mt-4"
+                className="mt-2 h-11 text-sm sm:mt-4 sm:h-12 sm:text-base"
                 onClick={handleCreatePassphrase}
                 disabled={isUnlocking || passphrase.length < 8 || passphrase !== confirmPassphrase}
               >
@@ -614,27 +618,27 @@ export function VaultFlow({
 
           {/* Unlock Passphrase */}
           {step === "unlock" && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="text-center">
                 <Icon
                   icon={isGeneratedVaultMode ? Fingerprint : Lock}
-                  size={40}
-                  className="mx-auto text-primary mb-4"
+                  size={32}
+                  className="mx-auto mb-3 text-primary"
                 />
                 <h3 className="text-lg font-semibold sm:text-xl">Unlock Your Vault</h3>
-                <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+                <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">
                   {isGeneratedVaultMode
                     ? "Use your device security to decrypt your vault key"
                     : "Enter your passphrase to decrypt your data"}
                 </p>
                 {unlockHint ? (
-                  <p className="mt-2 text-xs font-medium text-amber-500">
+                  <p className="mt-1.5 text-xs font-medium text-amber-500">
                     {unlockHint}
                   </p>
                 ) : null}
               </div>
               {shouldShowPassphraseUnlock && (
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <Label htmlFor="unlock-passphrase" className="text-sm sm:text-base">Passphrase</Label>
                   <Input
                     id="unlock-passphrase"
@@ -646,7 +650,7 @@ export function VaultFlow({
                       e.key === "Enter" && handleUnlockPassphrase()
                     }
                     autoFocus
-                    className="h-11 px-3 text-base sm:h-14 sm:px-4 sm:text-lg"
+                    className="h-11 px-3 text-base sm:h-12 sm:px-4 sm:text-lg"
                   />
                 </div>
               )}
@@ -658,8 +662,9 @@ export function VaultFlow({
                   <Button
                     variant="gradient"
                     effect="glass"
-                    size={ACTION_BUTTON_SIZE}
+                    size="default"
                     fullWidth
+                    className="h-11 text-sm sm:h-12 sm:text-base"
                     onClick={() => void handleUnlockPassphrase()}
                     disabled={isUnlocking || !passphrase}
                   >
@@ -692,8 +697,9 @@ export function VaultFlow({
                   <Button
                     variant="none"
                     effect="fade"
-                    size={ACTION_BUTTON_SIZE}
+                    size="default"
                     fullWidth
+                    className="h-11 text-sm sm:h-12 sm:text-base"
                     onClick={() => void handleUnlockGeneratedDefault()}
                     disabled={isUnlocking}
                   >
@@ -704,8 +710,9 @@ export function VaultFlow({
                   <Button
                     variant="none"
                     effect="fade"
-                    size={ACTION_BUTTON_SIZE}
+                    size="default"
                     fullWidth
+                    className="h-11 text-sm sm:h-12 sm:text-base"
                     onClick={() => {
                       setError(null);
                       setUnlockWithPassphraseFallback(true);
@@ -719,8 +726,9 @@ export function VaultFlow({
                   <Button
                     variant="none"
                     effect="fade"
-                    size={ACTION_BUTTON_SIZE}
+                    size="default"
                     fullWidth
+                    className="h-11 text-sm sm:h-12 sm:text-base"
                     onClick={() => {
                       setError(null);
                       setPassphrase("");
@@ -737,8 +745,9 @@ export function VaultFlow({
                     <Button
                       variant="none"
                       effect="fade"
-                      size={ACTION_BUTTON_SIZE}
+                      size="default"
                       fullWidth
+                      className="h-11 text-sm sm:h-12 sm:text-base"
                       onClick={() => {
                         setError(null);
                         setVaultMode(availableGeneratedMethod);
@@ -755,8 +764,9 @@ export function VaultFlow({
                 <Button
                   variant="none"
                   effect="glass"
-                  size={ACTION_BUTTON_SIZE}
+                  size="default"
                   fullWidth
+                  className="h-11 text-sm sm:h-12 sm:text-base"
                   onClick={() => {
                     setError(null);
                     setStep("recovery");
@@ -771,16 +781,16 @@ export function VaultFlow({
 
           {/* Recovery Key Input */}
           {step === "recovery" && !recoveryKey && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="text-center">
-                <Icon icon={Key} size={48} className="mx-auto text-primary mb-4" />
-                <h3 className="font-semibold text-xl">Enter Recovery Key</h3>
-                <p className="text-base text-muted-foreground mt-2">
+                <Icon icon={Key} size={36} className="mx-auto mb-3 text-primary" />
+                <h3 className="text-lg font-semibold sm:text-xl">Enter Recovery Key</h3>
+                <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">
                   Enter your recovery key to unlock your vault
                 </p>
               </div>
-              <div className="space-y-3">
-                <Label htmlFor="recovery-key" className="text-base">Recovery Key</Label>
+              <div className="space-y-2">
+                <Label htmlFor="recovery-key" className="text-sm sm:text-base">Recovery Key</Label>
                 <Input
                   id="recovery-key"
                   placeholder="HRK-XXXX-XXXX-XXXX-XXXX"
@@ -788,7 +798,7 @@ export function VaultFlow({
                   onChange={(e) =>
                     setRecoveryKeyInput(e.target.value.toUpperCase())
                   }
-                  className="h-14 text-lg px-4 font-mono"
+                  className="h-11 px-3 font-mono text-base sm:h-12 sm:px-4 sm:text-lg"
                 />
                 {error && (
                   <p className="text-sm text-destructive">{error}</p>
@@ -798,9 +808,9 @@ export function VaultFlow({
                 <Button
                   variant="gradient"
                   effect="glass"
-                  size={ACTION_BUTTON_SIZE}
+                  size="default"
                   fullWidth
-                  className="font-semibold"
+                  className="h-11 text-sm font-semibold sm:h-12 sm:text-base"
                   onClick={handleRecoveryKeySubmit}
                   disabled={isUnlocking || !recoveryKeyInput}
                 >
@@ -815,8 +825,9 @@ export function VaultFlow({
                 <Button
                   variant="none"
                   effect="glass"
-                  size={ACTION_BUTTON_SIZE}
+                  size="default"
                   fullWidth
+                  className="h-11 text-sm sm:h-12 sm:text-base"
                   onClick={() => {
                     setError(null);
                     setStep("unlock");
@@ -840,7 +851,7 @@ export function VaultFlow({
           )}
 
           {step === "method" && (
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="text-center">
                 <Icon
                   icon={
@@ -849,11 +860,11 @@ export function VaultFlow({
                       ? Key
                       : Fingerprint
                   }
-                  size={48}
-                  className="mx-auto text-primary mb-4"
+                  size={36}
+                  className="mx-auto mb-3 text-primary"
                 />
-                <h3 className="font-semibold text-xl">Enable quicker unlock?</h3>
-                <p className="text-base text-muted-foreground mt-2">
+                <h3 className="text-lg font-semibold sm:text-xl">Enable quicker unlock?</h3>
+                <p className="mt-1.5 text-sm text-muted-foreground sm:text-base">
                   You can keep passphrase unlock, or enable{" "}
                   {recommendedQuickMethod === "generated_default_web_prf" ||
                   recommendedQuickMethod === "generated_default_native_passkey_prf"
@@ -867,8 +878,9 @@ export function VaultFlow({
                 <Button
                   variant="gradient"
                   effect="glass"
-                  size={ACTION_BUTTON_SIZE}
+                  size="default"
                   fullWidth
+                  className="h-11 text-sm sm:h-12 sm:text-base"
                   disabled={isUnlocking || !pendingUnlockKey || !recommendedQuickMethod}
                   onClick={async () => {
                     if (!pendingUnlockKey || !recommendedQuickMethod) return;
@@ -917,9 +929,9 @@ export function VaultFlow({
                 <Button
                   variant="none"
                   effect="fade"
-                  size={ACTION_BUTTON_SIZE}
+                  size="default"
                   fullWidth
-                  className="whitespace-normal text-center leading-snug px-4"
+                  className="h-11 whitespace-normal px-4 text-center text-sm leading-snug sm:h-12 sm:text-base"
                   disabled={isUnlocking || !pendingUnlockKey}
                   onClick={async () => {
                     if (!pendingUnlockKey) return;
@@ -954,7 +966,7 @@ export function VaultFlow({
         onOpenChange={() => {}}
       >
         <DialogContent
-          className="sm:max-w-md"
+          className="z-[520] w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md"
           onPointerDownOutside={(e) => e.preventDefault()}
         >
           <DialogHeader>

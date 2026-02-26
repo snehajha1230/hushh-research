@@ -63,8 +63,8 @@ import {
 } from "@/lib/services/vault-method-service";
 import { resolveDeleteAccountAuth } from "@/lib/flows/delete-account";
 import { toast } from "sonner";
-import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { UserLocalStateService } from "@/lib/services/user-local-state-service";
 import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
@@ -287,7 +287,7 @@ export default function ProfilePage() {
 
       await AccountService.deleteAccount(resolution.token);
       CacheSyncService.onAccountDeleted(user.uid);
-      await PreVaultOnboardingService.clear(user.uid);
+      await UserLocalStateService.clearForUser(user.uid);
       setOnboardingRequiredCookie(false);
       setOnboardingFlowActiveCookie(false);
       toast.success("Account deleted successfully. Redirecting...", {

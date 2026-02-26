@@ -33,7 +33,11 @@ import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { ROUTES, isKaiOnboardingRoute } from "@/lib/navigation/routes";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { Capacitor } from "@capacitor/core";
-import { resetKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import {
+  resetKaiBottomChromeVisibility,
+  useKaiBottomChromeVisibility,
+} from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { cn } from "@/lib/utils";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -45,6 +49,9 @@ export function Providers({ children }: ProvidersProps) {
     pathname === ROUTES.HOME || pathname.startsWith(ROUTES.LOGIN);
   const isKaiOnboarding = isKaiOnboardingRoute(pathname);
   const showSharedBottomChromeGlass = !hideGlobalChrome && !isKaiOnboarding;
+  const { hidden: hideBottomChromeGlass } = useKaiBottomChromeVisibility(
+    showSharedBottomChromeGlass
+  );
   const pageRef = useRef<HTMLDivElement | null>(null);
   const pageAnimationKey = useMemo(
     () => (pathname.startsWith("/kai") ? "/kai-stable-shell" : pathname),
@@ -95,7 +102,15 @@ export function Providers({ children }: ProvidersProps) {
                     {showSharedBottomChromeGlass ? (
                       <div
                         aria-hidden
-                        className="pointer-events-none fixed inset-x-0 bottom-0 z-[108]"
+                        className={cn(
+                          "pointer-events-none fixed inset-x-0 bottom-0 z-[108] transform-gpu transition-all duration-300 ease-out",
+                          hideBottomChromeGlass ? "opacity-0" : "opacity-100"
+                        )}
+                        style={{
+                          transform: hideBottomChromeGlass
+                            ? "translate3d(0, calc(100% + 18px), 0)"
+                            : "translate3d(0, 0, 0)",
+                        }}
                       >
                         <div className="h-[calc(var(--app-bottom-inset)+var(--kai-command-fixed-ui)+36px)] w-full bar-glass bar-glass-bottom" />
                       </div>

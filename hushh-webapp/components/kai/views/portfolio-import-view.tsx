@@ -267,10 +267,10 @@ export function PortfolioImportView({
       {onPreloadSchema ? (
         <div className="space-y-1.5">
           <MorphyButton
-            variant="none"
-            effect="fade"
-            size="default"
-            className="w-full border border-border/70 bg-background/75"
+            variant="blue-gradient"
+            effect="fill"
+            size="lg"
+            className="w-full border-none font-black shadow-xl"
             onClick={handlePreloadSchema}
             disabled={isUploading || isPreloadingSchema}
             icon={{
@@ -278,7 +278,7 @@ export function PortfolioImportView({
               gradient: false,
             }}
           >
-            {isPreloadingSchema ? "Loading Demo Mode..." : "Load Demo Mode Data"}
+            {isPreloadingSchema ? "Loading Sample Brokerage..." : "Load Sample Brokerage"}
           </MorphyButton>
           <p className="px-1 text-[11px] text-muted-foreground">
             Load demo portfolio data any time, review it, then save to vault.

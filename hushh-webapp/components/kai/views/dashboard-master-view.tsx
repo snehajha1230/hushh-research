@@ -3,13 +3,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
-  Pencil,
   Plus,
   Save,
   Trash2,
   TrendingDown,
   TrendingUp,
-  Undo2,
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -21,6 +19,7 @@ import { HoldingsConcentrationChart } from "@/components/kai/charts/holdings-con
 import { PortfolioHistoryChart } from "@/components/kai/charts/portfolio-history-chart";
 import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation-chart";
 import { StatementCashflowChart } from "@/components/kai/charts/statement-cashflow-chart";
+import { HoldingRowActions } from "@/components/kai/holdings/holding-row-actions";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import type { Holding as PortfolioHolding, PortfolioData } from "@/components/kai/types/portfolio";
 import { ProfileBasedPicksList } from "@/components/kai/cards/profile-based-picks-list";
@@ -1073,6 +1072,27 @@ export function DashboardMasterView({
   const holdingsTableColumns = useMemo<ColumnDef<ManagedHolding>[]>(
     () => [
       {
+        id: "row_actions",
+        header: () => <span className="sr-only">Actions</span>,
+        cell: ({ row }) => {
+          const holding = row.original;
+          const deleted = Boolean(holding.pending_delete);
+          return (
+            <div className="flex items-start justify-center pt-1">
+              <HoldingRowActions
+                symbol={holding.symbol}
+                isDeleted={deleted}
+                disableEdit={deleted}
+                layout="row"
+                className="w-auto"
+                onEdit={() => handleEditHolding(holding.client_id)}
+                onToggleDelete={() => handleToggleDeleteHolding(holding.client_id)}
+              />
+            </div>
+          );
+        },
+      },
+      {
         accessorKey: "symbol",
         header: "Holding",
         cell: ({ row }) => {
@@ -1081,7 +1101,7 @@ export function DashboardMasterView({
           return (
             <div
               className={cn(
-                "min-w-0 max-w-[160px] sm:max-w-[280px] lg:max-w-[340px]",
+                "min-w-[170px] max-w-[240px] sm:max-w-[280px] lg:max-w-[340px]",
                 deleted && "opacity-60"
               )}
             >
@@ -1155,50 +1175,12 @@ export function DashboardMasterView({
           );
         },
       },
-      {
-        id: "actions",
-        header: "Actions",
-        cell: ({ row }) => {
-          const holding = row.original;
-          const isDeleted = Boolean(holding.pending_delete);
-          return (
-            <div className="flex items-center justify-end gap-1">
-              <MorphyButton
-                variant="none"
-                effect="fade"
-                size="sm"
-                disabled={isDeleted}
-                aria-label={`Edit ${holding.symbol || "holding"}`}
-                onClick={() => handleEditHolding(holding.client_id)}
-                title={`Edit ${holding.symbol || "holding"}`}
-                className="h-8 w-8 min-w-8 justify-center p-0"
-              >
-                <Icon icon={Pencil} size="sm" />
-              </MorphyButton>
-              <MorphyButton
-                variant="none"
-                effect="fade"
-                size="sm"
-                aria-label={isDeleted ? `Undo remove ${holding.symbol}` : `Remove ${holding.symbol}`}
-                onClick={() => handleToggleDeleteHolding(holding.client_id)}
-                title={isDeleted ? `Restore ${holding.symbol || "holding"}` : `Remove ${holding.symbol || "holding"}`}
-                className={cn(
-                  "h-8 w-8 min-w-8 justify-center p-0",
-                  isDeleted ? "text-muted-foreground" : "text-rose-600 hover:text-rose-700"
-                )}
-              >
-                <Icon icon={isDeleted ? Undo2 : Trash2} size="sm" />
-              </MorphyButton>
-            </div>
-          );
-        },
-      },
     ],
     [handleEditHolding, handleToggleDeleteHolding]
   );
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8 overflow-x-hidden px-5 pb-[calc(160px+var(--app-bottom-inset))] pt-2 sm:px-8">
+    <div className="mx-auto w-full max-w-5xl space-y-8 overflow-x-hidden px-5 pb-[calc(160px+var(--app-bottom-inset))] pt-[var(--kai-view-top-gap,16px)] sm:px-8">
       <Card
         variant="muted"
         effect="fill"
@@ -1444,7 +1426,7 @@ export function DashboardMasterView({
                     : "bg-transparent"
                 }
                 tableContainerClassName="w-full"
-                tableClassName="w-full table-fixed"
+                tableClassName="w-full"
               />
             </TabsContent>
 
@@ -1461,7 +1443,7 @@ export function DashboardMasterView({
                     : "bg-transparent"
                 }
                 tableContainerClassName="w-full"
-                tableClassName="w-full table-fixed"
+                tableClassName="w-full"
               />
             </TabsContent>
 
@@ -1478,7 +1460,7 @@ export function DashboardMasterView({
                     : "bg-transparent"
                 }
                 tableContainerClassName="w-full"
-                tableClassName="w-full table-fixed"
+                tableClassName="w-full"
               />
             </TabsContent>
 
@@ -1495,7 +1477,7 @@ export function DashboardMasterView({
                     : "bg-transparent"
                 }
                 tableContainerClassName="w-full"
-                tableClassName="w-full table-fixed"
+                tableClassName="w-full"
               />
             </TabsContent>
           </Tabs>

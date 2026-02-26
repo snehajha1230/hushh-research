@@ -71,6 +71,12 @@ function isResolved(state: {
   return Boolean(state?.completed_at || state?.skipped_at);
 }
 
+function toDateOrNow(value: string | null | undefined): Date {
+  if (!value) return new Date();
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
 export function KaiNavTour() {
   const pathname = usePathname();
   const { user, loading } = useAuth();
@@ -104,7 +110,10 @@ export function KaiNavTour() {
       if (cancelled) return;
 
       const localResolved = isResolved(local);
-      const localSynced = Boolean(local?.synced_to_vault_at);
+      if (localResolved) {
+        setOpen(false);
+        return;
+      }
 
       if (isVaultUnlocked && vaultKey && vaultOwnerToken) {
         try {
@@ -115,34 +124,32 @@ export function KaiNavTour() {
           });
 
           if (cancelled) return;
+          const remoteCompletedAt = profile.onboarding.nav_tour_completed_at;
+          const remoteSkippedAt = profile.onboarding.nav_tour_skipped_at;
+          const remoteResolved = Boolean(remoteCompletedAt || remoteSkippedAt);
 
-          if (profile.onboarding.nav_tour_completed_at) {
-            await KaiNavTourLocalService.markCompleted(user.uid);
+          if (remoteResolved) {
+            // Cross-device behavior: if completed/skipped on any device once,
+            // suppress tour on this device and mirror that state locally.
+            if (remoteCompletedAt) {
+              await KaiNavTourLocalService.markCompleted(
+                user.uid,
+                toDateOrNow(remoteCompletedAt)
+              );
+            } else {
+              await KaiNavTourLocalService.markSkipped(
+                user.uid,
+                toDateOrNow(remoteSkippedAt)
+              );
+            }
             await KaiNavTourLocalService.markSynced(user.uid);
+            if (cancelled) return;
             setOpen(false);
-            return;
-          }
-
-          if (profile.onboarding.nav_tour_skipped_at) {
-            await KaiNavTourLocalService.markSkipped(user.uid);
-            await KaiNavTourLocalService.markSynced(user.uid);
-            setOpen(false);
-            return;
-          }
-
-          if (localResolved && !localSynced) {
-            setStepIndex(0);
-            setOpen(true);
             return;
           }
         } catch (error) {
           console.warn("[KaiNavTour] Failed to read vault-backed tour state:", error);
         }
-      }
-
-      if (localResolved) {
-        setOpen(false);
-        return;
       }
 
       setStepIndex(0);

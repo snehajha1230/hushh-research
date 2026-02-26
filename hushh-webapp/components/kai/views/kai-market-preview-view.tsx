@@ -571,7 +571,7 @@ export function KaiMarketPreviewView() {
   }, [hasPayload, payload?.hero?.holdings_count]);
 
   return (
-    <div className="mx-auto w-full max-w-[390px] overflow-x-hidden px-4 pt-2 pb-[calc(148px+var(--app-bottom-inset))]">
+    <div className="mx-auto w-full max-w-[390px] overflow-x-hidden px-4 pt-[var(--kai-view-top-gap,16px)] pb-[calc(148px+var(--app-bottom-inset))]">
       <header className="space-y-2 text-center">
         <h1 className="text-2xl font-black tracking-tight leading-tight">Explore the market with Kai</h1>
         <p className="mx-auto max-w-[22rem] text-sm text-muted-foreground">

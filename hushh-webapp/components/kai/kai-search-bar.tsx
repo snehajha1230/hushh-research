@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Mic, Search } from "lucide-react";
 
 import { KaiCommandPalette, type KaiCommandAction } from "@/components/kai/kai-command-palette";
@@ -9,6 +9,7 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 import { useKaiBottomChromeVisibility } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { KAI_COMMAND_BAR_OPEN_EVENT } from "@/lib/navigation/kai-command-bar-events";
 
 interface KaiSearchBarProps {
   onCommand: (command: KaiCommandAction, params?: Record<string, unknown>) => void;
@@ -53,6 +54,14 @@ export function KaiSearchBar({
     return () => {
       ro?.disconnect();
       window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleOpen = () => setOpen(true);
+    window.addEventListener(KAI_COMMAND_BAR_OPEN_EVENT, handleOpen as EventListener);
+    return () => {
+      window.removeEventListener(KAI_COMMAND_BAR_OPEN_EVENT, handleOpen as EventListener);
     };
   }, []);
 

@@ -17,15 +17,12 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import {
-  Pencil,
-  Trash2,
-  Undo2,
   Plus,
   Save,
   RefreshCw,
   Loader2,
-  AlertCircle,
   Building2,
   TrendingUp,
   TrendingDown,
@@ -38,7 +35,9 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Kbd } from "@/components/ui/kbd";
+import { HoldingRowActions } from "@/components/kai/holdings/holding-row-actions";
+import { DataTable } from "@/components/app-ui/data-table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 
 import {
@@ -71,6 +70,7 @@ import {
   CardHeader, 
   CardTitle,
 } from "@/lib/morphy-ux/card";
+import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 
 
@@ -216,6 +216,11 @@ export interface PortfolioReviewViewProps {
   className?: string;
 }
 
+type ReviewHoldingRow = Holding & {
+  client_id: string;
+  source_index: number;
+};
+
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
@@ -328,6 +333,26 @@ function inferAnalyzeEligibility(
   return false;
 }
 
+function extractSaveErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    const trimmed = error.message.trim();
+    if (trimmed) return trimmed;
+  }
+  if (typeof error === "string" && error.trim()) return error.trim();
+  return fallback;
+}
+
+function isAuthFailureMessage(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("401") ||
+    lower.includes("403") ||
+    lower.includes("unauthorized") ||
+    lower.includes("forbidden") ||
+    lower.includes("vault owner token")
+  );
+}
+
 function normalizeHoldingForStorage(holding: Holding): Holding {
   const isCashEquivalent = isCashEquivalentHolding(holding);
   const identifierType = inferHoldingIdentifierType(holding);
@@ -343,6 +368,16 @@ function normalizeHoldingForStorage(holding: Holding): Holding {
     debate_eligible: isInvestable,
     optimize_eligible: isInvestable,
   };
+}
+
+function isHoldingAnalyzeEligible(holding: Holding): boolean {
+  if (holding.pending_delete) return false;
+  if (holding.is_cash_equivalent === true || isCashEquivalentHolding(holding)) return false;
+  if (typeof holding.analyze_eligible === "boolean") return holding.analyze_eligible;
+  if (typeof holding.is_investable === "boolean") return holding.is_investable;
+  const kind = String(holding.instrument_kind || "").toLowerCase();
+  if (kind.includes("equity")) return true;
+  return false;
 }
 
 function toFiniteNumber(value: unknown): number | undefined {
@@ -676,10 +711,6 @@ function pickBestStatementSnapshot(statements: unknown): Record<string, unknown>
   return candidates[0];
 }
 
-const SpinningLoader = (props: any) => (
-  <Loader2 {...props} className={cn(props.className, "animate-spin")} />
-);
-
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -696,9 +727,19 @@ export function PortfolioReviewView({
 }: PortfolioReviewViewProps) {
   const { setPortfolioData: setCachePortfolioData } = useCache();
   const { user } = useAuth();
-  const { vaultKey: ctxVaultKey, vaultOwnerToken: ctxVaultOwnerToken } = useVault();
+  const {
+    vaultKey: ctxVaultKey,
+    vaultOwnerToken: ctxVaultOwnerToken,
+    tokenExpiresAt: ctxTokenExpiresAt,
+    unlockVault: contextUnlockVault,
+    getVaultOwnerToken: contextGetVaultOwnerToken,
+  } = useVault();
+  const currentContextToken =
+    typeof contextGetVaultOwnerToken === "function"
+      ? contextGetVaultOwnerToken()
+      : ctxVaultOwnerToken;
   const effectiveVaultKey = ctxVaultKey ?? vaultKey;
-  const effectiveVaultOwnerToken = ctxVaultOwnerToken ?? vaultOwnerToken;
+  const effectiveVaultOwnerToken = currentContextToken ?? vaultOwnerToken;
 
   // Editable state
   const [accountInfo, setAccountInfo] = useState<AccountInfo>(
@@ -732,8 +773,10 @@ export function PortfolioReviewView({
   const createdVaultCopyRef = useRef(false);
   const createdVaultModeRef = useRef<string | null>(null);
   const continuationInFlightRef = useRef(false);
-  const [editingHoldingIndex, setEditingHoldingIndex] = useState<number | null>(
-    null
+  const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
+  const [editingHoldingIndex, setEditingHoldingIndex] = useState<number>(-1);
+  const [holdingsTab, setHoldingsTab] = useState<"all" | "analyze" | "non-analyze" | "cash">(
+    "all"
   );
 
   // Computed values
@@ -830,7 +873,7 @@ export function PortfolioReviewView({
 
   useEffect(() => {
     if (!pendingVaultSave) return;
-    if (!effectiveVaultKey || !effectiveVaultOwnerToken) return;
+    if (!effectiveVaultKey) return;
     if (continuationInFlightRef.current) return;
 
     setPendingVaultSave(false);
@@ -839,7 +882,7 @@ export function PortfolioReviewView({
       continuationInFlightRef.current = false;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingVaultSave, effectiveVaultKey, effectiveVaultOwnerToken]);
+  }, [pendingVaultSave, effectiveVaultKey]);
 
   const activeHoldings = useMemo(
     () => holdings.filter((holding) => !holding.pending_delete),
@@ -915,38 +958,55 @@ export function PortfolioReviewView({
     toast.info("Holding marked for removal");
   }, []);
 
-  const handleUpdateHolding = useCallback(
-    (index: number, field: keyof Holding, value: string | number) => {
-      setHoldings((prev) =>
-        prev.map((h, i) => {
-          if (i !== index) return h;
-          const updated = { ...h, [field]: value };
-          // Recalculate market value if quantity or price changed
-          if (field === "quantity" || field === "price") {
-            updated.market_value =
-              (updated.quantity || 0) * (updated.price || 0);
-            const costBasis = toFiniteNumber(updated.cost_basis);
-            if (costBasis !== undefined) {
-              const unrealized = (updated.market_value || 0) - costBasis;
-              updated.unrealized_gain_loss = unrealized;
-              updated.unrealized_gain_loss_pct =
-                costBasis === 0
-                  ? undefined
-                  : Number(((unrealized / costBasis) * 100).toFixed(2));
-            }
-          }
-          return updated;
-        })
-      );
+  const handleEditHolding = useCallback(
+    (index: number) => {
+      const row = holdings[index];
+      if (!row) return;
+      if (row.pending_delete) {
+        toast.info("Restore this holding before editing.");
+        return;
+      }
+      setEditingHolding({ ...row, pending_delete: false });
+      setEditingHoldingIndex(index);
     },
-    []
+    [holdings]
+  );
+
+  const closeHoldingModal = useCallback(() => {
+    setEditingHolding(null);
+    setEditingHoldingIndex(-1);
+  }, []);
+
+  const handleSaveHolding = useCallback(
+    (updatedHolding: Holding) => {
+      setHoldings((prev) => {
+        const next = [...prev];
+        if (editingHoldingIndex >= 0 && editingHoldingIndex < next.length) {
+          const existing = next[editingHoldingIndex];
+          if (!existing) return next;
+          next[editingHoldingIndex] = {
+            ...existing,
+            ...updatedHolding,
+            pending_delete: false,
+          };
+          return next;
+        }
+        next.push({
+          ...updatedHolding,
+          pending_delete: false,
+        });
+        return next;
+      });
+      closeHoldingModal();
+    },
+    [closeHoldingModal, editingHoldingIndex]
   );
 
   const handleAddHolding = useCallback(() => {
     const newHolding: Holding = {
       symbol: "",
       identifier_type: "ticker",
-      name: "New Holding",
+      name: "",
       quantity: 0,
       price: 0,
       market_value: 0,
@@ -958,10 +1018,173 @@ export function PortfolioReviewView({
       optimize_eligible: false,
       pending_delete: false,
     };
-    setHoldings((prev) => [...prev, newHolding]);
-    setEditingHoldingIndex(holdings.length);
+    setEditingHolding(newHolding);
+    setEditingHoldingIndex(-1);
     toast.info("New holding added - please fill in the details");
-  }, [holdings.length]);
+  }, []);
+
+  const tableHoldingRows = useMemo<ReviewHoldingRow[]>(
+    () =>
+      holdings.map((holding, index) => ({
+        ...holding,
+        client_id: `holding-${index}`,
+        source_index: index,
+      })),
+    [holdings]
+  );
+
+  const holdingTables = useMemo(
+    () => ({
+      all: tableHoldingRows,
+      analyzeEligible: tableHoldingRows.filter((holding) => isHoldingAnalyzeEligible(holding)),
+      nonAnalyzable: tableHoldingRows.filter(
+        (holding) => !isHoldingAnalyzeEligible(holding) && !isCashEquivalentHolding(holding)
+      ),
+      cashSweep: tableHoldingRows.filter((holding) => isCashEquivalentHolding(holding)),
+    }),
+    [tableHoldingRows]
+  );
+
+  const holdingsTableColumns = useMemo<ColumnDef<ReviewHoldingRow>[]>(
+    () => [
+      {
+        id: "row_actions",
+        header: () => <span className="sr-only">Actions</span>,
+        cell: ({ row }) => {
+          const holding = row.original;
+          const deleted = Boolean(holding.pending_delete);
+          return (
+            <div className="flex items-start justify-center pt-1">
+              <HoldingRowActions
+                symbol={holding.symbol}
+                isDeleted={deleted}
+                disableEdit={deleted}
+                layout="row"
+                className="w-auto"
+                onEdit={() => handleEditHolding(holding.source_index)}
+                onToggleDelete={() => handleDeleteHolding(holding.source_index)}
+              />
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "symbol",
+        header: "Holding",
+        cell: ({ row }) => {
+          const holding = row.original;
+          const deleted = Boolean(holding.pending_delete);
+          return (
+            <div
+              className={cn(
+                "min-w-[170px] max-w-[240px] sm:max-w-[280px] lg:max-w-[340px]",
+                deleted && "opacity-60"
+              )}
+            >
+              <p className={cn("font-semibold", deleted && "line-through")}>
+                {holding.symbol || "—"}
+              </p>
+              <p
+                title={holding.name || "Unnamed security"}
+                className={cn("truncate text-xs text-muted-foreground", deleted && "line-through")}
+              >
+                {holding.name || "Unnamed security"}
+              </p>
+            </div>
+          );
+        },
+      },
+      {
+        id: "position",
+        header: "Shares @ Price",
+        cell: ({ row }) => {
+          const holding = row.original;
+          return (
+            <span
+              className={cn(
+                "text-xs sm:text-sm leading-tight",
+                holding.pending_delete && "line-through text-muted-foreground"
+              )}
+            >
+              {Number(holding.quantity || 0).toLocaleString()} @{" "}
+              {formatCurrency(Number(holding.price || 0))}
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: "market_value",
+        header: "Market Value",
+        cell: ({ row }) => {
+          const holding = row.original;
+          return (
+            <span
+              className={cn(
+                "font-semibold text-xs sm:text-sm leading-tight",
+                holding.pending_delete && "line-through text-muted-foreground"
+              )}
+            >
+              {formatCurrency(Number(holding.market_value || 0))}
+            </span>
+          );
+        },
+      },
+      {
+        accessorKey: "unrealized_gain_loss",
+        header: "Gain / Loss",
+        cell: ({ row }) => {
+          const holding = row.original;
+          const gain = Number(holding.unrealized_gain_loss || 0);
+          const gainText = `${gain >= 0 ? "+" : ""}${formatCurrency(gain)}`;
+          return (
+            <span
+              className={cn(
+                "font-medium",
+                holding.pending_delete
+                  ? "line-through text-muted-foreground"
+                  : gain >= 0
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-rose-600 dark:text-rose-400"
+              )}
+            >
+              {gainText}
+            </span>
+          );
+        },
+      },
+    ],
+    [handleDeleteHolding, handleEditHolding]
+  );
+
+  const resolveVaultOwnerTokenForSave = useCallback(
+    async (forceRefresh = false): Promise<string | undefined> => {
+      if (!userId || !effectiveVaultKey) return undefined;
+
+      try {
+        const issued = await VaultService.getOrIssueVaultOwnerToken(
+          userId,
+          forceRefresh ? null : effectiveVaultOwnerToken ?? null,
+          forceRefresh ? null : ctxTokenExpiresAt
+        );
+
+        if (typeof contextUnlockVault === "function") {
+          contextUnlockVault(effectiveVaultKey, issued.token, issued.expiresAt);
+        }
+
+        return issued.token;
+      } catch (tokenError) {
+        console.error("[PortfolioReviewView] Failed to resolve VAULT_OWNER token:", tokenError);
+        return undefined;
+      }
+    },
+    [
+      ctxTokenExpiresAt,
+      contextUnlockVault,
+      effectiveVaultKey,
+      effectiveVaultOwnerToken,
+      userId,
+    ]
+  );
 
   const handleSave = async () => {
     if (!userId) return;
@@ -994,7 +1217,7 @@ export function PortfolioReviewView({
       }
     }
 
-    if (!effectiveVaultKey || !effectiveVaultOwnerToken) {
+    if (!effectiveVaultKey) {
       createdVaultCopyRef.current = resolvedHasVault === false;
       createdVaultModeRef.current = null;
       setPendingVaultSave(true);
@@ -1010,6 +1233,19 @@ export function PortfolioReviewView({
     setIsSaving(true);
 
     try {
+      let resolvedVaultOwnerToken = effectiveVaultOwnerToken;
+      if (!resolvedVaultOwnerToken) {
+        const tokenResolveStartedAt = nowMs();
+        resolvedVaultOwnerToken = await resolveVaultOwnerTokenForSave(false);
+        logSavePhase("vault owner token resolve", tokenResolveStartedAt);
+      }
+
+      if (!resolvedVaultOwnerToken) {
+        throw new Error(
+          "Could not issue vault access token. Unlock your vault once and retry."
+        );
+      }
+
       const capturedSections = [
         "account_info",
         "account_summary",
@@ -1032,7 +1268,7 @@ export function PortfolioReviewView({
       const fullBlob = await WorldModelService.loadFullBlob({
         userId,
         vaultKey: effectiveVaultKey,
-        vaultOwnerToken: effectiveVaultOwnerToken,
+        vaultOwnerToken: resolvedVaultOwnerToken,
       }).catch(() => ({} as Record<string, unknown>));
       logSavePhase("blob load", blobLoadStartedAt);
       const mergeBuildStartedAt = nowMs();
@@ -1367,15 +1603,36 @@ export function PortfolioReviewView({
 
       // 4. Store canonical financial domain with full-blob merge semantics.
       const encryptStoreStartedAt = nowMs();
-      const financialResult = await WorldModelService.storeMergedDomainWithPreparedBlob({
-        userId,
-        vaultKey: effectiveVaultKey,
-        domain: "financial",
-        domainData: nextFinancialDomain as unknown as Record<string, unknown>,
-        summary: financialSummary,
-        baseFullBlob: fullBlob,
-        vaultOwnerToken: effectiveVaultOwnerToken,
-      });
+      const storeMergedDomain = async (vaultOwnerTokenToUse: string) =>
+        WorldModelService.storeMergedDomainWithPreparedBlob({
+          userId,
+          vaultKey: effectiveVaultKey,
+          domain: "financial",
+          domainData: nextFinancialDomain as unknown as Record<string, unknown>,
+          summary: financialSummary,
+          baseFullBlob: fullBlob,
+          vaultOwnerToken: vaultOwnerTokenToUse,
+        });
+
+      let financialResult;
+      try {
+        financialResult = await storeMergedDomain(resolvedVaultOwnerToken);
+      } catch (storeError) {
+        const storeMessage = extractSaveErrorMessage(
+          storeError,
+          "Failed to store encrypted portfolio."
+        );
+        if (isAuthFailureMessage(storeMessage)) {
+          const refreshedToken = await resolveVaultOwnerTokenForSave(true);
+          if (!refreshedToken) {
+            throw storeError;
+          }
+          resolvedVaultOwnerToken = refreshedToken;
+          financialResult = await storeMergedDomain(refreshedToken);
+        } else {
+          throw storeError;
+        }
+      }
       logSavePhase("encrypt/store", encryptStoreStartedAt);
 
       if (!financialResult.success) {
@@ -1407,39 +1664,41 @@ export function PortfolioReviewView({
         );
       }
 
-      // 6. Optional read-back verification (disabled by default in production).
-      if (shouldVerifySave) {
-        try {
-          const readBack = await WorldModelService.getDomainData(
-            userId,
-            "financial",
-            effectiveVaultOwnerToken
-          );
-          if (!readBack) {
-            console.warn("[PortfolioReview] Read-back verification failed: no data returned");
-          }
-        } catch (verifyErr) {
-          console.warn("[PortfolioReview] Read-back verification error:", verifyErr);
-        }
-      }
-
       if (createdVaultCopyRef.current) {
         if (createdVaultModeRef.current === "generated_default_native_biometric" || createdVaultModeRef.current === "generated_default_web_prf") {
-          toast.success("Vault created with secure default key. Portfolio saved securely.");
+          toast.success("Vault created. Portfolio encrypted and saved. Finalizing profile sync in background.");
         } else {
-          toast.success("Vault created. Portfolio saved securely.");
+          toast.success("Vault created. Portfolio encrypted and saved. Finalizing profile sync in background.");
         }
       } else {
-        toast.success("Portfolio saved securely.");
+        toast.success("Portfolio encrypted and saved. Finalizing profile sync in background.");
       }
       baselineSnapshotRef.current = serializeEditableState(accountInfo, holdings);
       setHasUnsavedChanges(false);
-      await Promise.resolve(onSaveComplete(portfolioToSave));
+      Promise.resolve(onSaveComplete(portfolioToSave)).catch((saveCompleteError) => {
+        console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
+      });
+      if (shouldVerifySave) {
+        void (async () => {
+          try {
+            const readBack = await WorldModelService.getDomainData(
+              userId,
+              "financial",
+              resolvedVaultOwnerToken
+            );
+            if (!readBack) {
+              console.warn("[PortfolioReview] Read-back verification failed: no data returned");
+            }
+          } catch (verifyErr) {
+            console.warn("[PortfolioReview] Read-back verification error:", verifyErr);
+          }
+        })();
+      }
       logSavePhase("post-save sync", postSaveSyncStartedAt);
       logSavePhase("total", saveStartedAt);
     } catch (error) {
       console.error("Save error:", error);
-      toast.error("Failed to save portfolio");
+      toast.error(extractSaveErrorMessage(error, "Failed to save portfolio"));
     } finally {
       setIsSaving(false);
       createdVaultCopyRef.current = false;
@@ -1463,7 +1722,7 @@ export function PortfolioReviewView({
     <div className={cn("relative w-full", className)}>
 
 
-      <div className="w-full max-w-lg lg:max-w-6xl mx-auto space-y-8 pb-56 px-4 md:px-6 transition-all duration-500 ease-in-out">
+      <div className="mx-auto w-full max-w-6xl space-y-8 px-4 pb-56 transition-all duration-500 ease-in-out md:px-6">
 
 
 
@@ -1497,9 +1756,9 @@ export function PortfolioReviewView({
 
 
 
-      <div className="lg:grid lg:grid-cols-12 lg:gap-10 lg:items-start">
+      <div className="xl:grid xl:grid-cols-12 xl:items-start xl:gap-10">
         {/* Left Column / Mobile Top: Summary & Info */}
-        <div className="lg:col-span-5 space-y-8">
+        <div className="space-y-8 xl:col-span-5">
           {/* Summary Card - Redesigned for bigger numbers */}
           <MorphyCard variant="none" className="overflow-hidden border-none shadow-xl">
             <div className="absolute inset-0 bg-linear-to-br from-primary/5 to-primary/10 dark:from-primary/10 dark:to-primary/20" />
@@ -1769,10 +2028,10 @@ export function PortfolioReviewView({
         </div>
 
         {/* Right Column / Mobile Bottom: Holdings */}
-        <div className="lg:col-span-7 mt-8 lg:mt-0">
-          <MorphyCard variant="none" className="h-full border-none shadow-xl bg-card">
-            <CardHeader className="pb-4 px-6 pt-6 bg-muted/30">
-              <div className="flex items-center justify-between">
+        <div className="mt-8 xl:col-span-7 xl:mt-0">
+          <MorphyCard variant="none" className="h-full border-none bg-card shadow-xl">
+            <CardHeader className="bg-muted/30 px-6 pb-4 pt-6">
+              <div className="flex items-center justify-between gap-2">
                 <div>
                   <CardTitle className="text-lg font-black uppercase tracking-widest text-foreground">
                     Holdings ({holdings.length})
@@ -1783,264 +2042,173 @@ export function PortfolioReviewView({
                     ) : null}
                   </CardTitle>
                 </div>
-                <MorphyButton 
-                  variant="muted" 
-                  size="sm" 
+                <MorphyButton
+                  variant="none"
+                  effect="fade"
+                  size="sm"
                   onClick={handleAddHolding}
-                  icon={{ icon: Plus }}
                 >
-                  <span className="ml-2">Add</span>
+                  <Icon icon={Plus} size="sm" className="mr-1" />
+                  Add Holding
                 </MorphyButton>
               </div>
-
             </CardHeader>
 
-            <CardContent className="space-y-4 px-6 pt-6">
-
-          {holdings.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Icon
-                icon={AlertCircle}
-                size={32}
-                className="mx-auto mb-2 opacity-50"
-              />
-              <p>No holdings found</p>
-              <p className="text-sm">Click "Add" to add holdings manually</p>
-            </div>
-          ) : (
-            holdings.map((holding, index) => (
-              <div
-                key={`holding-${index}`}
-                className={cn(
-                  "p-3 rounded-lg border transition-colors",
-                  holding.pending_delete && "opacity-60 border-dashed border-muted-foreground/40 bg-muted/40",
-                  editingHoldingIndex === index
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50"
-                )}
-              >
-                {editingHoldingIndex === index ? (
-                  // Edit mode
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label className="text-xs">Symbol</Label>
-                        <Input
-                          value={holding.symbol}
-                          onChange={(e) =>
-                            handleUpdateHolding(
-                              index,
-                              "symbol",
-                              e.target.value.toUpperCase()
-                            )
-                          }
-                          placeholder="AAPL"
-                          className="mt-1"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Name</Label>
-                        <Input
-                          value={holding.name}
-                          onChange={(e) =>
-                            handleUpdateHolding(index, "name", e.target.value)
-                          }
-                          placeholder="Apple Inc."
-                          className="mt-1"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <Label className="text-xs">Quantity</Label>
-                        <Input
-                          type="number"
-                          value={holding.quantity}
-                          onChange={(e) =>
-                            handleUpdateHolding(
-                              index,
-                              "quantity",
-                              parseFloat(e.target.value) || 0
-                            )
-                          }
-                          className="mt-1"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Price</Label>
-                        <Input
-                          type="number"
-                          value={holding.price}
-                          onChange={(e) =>
-                            handleUpdateHolding(
-                              index,
-                              "price",
-                              parseFloat(e.target.value) || 0
-                            )
-                          }
-                          className="mt-1"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Market Value</Label>
-                        <Input
-                          value={formatCurrency(holding.market_value)}
-                          disabled
-                          className="mt-1 bg-muted"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex justify-end gap-3 pt-2">
-                      <MorphyButton
-                        variant="muted"
-                        size="sm"
-                        onClick={() => setEditingHoldingIndex(null)}
-                      >
-                        Done
-                      </MorphyButton>
-                    </div>
-                  </div>
-                ) : (
-                  // View mode - ADJUSTED FOR MOBILE
-                  <div className="flex items-center justify-between gap-4">
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-baseline gap-x-2">
-                        <span
-                          className={cn(
-                            "font-bold text-base",
-                            holding.pending_delete && "line-through text-muted-foreground"
-                          )}
-                        >
-                          {holding.symbol || "—"}
-                        </span>
-                        <span
-                          className={cn(
-                            "text-xs text-muted-foreground truncate block",
-                            holding.pending_delete && "line-through"
-                          )}
-                        >
-                          {holding.name}
-                        </span>
-                        {holding.pending_delete && (
-                          <Badge variant="secondary" className="text-[10px] mt-1">
-                            Pending removal
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 text-[11px] sm:text-xs">
-                        <span className="text-muted-foreground whitespace-nowrap">
-                          {holding.quantity} sh
-                        </span>
-                        <span className="text-muted-foreground whitespace-nowrap">
-                          @ {formatCurrency(holding.price)}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="font-bold text-sm">
-                        {formatCurrency(holding.market_value)}
-                      </p>
-                      {holding.unrealized_gain_loss !== undefined && (
-                        <p
-                          className={cn(
-                            "text-[10px] font-medium",
-                            (holding.unrealized_gain_loss || 0) >= 0
-                              ? "text-emerald-600"
-                              : "text-red-500"
-                          )}
-                        >
-                          {holding.unrealized_gain_loss >= 0 ? "+" : ""}
-                          {formatCurrency(holding.unrealized_gain_loss)}
-                          {holding.unrealized_gain_loss_pct !== undefined && (
-                            <span className="ml-1">
-                              ({_formatPercent(holding.unrealized_gain_loss_pct)})
-                            </span>
-                          )}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0 ml-auto border-l border-primary/10 pl-3">
-                      <div className="flex flex-col items-center gap-1">
-                        <MorphyButton
-                          variant="muted"
-                          size="icon"
-                          className={cn(
-                            "h-10 w-10 text-muted-foreground hover:text-primary transition-all duration-300 rounded-xl",
-                            holding.pending_delete && "pointer-events-none opacity-50"
-                          )}
-                          onClick={() => setEditingHoldingIndex(index)}
-                          aria-label={`Edit ${holding.symbol || `holding ${index + 1}`}`}
-                        >
-                          <Icon icon={Pencil} size="sm" />
-                        </MorphyButton>
-                        <Kbd className="text-[8px] px-1 h-3.5">EDIT</Kbd>
-                      </div>
-                      <div className="flex flex-col items-center gap-1">
-                        <MorphyButton
-                          variant="muted"
-                          size="icon"
-                          className={cn(
-                            "h-10 w-10 transition-all duration-300 rounded-xl",
-                            holding.pending_delete
-                              ? "text-emerald-500 hover:text-emerald-600 hover:bg-emerald-50"
-                              : "text-red-400 hover:text-red-500 hover:bg-red-50"
-                          )}
-                          onClick={() => handleDeleteHolding(index)}
-                          aria-label={
-                            holding.pending_delete
-                              ? `Undo remove ${holding.symbol || `holding ${index + 1}`}`
-                              : `Remove ${holding.symbol || `holding ${index + 1}`}`
-                          }
-                        >
-                          <Icon icon={holding.pending_delete ? Undo2 : Trash2} size="sm" />
-                        </MorphyButton>
-                        <Kbd className="text-[8px] px-1 h-3.5">
-                          {holding.pending_delete ? "UNDO" : "DEL"}
-                        </Kbd>
-                      </div>
-                    </div>
-
-                  </div>
-                )}
+            <CardContent className="space-y-4 px-6 pb-6 pt-6">
+              <div className="rounded-xl border border-border/60 bg-background/70 px-3 py-2.5 text-xs text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-foreground">Current State</span>
+                  <span className="rounded-full bg-background px-2 py-0.5">
+                    Assets: {activeHoldings.length}
+                  </span>
+                  <span className="rounded-full bg-background px-2 py-0.5">
+                    Marked remove: {pendingDeleteCount}
+                  </span>
+                  <span className="rounded-full bg-background px-2 py-0.5">
+                    Cash positions: {holdingTables.cashSweep.length}
+                  </span>
+                </div>
               </div>
-            ))
-          )}
-        </CardContent>
-      </MorphyCard>
-    </div>
-  </div>
 
-  </div>
+              <Tabs
+                value={holdingsTab}
+                onValueChange={(value) =>
+                  setHoldingsTab(value as "all" | "analyze" | "non-analyze" | "cash")
+                }
+                className="space-y-3"
+              >
+                <div className="pb-1">
+                  <TabsList className="grid h-8 w-full grid-cols-4 gap-0.5 rounded-lg bg-background/80 p-0.5">
+                    <TabsTrigger
+                      className="h-7 min-w-0 truncate px-1 text-[10px] leading-none sm:text-xs"
+                      value="all"
+                      title={`All holdings (${holdingTables.all.length})`}
+                    >
+                      All ({holdingTables.all.length})
+                    </TabsTrigger>
+                    <TabsTrigger
+                      className="h-7 min-w-0 truncate px-1 text-[10px] leading-none sm:text-xs"
+                      value="analyze"
+                      title={`Equities (${holdingTables.analyzeEligible.length})`}
+                    >
+                      Equity ({holdingTables.analyzeEligible.length})
+                    </TabsTrigger>
+                    <TabsTrigger
+                      className="h-7 min-w-0 truncate px-1 text-[10px] leading-none sm:text-xs"
+                      value="non-analyze"
+                      title={`Other assets (${holdingTables.nonAnalyzable.length})`}
+                    >
+                      Other ({holdingTables.nonAnalyzable.length})
+                    </TabsTrigger>
+                    <TabsTrigger
+                      className="h-7 min-w-0 truncate px-1 text-[10px] leading-none sm:text-xs"
+                      value="cash"
+                      title={`Cash holdings (${holdingTables.cashSweep.length})`}
+                    >
+                      Cash ({holdingTables.cashSweep.length})
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
 
-  {/* Save Button - Refined Floating Action */}
-  {/* Save Button - Refined Floating Action with Safe Area Support */}
-	  <div className="fixed left-0 right-0 bottom-[var(--app-bottom-inset)] px-10 sm:px-16 pb-2 z-[145] pointer-events-none">
-	    <div className="max-w-xs mx-auto pointer-events-auto">
-	      <MorphyButton
-	        variant="morphy"
-	        effect="fill"
-	        size="default"
-	        className="w-full font-black shadow-xl border-none"
-	        onClick={() => {
-	          createdVaultCopyRef.current = hasVault === false;
-	          void handleSave();
-	        }}
-	        disabled={isSaving || activeHoldings.length === 0}
-	        icon={{ 
-	          icon: isSaving ? SpinningLoader : Save,
-	          gradient: false 
-	        }}
-	        loading={isSaving}
-	      >
-	        {isSaving
-	          ? "Saving..."
-	          : hasVault === false
-	          ? "Create vault"
-	          : "Save to vault"}
-	      </MorphyButton>
-	    </div>
-	  </div>
+                <TabsContent value="all">
+                  <DataTable
+                    columns={holdingsTableColumns}
+                    data={holdingTables.all}
+                    searchPlaceholder="Search holdings by symbol or name..."
+                    initialPageSize={5}
+                    pageSizeOptions={[5, 10, 20]}
+                    rowClassName={(holding) =>
+                      holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
+                    }
+                    tableContainerClassName="w-full"
+                    tableClassName="w-full"
+                  />
+                </TabsContent>
+
+                <TabsContent value="analyze">
+                  <DataTable
+                    columns={holdingsTableColumns}
+                    data={holdingTables.analyzeEligible}
+                    searchPlaceholder="Search equities..."
+                    initialPageSize={5}
+                    pageSizeOptions={[5, 10, 20]}
+                    rowClassName={(holding) =>
+                      holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
+                    }
+                    tableContainerClassName="w-full"
+                    tableClassName="w-full"
+                  />
+                </TabsContent>
+
+                <TabsContent value="non-analyze">
+                  <DataTable
+                    columns={holdingsTableColumns}
+                    data={holdingTables.nonAnalyzable}
+                    searchPlaceholder="Search other assets..."
+                    initialPageSize={5}
+                    pageSizeOptions={[5, 10, 20]}
+                    rowClassName={(holding) =>
+                      holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
+                    }
+                    tableContainerClassName="w-full"
+                    tableClassName="w-full"
+                  />
+                </TabsContent>
+
+                <TabsContent value="cash">
+                  <DataTable
+                    columns={holdingsTableColumns}
+                    data={holdingTables.cashSweep}
+                    searchPlaceholder="Search cash holdings..."
+                    initialPageSize={5}
+                    pageSizeOptions={[5, 10, 20]}
+                    rowClassName={(holding) =>
+                      holding.pending_delete ? "bg-muted/45 text-muted-foreground" : "bg-transparent"
+                    }
+                    tableContainerClassName="w-full"
+                    tableClassName="w-full"
+                  />
+                </TabsContent>
+              </Tabs>
+
+              <div className="pt-2">
+                <MorphyButton
+                  variant="blue-gradient"
+                  effect="fade"
+                  fullWidth
+                  onClick={() => {
+                    createdVaultCopyRef.current = hasVault === false;
+                    void handleSave();
+                  }}
+                  disabled={isSaving || activeHoldings.length === 0}
+                  className="bg-black text-white hover:bg-black/90 dark:bg-white dark:text-black dark:hover:bg-white/90"
+                >
+                  {isSaving ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Icon icon={Save} size="sm" className="mr-2" />
+                  )}
+                  {isSaving
+                    ? hasVault === false
+                      ? "Encrypting portfolio and creating vault..."
+                      : "Encrypting portfolio and saving to vault..."
+                    : hasVault === false
+                    ? "Create vault"
+                    : "Save to vault"}
+                </MorphyButton>
+              </div>
+            </CardContent>
+          </MorphyCard>
+        </div>
+      </div>
+      </div>
+
+      <EditHoldingModal
+        isOpen={Boolean(editingHolding)}
+        onClose={closeHoldingModal}
+        holding={editingHolding}
+        onSave={handleSaveHolding}
+      />
 
       {/* Vault Dialog (create/unlock) */}
       {user && (
@@ -2052,7 +2220,7 @@ export function PortfolioReviewView({
             if (!open) setPendingVaultSave(false);
           }}
         >
-          <DialogContent className="sm:max-w-md p-0 border border-border/60 bg-background shadow-2xl overflow-hidden">
+          <DialogContent className="z-[520] w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] p-0 border border-border/60 bg-background shadow-2xl overflow-hidden sm:max-w-md">
             <DialogTitle className="sr-only">
               {hasVault === false
                 ? "Create vault to save portfolio"
@@ -2069,7 +2237,6 @@ export function PortfolioReviewView({
                 setVaultDialogOpen(false);
                 if (
                   effectiveVaultKey &&
-                  effectiveVaultOwnerToken &&
                   !continuationInFlightRef.current
                 ) {
                   continuationInFlightRef.current = true;
@@ -2083,6 +2250,20 @@ export function PortfolioReviewView({
             />
           </DialogContent>
         </Dialog>
+      )}
+
+      {isSaving && (
+        <div className="fixed inset-0 z-[560] flex items-center justify-center bg-background/75 backdrop-blur-md">
+          <div className="mx-4 w-full max-w-sm rounded-2xl border border-border/70 bg-background/95 p-5 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <p className="text-sm font-semibold">Encrypting and saving to vault</p>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Please wait. Navigation is temporarily locked until secure save completes.
+            </p>
+          </div>
+        </div>
       )}
 	</div>
 	  );

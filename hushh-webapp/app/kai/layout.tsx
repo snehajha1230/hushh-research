@@ -17,8 +17,6 @@ import { useEffect } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
-import { useKaiSession } from "@/lib/stores/kai-session-store";
-import { Loader2 } from "lucide-react";
 
 export default function KaiLayout({
   children,
@@ -32,8 +30,6 @@ export default function KaiLayout({
   const onImportRoute = pathname.startsWith("/kai/import");
   const showKaiRouteTabs = !onOnboardingRoute && !onImportRoute;
   const shouldEnableMethodPrompt = !onOnboardingRoute && !onImportRoute;
-  const busyOperations = useKaiSession((s) => s.busyOperations);
-  const isPortfolioSaveBlocking = Boolean(busyOperations["portfolio_save"]);
 
   useEffect(() => {
     if (onOnboardingRoute || onImportRoute) return;
@@ -56,7 +52,7 @@ export default function KaiLayout({
           {showKaiRouteTabs ? <DashboardRouteTabs /> : null}
           <main
             className={cn(
-              "flex-1 pb-32",
+              "flex-1 pb-32 [--kai-view-top-gap:16px] sm:[--kai-view-top-gap:18px]",
               showKaiRouteTabs
                 ? "pt-[calc(var(--kai-route-tabs-height,36px)+var(--kai-route-tabs-content-gap,16px))]"
                 : undefined
@@ -66,22 +62,6 @@ export default function KaiLayout({
           </main>
           <VaultMethodPrompt enabled={shouldEnableMethodPrompt} />
           <KaiNavTour />
-          {isPortfolioSaveBlocking ? (
-            <div
-              className="fixed inset-0 z-[430] flex items-center justify-center bg-black/28 backdrop-blur-[6px] [-webkit-backdrop-filter:blur(6px)]"
-              aria-live="polite"
-              aria-busy="true"
-              data-no-route-swipe
-            >
-              <div className="rounded-2xl border border-white/20 bg-black/45 px-5 py-4 text-center text-white shadow-2xl">
-                <div className="inline-flex items-center gap-2 text-sm font-medium">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Saving to vault...
-                </div>
-                <p className="mt-1 text-xs text-white/80">Please wait until encryption completes.</p>
-              </div>
-            </div>
-          ) : null}
         </div>
       </KaiOnboardingGuard>
     </VaultLockGuard>

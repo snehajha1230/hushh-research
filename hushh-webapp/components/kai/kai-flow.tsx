@@ -36,6 +36,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import type { KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
 import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
+import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-cookie";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -1585,25 +1586,46 @@ export function KaiFlow({
       parsedPortfolio: undefined, // Clear parsed data
     });
 
-    if (effectiveVaultOwnerToken && vaultKey) {
-      try {
-        await KaiProfileSyncService.syncPendingToVault({
-          userId,
-          vaultKey,
-          vaultOwnerToken: effectiveVaultOwnerToken,
+    const runPostSaveSync = () => {
+      if (!effectiveVaultOwnerToken || !vaultKey) return;
+      const taskId = AppBackgroundTaskService.startTask({
+        userId,
+        kind: "portfolio_postsave_sync",
+        title: "Profile sync",
+        description: "Finishing onboarding/profile updates in the background.",
+        routeHref: ROUTES.KAI_DASHBOARD,
+      });
+
+      void KaiProfileSyncService.syncPendingToVault({
+        userId,
+        vaultKey,
+        vaultOwnerToken: effectiveVaultOwnerToken,
+      })
+        .then(() => {
+          AppBackgroundTaskService.completeTask(
+            taskId,
+            "Portfolio sync completed."
+          );
+        })
+        .catch((syncError) => {
+          console.warn("[KaiFlow] Deferred onboarding sync failed after save:", syncError);
+          AppBackgroundTaskService.failTask(
+            taskId,
+            syncError instanceof Error ? syncError.message : "Sync failed",
+            "Portfolio sync failed. You can continue using dashboard."
+          );
         });
-      } catch (syncError) {
-        console.warn("[KaiFlow] Deferred onboarding sync failed after save:", syncError);
-      }
-    }
+    };
 
     if (mode === "import") {
+      runPostSaveSync();
       setOnboardingFlowActiveCookie(false);
       router.push(ROUTES.KAI_DASHBOARD);
       return;
     }
 
     setState("dashboard");
+    runPostSaveSync();
   }, [mode, router, userId, setPortfolioData, effectiveVaultOwnerToken, vaultKey]);
 
   // Handle skip import - preserve existing data if available
@@ -1897,7 +1919,7 @@ export function KaiFlow({
           open={vaultDialogOpen}
           onOpenChange={setVaultDialogOpen}
         >
-          <DialogContent className="sm:max-w-md p-0 border border-border/60 bg-background shadow-2xl overflow-hidden">
+          <DialogContent className="z-[520] w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] p-0 border border-border/60 bg-background shadow-2xl overflow-hidden sm:max-w-md">
             <DialogTitle className="sr-only">Create or unlock vault to import portfolio</DialogTitle>
             <DialogDescription className="sr-only">
               You need to create or unlock your vault before parsing and importing your statement.
