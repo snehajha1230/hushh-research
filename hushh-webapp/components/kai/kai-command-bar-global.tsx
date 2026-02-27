@@ -105,23 +105,9 @@ export function KaiCommandBarGlobal() {
         );
         if (cancelled) return;
         const financialDomain = metadata.domains.find((domain) => domain.key === "financial");
-        let hasPortfolioFromMetadata = Boolean(
+        const hasPortfolioFromMetadata = Boolean(
           financialDomain && Number(financialDomain.attributeCount || 0) > 0
         );
-
-        if (!hasPortfolioFromMetadata) {
-          try {
-            const portfolio = await WorldModelService.getPortfolio(
-              user.uid,
-              "Main Portfolio",
-              vaultOwnerToken
-            );
-            const holdings = Array.isArray(portfolio?.holdings) ? portfolio.holdings : [];
-            hasPortfolioFromMetadata = holdings.length > 0;
-          } catch {
-            // Keep metadata-derived value on fallback failure.
-          }
-        }
 
         setHasPortfolioData(hasPortfolioFromMetadata);
       } catch {

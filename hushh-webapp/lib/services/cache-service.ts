@@ -136,6 +136,7 @@ class CacheService {
     const keysToDelete = new Set<string>([
       CACHE_KEYS.WORLD_MODEL_METADATA(userId),
       CACHE_KEYS.WORLD_MODEL_BLOB(userId),
+      CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(userId),
       CACHE_KEYS.VAULT_STATUS(userId),
       CACHE_KEYS.VAULT_CHECK(userId),
       CACHE_KEYS.ACTIVE_CONSENTS(userId),
@@ -214,6 +215,7 @@ class CacheService {
 export const CACHE_KEYS = {
   WORLD_MODEL_METADATA: (userId: string) => `world_model_metadata_${userId}`,
   WORLD_MODEL_BLOB: (userId: string) => `world_model_blob_${userId}`,
+  WORLD_MODEL_DECRYPTED_BLOB: (userId: string) => `world_model_decrypted_blob_${userId}`,
   VAULT_STATUS: (userId: string) => `vault_status_${userId}`,
   VAULT_CHECK: (userId: string) => `vault_check_${userId}`,
   ACTIVE_CONSENTS: (userId: string) => `active_consents_${userId}`,

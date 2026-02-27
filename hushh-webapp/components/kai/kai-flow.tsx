@@ -460,6 +460,57 @@ export function KaiFlow({
 
   useScrollReset(`${mode}:${state}`, { enabled: true, behavior: "auto" });
 
+  const runDeferredPostSaveSync = useCallback(() => {
+    if (!effectiveVaultOwnerToken || !vaultKey) return;
+    void KaiProfileSyncService.getPendingSyncState(userId)
+      .then((pendingState) => {
+        if (!pendingState.hasPending) return;
+
+        const taskId = AppBackgroundTaskService.startTask({
+          userId,
+          kind: "portfolio_postsave_sync",
+          title: "Profile sync",
+          description: "Finishing onboarding/profile updates in the background.",
+          routeHref: ROUTES.KAI_DASHBOARD,
+        });
+
+        return KaiProfileSyncService.syncPendingToVault({
+          userId,
+          vaultKey,
+          vaultOwnerToken: effectiveVaultOwnerToken,
+          pendingState,
+        })
+          .then((result) => {
+            if (!result?.synced) {
+              if (result?.reason === "no_pending_state" || result?.reason === "already_synced") {
+                AppBackgroundTaskService.dismissTask(taskId);
+                return;
+              }
+              AppBackgroundTaskService.completeTask(
+                taskId,
+                "No additional profile sync needed."
+              );
+              return;
+            }
+            AppBackgroundTaskService.completeTask(
+              taskId,
+              "Portfolio sync completed."
+            );
+          })
+          .catch((syncError) => {
+            console.warn("[KaiFlow] Deferred onboarding sync failed after save:", syncError);
+            AppBackgroundTaskService.failTask(
+              taskId,
+              syncError instanceof Error ? syncError.message : "Sync failed",
+              "Portfolio sync failed. You can continue using dashboard."
+            );
+          });
+      })
+      .catch((pendingError) => {
+        console.warn("[KaiFlow] Failed to preflight profile sync state:", pendingError);
+      });
+  }, [effectiveVaultOwnerToken, userId, vaultKey]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!isDashboardMode) return;
@@ -491,13 +542,24 @@ export function KaiFlow({
         holdings: normalizedCachedPortfolio.holdings?.map((h) => h.symbol) || [],
       });
       setState("dashboard");
+      runDeferredPostSaveSync();
+    };
+
+    const handlePortfolioSaveFailed = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: string; error?: string }>).detail;
+      if (!detail || detail.userId !== userId) return;
+      toast.error("Background portfolio save failed.", {
+        description: detail.error || "Reopen import and try saving again.",
+      });
     };
 
     window.addEventListener("kai:portfolio-saved", handlePortfolioSaved);
+    window.addEventListener("kai:portfolio-save-failed", handlePortfolioSaveFailed);
     return () => {
       window.removeEventListener("kai:portfolio-saved", handlePortfolioSaved);
+      window.removeEventListener("kai:portfolio-save-failed", handlePortfolioSaveFailed);
     };
-  }, [getPortfolioData, isDashboardMode, setPortfolioData, userId]);
+  }, [getPortfolioData, isDashboardMode, runDeferredPostSaveSync, setPortfolioData, userId]);
 
   // Check World Model for financial data on mount
   useEffect(() => {
@@ -1587,58 +1649,14 @@ export function KaiFlow({
       parsedPortfolio: undefined, // Clear parsed data
     });
 
-    const runPostSaveSync = () => {
-      if (!effectiveVaultOwnerToken || !vaultKey) return;
-      const taskId = AppBackgroundTaskService.startTask({
-        userId,
-        kind: "portfolio_postsave_sync",
-        title: "Profile sync",
-        description: "Finishing onboarding/profile updates in the background.",
-        routeHref: ROUTES.KAI_DASHBOARD,
-      });
-
-      void KaiProfileSyncService.syncPendingToVault({
-        userId,
-        vaultKey,
-        vaultOwnerToken: effectiveVaultOwnerToken,
-      })
-        .then((result) => {
-          if (!result?.synced) {
-            if (result?.reason === "no_pending_state" || result?.reason === "already_synced") {
-              AppBackgroundTaskService.dismissTask(taskId);
-              return;
-            }
-            AppBackgroundTaskService.completeTask(
-              taskId,
-              "No additional profile sync needed."
-            );
-            return;
-          }
-          AppBackgroundTaskService.completeTask(
-            taskId,
-            "Portfolio sync completed."
-          );
-        })
-        .catch((syncError) => {
-          console.warn("[KaiFlow] Deferred onboarding sync failed after save:", syncError);
-          AppBackgroundTaskService.failTask(
-            taskId,
-            syncError instanceof Error ? syncError.message : "Sync failed",
-            "Portfolio sync failed. You can continue using dashboard."
-          );
-        });
-    };
-
     if (mode === "import") {
-      runPostSaveSync();
       setOnboardingFlowActiveCookie(false);
       router.push(ROUTES.KAI_DASHBOARD);
       return;
     }
 
     setState("dashboard");
-    runPostSaveSync();
-  }, [mode, router, userId, setPortfolioData, effectiveVaultOwnerToken, vaultKey]);
+  }, [mode, router, userId, setPortfolioData]);
 
   // Handle skip import - preserve existing data if available
   const handleSkipImport = useCallback(() => {

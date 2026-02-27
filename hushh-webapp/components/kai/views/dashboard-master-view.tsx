@@ -360,7 +360,7 @@ export function DashboardMasterView({
     let cancelled = false;
     void (async () => {
       try {
-        const rows = await preloadTickerUniverse({ forceRefresh: true });
+        const rows = await preloadTickerUniverse();
         if (cancelled) return;
         const map = new Map<string, { sector?: string; industry?: string }>();
         for (const row of rows) {

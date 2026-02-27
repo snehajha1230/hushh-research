@@ -134,6 +134,7 @@ export class CacheSyncService {
   ): void {
     const cache = CacheService.getInstance();
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
+    cache.invalidate(CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(userId));
 
     if (domain === "financial") {
       if (options?.portfolioData) {
@@ -186,6 +187,7 @@ export class CacheSyncService {
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
     cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain));
     cache.invalidate(CACHE_KEYS.WORLD_MODEL_BLOB(userId));
+    cache.invalidate(CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(userId));
     cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));
     if (domain === "financial") {
       cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
@@ -244,6 +246,7 @@ export class CacheSyncService {
       cache.invalidate(CACHE_KEYS.ANALYSIS_HISTORY(userId));
     }
     cache.invalidate(CACHE_KEYS.WORLD_MODEL_BLOB(userId));
+    cache.invalidate(CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(userId));
     cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"));
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, "financial"));
     cache.invalidate(CACHE_KEYS.WORLD_MODEL_METADATA(userId));

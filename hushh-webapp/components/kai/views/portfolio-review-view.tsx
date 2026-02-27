@@ -1766,6 +1766,16 @@ export function PortfolioReviewView({
       logSavePhase("total", saveStartedAt);
     } catch (error) {
       console.error("Save error:", error);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("kai:portfolio-save-failed", {
+            detail: {
+              userId,
+              error: extractSaveErrorMessage(error, "Failed to save portfolio"),
+            },
+          })
+        );
+      }
       if (saveTaskId) {
         AppBackgroundTaskService.failTask(
           saveTaskId,
@@ -1843,7 +1853,7 @@ export function PortfolioReviewView({
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-1">
                   Total Portfolio Value
                 </p>
-                <p className="text-4xl sm:text-5xl font-black tracking-tight bg-linear-to-br from-foreground to-foreground/70 bg-clip-text text-transparent px-2 break-all">
+                <p className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap px-2 text-3xl font-black leading-none tracking-tight tabular-nums bg-linear-to-br from-foreground to-foreground/70 bg-clip-text text-transparent sm:text-4xl">
                   {formatCurrency(totalValue)}
                 </p>
 
@@ -1889,7 +1899,7 @@ export function PortfolioReviewView({
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-2">Portfolio Risk</p>
                 </div>
                 <div className="min-w-0 text-center sm:text-right sm:pr-4">
-                  <p className="text-2xl font-black break-all">
+                  <p className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-xl font-black leading-none tabular-nums sm:text-2xl">
                     {formatCurrency(liveCashBalance)}
                   </p>
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cash</p>

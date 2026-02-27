@@ -8,32 +8,42 @@ import {
 import { KaiNavTourLocalService } from "@/lib/services/kai-nav-tour-local-service";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 
+type OnboardingPayload = {
+  completed: boolean;
+  skippedPreferences: boolean;
+  completedAt?: string | null;
+  answers?: {
+    investment_horizon: "short_term" | "medium_term" | "long_term" | null;
+    drawdown_response: "reduce" | "stay" | "buy_more" | null;
+    volatility_preference: "small" | "moderate" | "large" | null;
+  };
+};
+
+type NavPayload = {
+  completedAt?: string | null;
+  skippedAt?: string | null;
+};
+
+export type KaiProfilePendingSyncState = {
+  hasPending: boolean;
+  reason?: string;
+  onboardingPayload?: OnboardingPayload;
+  navPayload?: NavPayload;
+  pendingOnboarding?: Awaited<ReturnType<typeof PreVaultOnboardingService.load>>;
+  pendingNavTour?: Awaited<ReturnType<typeof KaiNavTourLocalService.load>>;
+};
+
 export class KaiProfileSyncService {
-  static async syncPendingToVault(params: {
-    userId: string;
-    vaultKey: string;
-    vaultOwnerToken?: string;
-  }): Promise<{ synced: boolean; reason?: string }> {
+  static async getPendingSyncState(userId: string): Promise<KaiProfilePendingSyncState> {
     const [pendingOnboarding, pendingNavTour] = await Promise.all([
-      PreVaultOnboardingService.load(params.userId),
-      KaiNavTourLocalService.load(params.userId),
+      PreVaultOnboardingService.load(userId),
+      KaiNavTourLocalService.load(userId),
     ]);
 
     let onboardingReason: string | undefined;
     let navReason: string | undefined;
-
-    let onboardingPayload:
-      | {
-          completed: boolean;
-          skippedPreferences: boolean;
-          completedAt?: string | null;
-          answers?: {
-            investment_horizon: "short_term" | "medium_term" | "long_term" | null;
-            drawdown_response: "reduce" | "stay" | "buy_more" | null;
-            volatility_preference: "small" | "moderate" | "large" | null;
-          };
-        }
-      | undefined;
+    let onboardingPayload: OnboardingPayload | undefined;
+    let navPayload: NavPayload | undefined;
 
     if (!pendingOnboarding) {
       onboardingReason = "no_pending_state";
@@ -67,12 +77,6 @@ export class KaiProfileSyncService {
       }
     }
 
-    let navPayload:
-      | {
-          completedAt?: string | null;
-          skippedAt?: string | null;
-        }
-      | undefined;
     if (!pendingNavTour) {
       navReason = "no_pending_state";
     } else if (pendingNavTour.synced_to_vault_at) {
@@ -88,11 +92,37 @@ export class KaiProfileSyncService {
 
     if (!onboardingPayload && !navPayload) {
       return {
-        synced: false,
+        hasPending: false,
         reason:
           navReason && navReason !== "no_pending_state"
             ? `nav_tour_${navReason}`
             : onboardingReason ?? "no_pending_state",
+        pendingOnboarding,
+        pendingNavTour,
+      };
+    }
+
+    return {
+      hasPending: true,
+      onboardingPayload,
+      navPayload,
+      pendingOnboarding,
+      pendingNavTour,
+    };
+  }
+
+  static async syncPendingToVault(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken?: string;
+    pendingState?: KaiProfilePendingSyncState;
+    baseFullBlob?: Record<string, unknown>;
+  }): Promise<{ synced: boolean; reason?: string }> {
+    const pendingState = params.pendingState ?? (await this.getPendingSyncState(params.userId));
+    if (!pendingState.hasPending) {
+      return {
+        synced: false,
+        reason: pendingState.reason ?? "no_pending_state",
       };
     }
 
@@ -100,11 +130,17 @@ export class KaiProfileSyncService {
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-      onboarding: onboardingPayload,
-      navTour: navPayload,
+      baseFullBlob: params.baseFullBlob,
+      onboarding: pendingState.onboardingPayload,
+      navTour: pendingState.navPayload,
     });
 
-    if (onboardingPayload && pendingOnboarding && !pendingOnboarding.skipped) {
+    const pendingOnboarding = pendingState.pendingOnboarding;
+    if (
+      pendingState.onboardingPayload &&
+      pendingOnboarding &&
+      !pendingOnboarding.skipped
+    ) {
       const answers = pendingOnboarding.answers;
       const riskScore = computeRiskScore(answers);
       if (
@@ -123,10 +159,10 @@ export class KaiProfileSyncService {
       }
     }
 
-    if (onboardingPayload) {
+    if (pendingState.onboardingPayload) {
       await PreVaultOnboardingService.markSynced(params.userId);
     }
-    if (navPayload) {
+    if (pendingState.navPayload) {
       await KaiNavTourLocalService.markSynced(params.userId);
     }
 

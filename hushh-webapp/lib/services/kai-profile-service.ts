@@ -690,6 +690,7 @@ export class KaiProfileService {
     userId: string;
     vaultKey: string;
     vaultOwnerToken?: string;
+    baseFullBlob?: Record<string, unknown>;
     onboarding?: {
       completed: boolean;
       skippedPreferences: boolean;
@@ -707,7 +708,10 @@ export class KaiProfileService {
     now?: Date;
   }): Promise<KaiProfileV2> {
     const iso = nowIso(params.now);
-    const fullBlob: Record<string, unknown> = await getFullBlob(params).catch(() => ({}));
+    const fullBlob: Record<string, unknown> =
+      params.baseFullBlob && typeof params.baseFullBlob === "object"
+        ? params.baseFullBlob
+        : await getFullBlob(params).catch(() => ({}));
     const current = selectProfile(fullBlob);
 
     const next: KaiProfileV2 = {

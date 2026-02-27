@@ -68,6 +68,11 @@ export interface EncryptedUserBlob extends EncryptedValue {
   updatedAt?: string;
 }
 
+type DecryptedFullBlobCacheEntry = {
+  marker: string;
+  blob: Record<string, unknown>;
+};
+
 export interface EncryptedAttribute extends EncryptedValue {
   domain: string;
   attributeKey: string;
@@ -120,6 +125,48 @@ export class WorldModelService {
     keyParts: Array<string | number | boolean | undefined | null>
   ): string {
     return keyParts.map((part) => (part ?? "null").toString()).join(":");
+  }
+
+  private static cloneRecord<T extends Record<string, unknown>>(value: T): T {
+    if (typeof globalThis.structuredClone === "function") {
+      try {
+        return globalThis.structuredClone(value) as T;
+      } catch {
+        // Fall through to JSON clone.
+      }
+    }
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+
+  private static buildEncryptedBlobMarker(blob: EncryptedUserBlob | EncryptedValue): string {
+    const updatedAt =
+      "updatedAt" in blob && typeof blob.updatedAt === "string" ? blob.updatedAt : "na";
+    const dataVersion =
+      "dataVersion" in blob && typeof blob.dataVersion === "number" ? blob.dataVersion : "na";
+    const ciphertext = blob.ciphertext || "";
+    const ciphertextSignature = `${ciphertext.length}:${ciphertext.slice(0, 24)}:${ciphertext.slice(-24)}`;
+    return [
+      blob.algorithm || "aes-256-gcm",
+      dataVersion,
+      updatedAt,
+      blob.iv,
+      blob.tag,
+      ciphertextSignature,
+    ].join("|");
+  }
+
+  private static cacheDecryptedBlob(params: {
+    userId: string;
+    encryptedBlob: EncryptedUserBlob | EncryptedValue;
+    fullBlob: Record<string, unknown>;
+  }): void {
+    const cache = CacheService.getInstance();
+    const cacheKey = CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(params.userId);
+    const entry: DecryptedFullBlobCacheEntry = {
+      marker: this.buildEncryptedBlobMarker(params.encryptedBlob),
+      blob: this.cloneRecord(params.fullBlob),
+    };
+    cache.set(cacheKey, entry, CACHE_TTL.SESSION);
   }
 
   private static isLikelyPortfolioData(value: unknown): value is CachedPortfolioData {
@@ -963,6 +1010,10 @@ export class WorldModelService {
       }
     );
 
+    if (response.status === 404) {
+      return null;
+    }
+
     if (!response.ok) {
       throw new Error(`Failed to get portfolio: ${response.status}`);
     }
@@ -1136,9 +1187,18 @@ export class WorldModelService {
     vaultKey: string;
     vaultOwnerToken?: string;
   }): Promise<Record<string, unknown>> {
+    const cache = CacheService.getInstance();
     const encrypted = await this.getEncryptedData(params.userId, params.vaultOwnerToken);
     if (!encrypted) {
+      cache.invalidate(CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(params.userId));
       return {};
+    }
+
+    const marker = this.buildEncryptedBlobMarker(encrypted);
+    const decryptedCacheKey = CACHE_KEYS.WORLD_MODEL_DECRYPTED_BLOB(params.userId);
+    const cachedDecrypted = cache.get<DecryptedFullBlobCacheEntry>(decryptedCacheKey);
+    if (cachedDecrypted?.marker === marker && cachedDecrypted.blob) {
+      return this.cloneRecord(cachedDecrypted.blob);
     }
 
     const { decryptData } = await import("@/lib/vault/encrypt");
@@ -1158,12 +1218,17 @@ export class WorldModelService {
       return {};
     }
     const parsedBlob = parsed as Record<string, unknown>;
+    this.cacheDecryptedBlob({
+      userId: params.userId,
+      encryptedBlob: encrypted,
+      fullBlob: parsedBlob,
+    });
     void this.maybeSyncTickersFromFinancialBlob({
       userId: params.userId,
       fullBlob: parsedBlob,
       vaultOwnerToken: params.vaultOwnerToken,
     });
-    return parsedBlob;
+    return this.cloneRecord(parsedBlob);
   }
 
   /**
@@ -1296,6 +1361,13 @@ export class WorldModelService {
         userId: params.userId,
         fullBlob: merged.fullBlob,
         vaultOwnerToken: params.vaultOwnerToken,
+      });
+    }
+    if (result.success) {
+      this.cacheDecryptedBlob({
+        userId: params.userId,
+        encryptedBlob: merged.encryptedBlob,
+        fullBlob: merged.fullBlob,
       });
     }
 
