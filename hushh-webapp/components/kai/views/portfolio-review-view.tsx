@@ -73,6 +73,8 @@ import {
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { scrollAppToTop } from "@/lib/navigation/use-scroll-reset";
 import { toInvestorMessage } from "@/lib/copy/investor-language";
+import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
+import { ROUTES } from "@/lib/navigation/routes";
 
 
 
@@ -1275,6 +1277,7 @@ export function PortfolioReviewView({
     }
 
     setIsSaving(true);
+    let saveTaskId: string | null = null;
 
     try {
       let resolvedVaultOwnerToken = effectiveVaultOwnerToken;
@@ -1306,6 +1309,32 @@ export function PortfolioReviewView({
       const normalizedActiveHoldings = activeHoldings.map((holding) =>
         normalizeHoldingForStorage(holding)
       );
+      const optimisticSavePayload: PortfolioData = {
+        account_info: accountInfo,
+        account_summary: accountSummary,
+        asset_allocation: assetAllocation,
+        holdings: normalizedActiveHoldings,
+        income_summary: incomeSummary,
+        realized_gain_loss: realizedGainLoss,
+        cash_balance: toFiniteNumber(initialData.cash_balance),
+        total_value: toFiniteNumber(initialData.total_value),
+        parse_fallback: initialData.parse_fallback === true,
+      };
+
+      saveTaskId = AppBackgroundTaskService.startTask({
+        userId,
+        kind: "portfolio_save",
+        title: "Portfolio save",
+        description: "Securing and storing your portfolio in Vault.",
+        routeHref: ROUTES.KAI_DASHBOARD,
+      });
+      baselineSnapshotRef.current = serializeEditableState(accountInfo, holdings);
+      setHasUnsavedChanges(false);
+      toast.success("Portfolio save started in background.");
+      Promise.resolve(onSaveComplete(optimisticSavePayload)).catch((saveCompleteError) => {
+        console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
+      });
+      setIsSaving(false);
 
       const nowIso = new Date().toISOString();
       const blobLoadStartedAt = nowMs();
@@ -1708,20 +1737,15 @@ export function PortfolioReviewView({
         );
       }
 
-      if (createdVaultCopyRef.current) {
-        if (createdVaultModeRef.current === "generated_default_native_biometric" || createdVaultModeRef.current === "generated_default_web_prf") {
-          toast.success("Vault created. Portfolio saved. Finalizing profile sync in background.");
-        } else {
-          toast.success("Vault created. Portfolio saved. Finalizing profile sync in background.");
-        }
-      } else {
-        toast.success("Portfolio saved. Finalizing profile sync in background.");
+      if (saveTaskId) {
+        AppBackgroundTaskService.completeTask(
+          saveTaskId,
+          createdVaultCopyRef.current
+            ? "Vault created and portfolio saved."
+            : "Portfolio saved to Vault."
+        );
       }
-      baselineSnapshotRef.current = serializeEditableState(accountInfo, holdings);
-      setHasUnsavedChanges(false);
-      Promise.resolve(onSaveComplete(portfolioToSave)).catch((saveCompleteError) => {
-        console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
-      });
+      toast.success("Portfolio saved to Vault.");
       if (shouldVerifySave) {
         void (async () => {
           try {
@@ -1742,6 +1766,13 @@ export function PortfolioReviewView({
       logSavePhase("total", saveStartedAt);
     } catch (error) {
       console.error("Save error:", error);
+      if (saveTaskId) {
+        AppBackgroundTaskService.failTask(
+          saveTaskId,
+          extractSaveErrorMessage(error, "Failed to save portfolio"),
+          "Portfolio save failed. Reopen review and try again."
+        );
+      }
       toast.error(extractSaveErrorMessage(error, "Failed to save portfolio"));
     } finally {
       setIsSaving(false);
