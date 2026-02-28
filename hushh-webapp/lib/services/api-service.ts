@@ -1534,6 +1534,75 @@ export class ApiService {
     });
   }
 
+  static async startPortfolioImportRun(params: {
+    formData: FormData;
+    vaultOwnerToken: string;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    return apiFetch("/api/kai/portfolio/import/run/start", {
+      method: "POST",
+      body: params.formData,
+      headers: {
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+      signal: params.signal,
+    });
+  }
+
+  static async getActivePortfolioImportRun(params: {
+    userId: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    const query = new URLSearchParams({ user_id: params.userId });
+    return apiFetch(`/api/kai/portfolio/import/run/active?${query.toString()}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+      },
+    });
+  }
+
+  static async streamPortfolioImportRun(params: {
+    runId: string;
+    userId: string;
+    vaultOwnerToken: string;
+    cursor?: number;
+    signal?: AbortSignal;
+  }): Promise<Response> {
+    const query = new URLSearchParams({
+      user_id: params.userId,
+      cursor: String(Math.max(0, params.cursor ?? 0)),
+    });
+    return apiFetch(
+      `/api/kai/portfolio/import/run/${encodeURIComponent(params.runId)}/stream?${query.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+          Accept: "text/event-stream",
+        },
+        signal: params.signal,
+      }
+    );
+  }
+
+  static async cancelPortfolioImportRun(params: {
+    runId: string;
+    userId: string;
+    vaultOwnerToken: string;
+  }): Promise<Response> {
+    const query = new URLSearchParams({ user_id: params.userId });
+    return apiFetch(
+      `/api/kai/portfolio/import/run/${encodeURIComponent(params.runId)}/cancel?${query.toString()}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
+      }
+    );
+  }
+
   static async importPortfolio(data: {
     userId: string;
     file: File;

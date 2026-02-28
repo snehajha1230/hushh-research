@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Search, X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -28,7 +28,6 @@ import {
   type TickerMarketSnapshot,
 } from "@/lib/kai/market-snapshot";
 import { cn } from "@/lib/utils";
-import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { toInvestorLoading, toInvestorMessage } from "@/lib/copy/investor-language";
 
 const ANALYSIS_INTENT_FRESH_MS = 15_000;
@@ -114,7 +113,10 @@ export default function KaiAnalysisPage() {
   const [resolvingEntry, setResolvingEntry] = useState(false);
   const [liveEntry, setLiveEntry] = useState<AnalysisHistoryEntry | null>(null);
   const [activeRunTask, setActiveRunTask] = useState<DebateRunTask | null>(null);
+  const [focusedRunId, setFocusedRunId] = useState<string | null>(null);
+  const [focusedRunTask, setFocusedRunTask] = useState<DebateRunTask | null>(null);
   const [showHistoryWhileActive, setShowHistoryWhileActive] = useState(false);
+  const [autoSwitchToSummaryOnDecision, setAutoSwitchToSummaryOnDecision] = useState(true);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("debate");
   const [headerSnapshot, setHeaderSnapshot] = useState<TickerMarketSnapshot | null>(null);
 
@@ -127,7 +129,13 @@ export default function KaiAnalysisPage() {
     hasFreshAnalysisIntent &&
     Boolean(analysisParams?.userId) &&
     analysisParams?.userId !== "__pending__";
-  const liveIntentReady = Boolean(activeRunTask) || localIntentReady;
+  const canStartNewRun =
+    localIntentReady &&
+    !activeRunTask &&
+    !focusedRunTask &&
+    !liveEntry &&
+    !resolvedEntry;
+  const liveIntentReady = Boolean(activeRunTask) || canStartNewRun;
 
   const setDebateIdParam = useCallback(
     (nextDebateId?: string | null) => {
@@ -146,9 +154,14 @@ export default function KaiAnalysisPage() {
     const focus = searchParams.get("focus");
     const hasFocusActive = focus === "active";
     const hasRunIdParam = searchParams.has("run_id");
+    const runIdParam = searchParams.get("run_id");
     if (!hasTabParam && !hasFocusActive && !hasRunIdParam) return;
 
-    if (hasFocusActive) {
+    if (hasFocusActive || hasRunIdParam) {
+      if (runIdParam && runIdParam.trim()) {
+        setFocusedRunId(runIdParam.trim());
+      }
+      setAutoSwitchToSummaryOnDecision(false);
       setShowHistoryWhileActive(false);
       setWorkspaceTab("debate");
       requestAnimationFrame(() => {
@@ -186,6 +199,7 @@ export default function KaiAnalysisPage() {
   useEffect(() => {
     if (!userId) {
       setActiveRunTask(null);
+      setFocusedRunTask(null);
       return;
     }
 
@@ -199,10 +213,21 @@ export default function KaiAnalysisPage() {
         )
         .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
       setActiveRunTask(active || null);
+      if (focusedRunId) {
+        const focused = state.tasks.find(
+          (task) =>
+            task.runId === focusedRunId &&
+            task.userId === userId &&
+            !task.dismissedAt
+        );
+        setFocusedRunTask(focused || null);
+      } else {
+        setFocusedRunTask(null);
+      }
     });
 
     return unsubscribe;
-  }, [userId]);
+  }, [focusedRunId, userId]);
 
   useEffect(() => {
     if (!userId || !vaultOwnerToken || !vaultKey) return;
@@ -274,6 +299,9 @@ export default function KaiAnalysisPage() {
       if (!userId) return;
       setResolvedEntry(null);
       setLiveEntry(null);
+      setFocusedRunId(null);
+      setFocusedRunTask(null);
+      setAutoSwitchToSummaryOnDecision(true);
       setAnalysisParams({
         ticker,
         userId,
@@ -291,7 +319,10 @@ export default function KaiAnalysisPage() {
       setAnalysisParams(null);
       setLiveEntry(null);
       setResolvedEntry(entry);
+      setFocusedRunId(null);
+      setFocusedRunTask(null);
       setShowHistoryWhileActive(false);
+      setAutoSwitchToSummaryOnDecision(true);
       setWorkspaceTab("summary");
       setDebateIdParam(extractDebateId(entry));
     },
@@ -308,7 +339,10 @@ export default function KaiAnalysisPage() {
     }
     setAnalysisParams(null);
     setLiveEntry(null);
+    setFocusedRunId(null);
+    setFocusedRunTask(null);
     setShowHistoryWhileActive(false);
+    setAutoSwitchToSummaryOnDecision(true);
     setDebateIdParam(null);
   }, [activeRunTask, setAnalysisParams, setDebateIdParam, vaultOwnerToken]);
 
@@ -316,7 +350,10 @@ export default function KaiAnalysisPage() {
     setAnalysisParams(null);
     setLiveEntry(null);
     setResolvedEntry(null);
+    setFocusedRunId(null);
+    setFocusedRunTask(null);
     setShowHistoryWhileActive(true);
+    setAutoSwitchToSummaryOnDecision(true);
     setDebateIdParam(null);
   }, [setAnalysisParams, setDebateIdParam]);
 
@@ -325,6 +362,9 @@ export default function KaiAnalysisPage() {
       if (!userId) return;
       setResolvedEntry(null);
       setLiveEntry(null);
+      setFocusedRunId(null);
+      setFocusedRunTask(null);
+      setAutoSwitchToSummaryOnDecision(true);
       setAnalysisParams({
         ticker,
         userId,
@@ -344,22 +384,29 @@ export default function KaiAnalysisPage() {
     });
   }, []);
 
-  const handleOpenCommandBar = useCallback(() => {
-    openKaiCommandBar();
-  }, []);
+  const handleLiveDecisionSaved = useCallback(
+    (entry: AnalysisHistoryEntry) => {
+      setLiveEntry(entry);
+      setResolvedEntry(entry);
+      setAnalysisParams(null);
+      setShowHistoryWhileActive(false);
+      if (autoSwitchToSummaryOnDecision) {
+        setWorkspaceTab("summary");
+      }
+      requestAnimationFrame(() => {
+        workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
+      });
+    },
+    [autoSwitchToSummaryOnDecision, setAnalysisParams]
+  );
 
-  const handleLiveDecisionSaved = useCallback((entry: AnalysisHistoryEntry) => {
-    setLiveEntry(entry);
-    setShowHistoryWhileActive(false);
-    setWorkspaceTab("summary");
-    requestAnimationFrame(() => {
-      workspaceTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
-    });
-  }, []);
-
+  const hasFocusedRun = Boolean(focusedRunTask && !focusedRunTask.dismissedAt);
   const activeEntry = liveIntentReady ? liveEntry : resolvedEntry;
-  const showWorkspace = !showHistoryWhileActive && Boolean(liveIntentReady || resolvedEntry);
+  const showWorkspace = !showHistoryWhileActive && Boolean(liveIntentReady || resolvedEntry || hasFocusedRun);
   const activeTicker = useMemo(() => {
+    if (focusedRunTask?.ticker) {
+      return String(focusedRunTask.ticker).trim().toUpperCase();
+    }
     if (activeRunTask?.ticker) {
       return String(activeRunTask.ticker).trim().toUpperCase();
     }
@@ -367,7 +414,7 @@ export default function KaiAnalysisPage() {
       return String(analysisParams.ticker).trim().toUpperCase();
     }
     return activeEntry?.ticker ? String(activeEntry.ticker).trim().toUpperCase() : "";
-  }, [activeEntry?.ticker, activeRunTask?.ticker, analysisParams?.ticker, liveIntentReady]);
+  }, [activeEntry?.ticker, activeRunTask?.ticker, analysisParams?.ticker, focusedRunTask?.ticker, liveIntentReady]);
   const headerPriceLabel = formatCurrency(headerSnapshot?.last_price ?? null);
   const headerChangePct = headerSnapshot?.change_pct ?? null;
 
@@ -445,25 +492,20 @@ export default function KaiAnalysisPage() {
 
   return (
     <div className="overflow-x-hidden pt-[var(--kai-view-top-gap,16px)]">
-      <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-        <button
-          type="button"
-          onClick={handleOpenCommandBar}
-          className="flex h-11 w-full items-center gap-2 rounded-full border border-border/60 bg-background/75 px-4 text-left text-sm text-muted-foreground shadow-sm backdrop-blur-md transition hover:bg-background/90"
-          aria-label="Analyze a stock"
-        >
-          <Search className="h-4 w-4 shrink-0" />
-          <span className="font-medium">Analyze a stock</span>
-        </button>
-      </div>
       {showWorkspace ? (
-        <div ref={workspaceTopRef} className="mx-auto w-full max-w-6xl space-y-4 px-4 pt-3 sm:px-6">
+        <div ref={workspaceTopRef} className="mx-auto w-full max-w-6xl space-y-4 px-4 sm:px-6">
           <div className="space-y-3">
-            <div className="flex items-center justify-start">
+            <div className="flex items-center justify-between">
               <MorphyButton variant="none" effect="fade" size="sm" onClick={handleBackToHistory}>
                 <Icon icon={ArrowLeft} size="sm" className="mr-1" />
                 Back to history
               </MorphyButton>
+              {liveIntentReady ? (
+                <MorphyButton variant="none" effect="fade" size="sm" onClick={handleCloseLiveDebate}>
+                  <Icon icon={X} size="xs" className="mr-1" />
+                  Cancel
+                </MorphyButton>
+              ) : null}
             </div>
             <div className="rounded-2xl border border-border/60 bg-background/70 px-4 py-3 shadow-sm backdrop-blur-md">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -491,14 +533,6 @@ export default function KaiAnalysisPage() {
                   )}
                 </div>
               </div>
-              {liveIntentReady ? (
-                <div className="mt-3 flex justify-end">
-                  <MorphyButton variant="none" effect="fade" size="sm" onClick={handleCloseLiveDebate}>
-                    <Icon icon={X} size="xs" className="mr-1" />
-                    Cancel
-                  </MorphyButton>
-                </div>
-              ) : null}
             </div>
             <Tabs
               value={workspaceTab}
@@ -525,7 +559,19 @@ export default function KaiAnalysisPage() {
                     onDecisionSaved={handleLiveDecisionSaved}
                     showHeader={false}
                   />
-                ) : liveIntentReady && analysisParams ? (
+                ) : focusedRunTask ? (
+                  <DebateStreamView
+                    runId={focusedRunTask.runId}
+                    ticker={focusedRunTask.ticker}
+                    userId={focusedRunTask.userId}
+                    riskProfile={analysisParams?.riskProfile || "balanced"}
+                    vaultOwnerToken={vaultOwnerToken || ""}
+                    vaultKey={vaultKey}
+                    onClose={handleCloseLiveDebate}
+                    onDecisionSaved={handleLiveDecisionSaved}
+                    showHeader={false}
+                  />
+                ) : canStartNewRun && analysisParams ? (
                   <DebateStreamView
                     ticker={analysisParams.ticker}
                     userId={analysisParams.userId}
@@ -591,6 +637,10 @@ export default function KaiAnalysisPage() {
                 size="sm"
                 className="ml-2 h-7 px-2 text-xs"
                 onClick={() => {
+                  if (activeRunTask?.runId) {
+                    setFocusedRunId(activeRunTask.runId);
+                    setAutoSwitchToSummaryOnDecision(false);
+                  }
                   setShowHistoryWhileActive(false);
                   setWorkspaceTab("debate");
                   requestAnimationFrame(() => {

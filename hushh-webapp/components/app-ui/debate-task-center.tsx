@@ -113,8 +113,16 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
       .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
   }, [debateTasks]);
 
-  const openAnalysis = (focusActive = false) => {
-    if (focusActive && latestActiveTask) {
+  const openAnalysis = (focusRunId?: string | null) => {
+    const normalizedRunId = typeof focusRunId === "string" ? focusRunId.trim() : "";
+    if (normalizedRunId) {
+      const params = new URLSearchParams();
+      params.set("focus", "active");
+      params.set("run_id", normalizedRunId);
+      router.push(`/kai/analysis?${params.toString()}`);
+      return;
+    }
+    if (latestActiveTask) {
       const params = new URLSearchParams();
       params.set("focus", "active");
       params.set("run_id", latestActiveTask.runId);
@@ -200,7 +208,7 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
                       effect="fade"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => openAnalysis(true)}
+                      onClick={() => openAnalysis(task.runId)}
                       aria-label="Open analysis"
                     >
                       <Icon icon={ExternalLink} size="xs" />
@@ -320,7 +328,7 @@ export function DebateTaskCenter({ triggerClassName }: DebateTaskCenterProps = {
             className={cn(
               "text-xs text-muted-foreground transition-colors hover:text-foreground"
             )}
-            onClick={() => openAnalysis(Boolean(latestActiveTask))}
+            onClick={() => openAnalysis(latestActiveTask?.runId)}
           >
             Open analysis workspace
           </button>

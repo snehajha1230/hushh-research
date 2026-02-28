@@ -380,7 +380,7 @@ export function StreamingProgressView({
           )}
         </div>
         <span className="text-xs text-muted-foreground">
-          {statusMessage || (isActive ? "Reasoning..." : isComplete ? "Complete" : isError ? "Failed" : "Waiting...")}
+          {statusMessage || (isActive ? "Live update..." : isComplete ? "Complete" : isError ? "Failed" : "Waiting...")}
         </span>
       </div>
 

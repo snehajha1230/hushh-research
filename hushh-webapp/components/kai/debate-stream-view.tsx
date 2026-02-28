@@ -24,7 +24,7 @@ import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { KaiProfileService } from "@/lib/services/kai-profile-service";
 import { WorldModelService } from "@/lib/services/world-model-service";
 import { cn } from "@/lib/utils";
-import { toInvestorMessage } from "@/lib/copy/investor-language";
+import { toInvestorMessage, toInvestorStreamText } from "@/lib/copy/investor-language";
 import {
   DebateRunManagerService,
   type DebateRunTask,
@@ -112,10 +112,37 @@ function classifyError(status: number | null, message: string): ErrorType {
 }
 
 function sanitizeStatusMessage(message: unknown): string {
-  const next = typeof message === "string" ? message.trim() : "";
+  const next = toInvestorStreamText(message);
   if (!next) return "";
   if (/initializ/i.test(next)) return "";
   return next;
+}
+
+function isCapacityLimitMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("429") ||
+    normalized.includes("too many requests") ||
+    normalized.includes("resource exhausted") ||
+    normalized.includes("capacity")
+  );
+}
+
+function extractRetrySeconds(message: string, fallbackSeconds = 2): number {
+  const match = message.match(/(?:retry(?:ing)?\s+in)\s+(\d+(?:\.\d+)?)s?/i);
+  if (!match) return fallbackSeconds;
+  const parsed = Number(match[1]);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallbackSeconds;
+  return Math.max(1, Math.round(parsed));
+}
+
+function toInvestorStreamErrorMessage(raw: unknown): string {
+  const sanitized = toInvestorStreamText(raw);
+  if (!sanitized) return "Analysis was interrupted. Please try again.";
+  if (isCapacityLimitMessage(sanitized)) {
+    return "Analysis service is busy right now. We are retrying automatically.";
+  }
+  return sanitized;
 }
 
 function getErrorDisplay(errorType: ErrorType, retryIn?: number): { icon: React.ReactNode; title: string; message: string } {
@@ -695,6 +722,7 @@ export function DebateStreamView({
   const [reloadNonce, setReloadNonce] = useState(0);
   const processedSeqRef = useRef(0);
   const decisionNotifiedRef = useRef(false);
+  const finalizingNotifiedRef = useRef(false);
   // Helper to update specific agent state in current round
   const updateAgentState = useCallback((round: 1 | 2, agent: string, update: Partial<AgentState>) => {
     // Update Ref (Source of Truth for Stream)
@@ -731,6 +759,17 @@ export function DebateStreamView({
     setBusyOperation("stock_analysis_stream", false);
     onClose();
   }, [currentRunId, managerTask?.status, onClose, setBusyOperation, userId, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (retryCountdown === null || retryCountdown <= 0) return;
+    const timeoutId = setTimeout(() => {
+      setRetryCountdown((prev) => {
+        if (prev === null) return null;
+        return prev > 1 ? prev - 1 : null;
+      });
+    }, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [retryCountdown]);
 
   useEffect(() => {
     if (!showHeader) {
@@ -797,6 +836,7 @@ export function DebateStreamView({
     setInsights([]);
     setRetryCountdown(null);
     decisionNotifiedRef.current = false;
+    finalizingNotifiedRef.current = false;
     processedSeqRef.current = 0;
     // Reset refs
     round1StatesRef.current = JSON.parse(JSON.stringify(INITIAL_ROUND_STATE));
@@ -835,6 +875,17 @@ export function DebateStreamView({
             (typeof data.message === "string" && data.message) ||
             (typeof data.code === "string" ? data.code : "Streaming warning");
           const statusMessage = sanitizeStatusMessage(message);
+          if (statusMessage && isCapacityLimitMessage(statusMessage)) {
+            const retrySeconds =
+              typeof data.retry_in_seconds === "number"
+                ? Math.max(1, Math.round(data.retry_in_seconds))
+                : extractRetrySeconds(statusMessage, 2);
+            setRetryCountdown(retrySeconds);
+            setKaiThinking(
+              `Analysis service is busy. Retrying this step in ${retrySeconds}s…`
+            );
+            break;
+          }
           if (statusMessage) {
             setKaiThinking(statusMessage);
           }
@@ -877,7 +928,7 @@ export function DebateStreamView({
         }
         case "agent_token": {
           const ag = (data.agent || data.agent_name || "").toString().toLowerCase();
-          const txt = (data.text || data.token || "").toString();
+          const txt = toInvestorStreamText((data.text || data.token || "").toString());
           if (!ag || !txt) break;
           const r = resolveRoundForEnvelope(data);
           if (r === 2 && activeRoundRef.current !== 2) {
@@ -891,7 +942,7 @@ export function DebateStreamView({
             runRef[ag] = {
               ...runRef[ag],
               stage: runRef[ag].stage === "idle" ? "active" : runRef[ag].stage,
-              text: (runRef[ag].text || "") + txt,
+              text: toInvestorStreamText((runRef[ag].text || "") + txt),
             };
           }
 
@@ -899,18 +950,18 @@ export function DebateStreamView({
           setter((prev) => ({
             ...prev,
             [ag]: {
-              ...prev[ag],
-              stage: prev[ag]?.stage === "idle" ? "active" : prev[ag]?.stage,
-              text: (prev[ag]?.text || "") + txt,
-            },
-          }));
+                ...prev[ag],
+                stage: prev[ag]?.stage === "idle" ? "active" : prev[ag]?.stage,
+                text: toInvestorStreamText((prev[ag]?.text || "") + txt),
+              },
+            }));
           break;
         }
         case "agent_complete": {
           const r = resolveRoundForEnvelope(data);
           updateAgentState(r, (data.agent || "").toString(), {
             stage: "complete",
-            text: data.summary || "",
+            text: toInvestorStreamText(data.summary || ""),
             thoughts: [],
             recommendation: data.recommendation,
             confidence: data.confidence,
@@ -928,6 +979,19 @@ export function DebateStreamView({
             peerComparison: data.peer_comparison,
             priceTargets: data.price_targets,
           });
+          if (
+            r === 2 &&
+            !decision &&
+            AGENTS.every((agent) => round2StatesRef.current[agent]?.stage === "complete")
+          ) {
+            setKaiThinking("Preparing your final recommendation...");
+            if (!finalizingNotifiedRef.current) {
+              finalizingNotifiedRef.current = true;
+              toast.message("Final recommendation in progress", {
+                description: "Final consensus is being prepared.",
+              });
+            }
+          }
           break;
         }
         case "agent_error": {
@@ -960,6 +1024,7 @@ export function DebateStreamView({
           break;
         }
         case "decision": {
+          finalizingNotifiedRef.current = false;
           const degradedAgents = Array.isArray(data.degraded_agents)
             ? data.degraded_agents
                 .map((item) => String(item || "").trim().toLowerCase())
@@ -1065,15 +1130,19 @@ export function DebateStreamView({
           break;
         }
         case "error": {
-          const errMsg = data.message || "Analysis failed";
-          const errType = classifyError(null, errMsg);
+          const rawError = data.message || "Analysis failed";
+          const errMsg = toInvestorStreamErrorMessage(rawError);
+          const errType = isCapacityLimitMessage(String(rawError || ""))
+            ? "rate_limit"
+            : classifyError(null, String(rawError || ""));
           setBusyOperation("stock_analysis_stream", false);
           setError(errMsg);
           setErrorType(errType);
           break;
         }
         case "aborted": {
-          const errMsg = data.message || "Analysis stream stopped";
+          const rawError = data.message || "Analysis stream stopped";
+          const errMsg = toInvestorStreamErrorMessage(rawError);
           setBusyOperation("stock_analysis_stream", false);
           setError(errMsg);
           setErrorType("connection_lost");
@@ -1174,11 +1243,34 @@ export function DebateStreamView({
       try {
         let resolvedTask: DebateRunTask | null = null;
         if (runId) {
-          resolvedTask = await DebateRunManagerService.resumeActiveRun({
-            userId,
-            vaultOwnerToken,
-            vaultKey,
-          });
+          const existingTask = DebateRunManagerService.getTask(runId);
+          if (existingTask && existingTask.userId === userId) {
+            resolvedTask = existingTask;
+            if (existingTask.status === "running") {
+              await DebateRunManagerService.resumeActiveRun({
+                userId,
+                vaultOwnerToken,
+                vaultKey,
+              });
+              const refreshedTask = DebateRunManagerService.getTask(runId);
+              if (refreshedTask && refreshedTask.userId === userId) {
+                resolvedTask = refreshedTask;
+              }
+            }
+          } else {
+            const resumed = await DebateRunManagerService.resumeActiveRun({
+              userId,
+              vaultOwnerToken,
+              vaultKey,
+            });
+            if (resumed && resumed.runId === runId) {
+              resolvedTask = resumed;
+            } else {
+              const fallbackTask = DebateRunManagerService.getTask(runId);
+              resolvedTask =
+                fallbackTask && fallbackTask.userId === userId ? fallbackTask : null;
+            }
+          }
         } else {
           const ensureResult = await DebateRunManagerService.ensureRun({
             userId,
@@ -1393,8 +1485,8 @@ export function DebateStreamView({
         </div>
       ) : null}
 
-      <ScrollArea className={cn("flex-1 p-4", !showHeader && "pt-0")}>
-        <div className="mx-auto w-full max-w-3xl space-y-6 px-1 pb-10 sm:px-4">
+      <ScrollArea className={cn("flex-1 px-2 pb-4 sm:px-3", !showHeader && "pt-0")}>
+        <div className="mx-auto w-full max-w-3xl space-y-4 px-0 pb-8">
           {decision ? (
             <MorphyCard>
               <MorphyCardContent className="p-0">
@@ -1406,16 +1498,7 @@ export function DebateStreamView({
                 </p>
               </MorphyCardContent>
             </MorphyCard>
-          ) : (
-            <MorphyCard>
-              <MorphyCardContent className="p-0">
-                <p className="text-sm font-medium">Final recommendation is building...</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Live analysis updates appear here. You can switch tabs anytime while this run continues.
-                </p>
-              </MorphyCardContent>
-            </MorphyCard>
-          )}
+          ) : null}
 
           {!decision ? (
             <RoundTabsCard

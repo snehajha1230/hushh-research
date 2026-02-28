@@ -1357,11 +1357,21 @@ export function PortfolioReviewView({
 
       const nowIso = new Date().toISOString();
       const blobLoadStartedAt = nowMs();
-      const fullBlob = await WorldModelService.loadFullBlob({
-        userId,
-        vaultKey: effectiveVaultKey,
-        vaultOwnerToken: resolvedVaultOwnerToken,
-      }).catch(() => ({} as Record<string, unknown>));
+      const cachedBlob = WorldModelService.peekCachedFullBlob(userId);
+      let fullBlob: Record<string, unknown>;
+      let expectedDataVersion = cachedBlob?.dataVersion;
+      if (cachedBlob?.blob) {
+        fullBlob = cachedBlob.blob;
+      } else {
+        fullBlob = await WorldModelService.loadFullBlob({
+          userId,
+          vaultKey: effectiveVaultKey,
+          vaultOwnerToken: resolvedVaultOwnerToken,
+        }).catch(() => ({} as Record<string, unknown>));
+      }
+      if (expectedDataVersion === undefined) {
+        expectedDataVersion = WorldModelService.peekCachedEncryptedBlob(userId)?.dataVersion;
+      }
       logSavePhase("blob load", blobLoadStartedAt);
       const mergeBuildStartedAt = nowMs();
       const existingFinancialValue = fullBlob.financial;
@@ -1703,6 +1713,7 @@ export function PortfolioReviewView({
           domainData: nextFinancialDomain as unknown as Record<string, unknown>,
           summary: financialSummary,
           baseFullBlob: fullBlob,
+          expectedDataVersion,
           vaultOwnerToken: vaultOwnerTokenToUse,
         });
 
@@ -1728,6 +1739,12 @@ export function PortfolioReviewView({
       logSavePhase("encrypt/store", encryptStoreStartedAt);
 
       if (!financialResult.success) {
+        if (financialResult.conflict) {
+          throw new Error(
+            financialResult.message ||
+              "Vault changed on another device. Refresh and save again."
+          );
+        }
         throw new Error("Backend returned failure on store");
       }
 

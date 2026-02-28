@@ -126,7 +126,13 @@ export function RoundTabsCard({
   }, [agentStates]);
 
   return (
-    <MorphyCard showRipple={false} className={cn("w-full transition-all duration-200", className)}>
+    <MorphyCard
+      showRipple={false}
+      className={cn(
+        "w-full rounded-2xl border border-border/60 bg-background/70 shadow-[0_8px_24px_rgba(0,0,0,0.14)] transition-all duration-200",
+        className
+      )}
+    >
       <MorphyCardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -187,12 +193,12 @@ export function RoundTabsCard({
                     key={agent}
                     value={agent}
                     className={cn(
-                      "relative flex h-8 w-full min-w-0 items-center justify-center px-1 text-center text-xs transition-all duration-200 sm:text-sm",
+                      "flex h-8 w-full min-w-0 items-center justify-center gap-1 px-1.5 text-center text-[11px] leading-none transition-all duration-200 sm:text-xs",
                       isAgentComplete && "data-[state=active]:text-emerald-600"
                     )}
                   >
                     <span className="truncate">{config.label}</span>
-                    <span className="absolute right-1 top-1 inline-flex h-3 w-3 items-center justify-center">
+                    <span className="inline-flex h-3 w-3 shrink-0 items-center justify-center">
                       {isAgentComplete ? (
                         <Icon icon={CheckCircle2} size="xs" className="text-emerald-500" />
                       ) : isAgentError ? (

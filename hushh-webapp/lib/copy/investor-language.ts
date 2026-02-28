@@ -126,3 +126,47 @@ export function toInvestorDecisionLabel(
     guidance: "Review the full analysis before taking action.",
   };
 }
+
+const STREAM_TECHNICAL_SUBSTITUTIONS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /\bva(?:ult)?_?owner token\b/gi, replacement: "secure access" },
+  { pattern: /\bconsent token\b/gi, replacement: "secure access" },
+  { pattern: /\btoken refresh(?:ed|)\b/gi, replacement: "session refresh" },
+  { pattern: /\bdecryption\b/gi, replacement: "unlock" },
+  { pattern: /\bdecrypt(?:ed|ing)?\b/gi, replacement: "unlock" },
+  { pattern: /\bencryption\b/gi, replacement: "secure storage" },
+  { pattern: /\bencrypt(?:ed|ing)?\b/gi, replacement: "secure" },
+  { pattern: /\bfallback(?: path)?\b/gi, replacement: "backup source" },
+  { pattern: /\bruntime\b/gi, replacement: "session" },
+  { pattern: /\bdebug(?:ging|)\b/gi, replacement: "" },
+  { pattern: /\btrace(?:s|)\b/gi, replacement: "" },
+  { pattern: /\bprovider failure\b/gi, replacement: "data source unavailable" },
+  { pattern: /\bhttp\s*\d{3}\b/gi, replacement: "network response" },
+  { pattern: /\b429\b/gi, replacement: "temporary capacity limit" },
+  { pattern: /\btoo many requests\b/gi, replacement: "capacity limit reached" },
+  { pattern: /\bresource exhausted\b/gi, replacement: "service capacity temporarily unavailable" },
+  { pattern: /https?:\/\/[^\s)]+/gi, replacement: "" },
+];
+
+export function toInvestorStreamText(value: unknown): string {
+  const source = typeof value === "string" ? value : "";
+  if (!source.trim()) return "";
+
+  let next = source
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'");
+  // Remove XML/HTML-ish wrappers that leak from streamed model output.
+  next = next.replace(/<\/?[\w:-]+(?:\s[^>]*)?>/g, " ");
+  for (const rule of STREAM_TECHNICAL_SUBSTITUTIONS) {
+    next = next.replace(rule.pattern, rule.replacement);
+  }
+  next = next
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\(\s*\)/g, "")
+    .trim();
+  return next;
+}

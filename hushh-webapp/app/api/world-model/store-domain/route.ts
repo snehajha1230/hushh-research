@@ -21,6 +21,7 @@ interface StoreDomainRequest {
     algorithm?: string;
   };
   summary: Record<string, unknown>;
+  expected_data_version?: number;
 }
 
 export async function POST(request: NextRequest) {
@@ -63,9 +64,15 @@ export async function POST(request: NextRequest) {
 
     if (!backendResponse.ok) {
       const errorText = await backendResponse.text();
-      console.error("[StoreDomain] Backend error:", backendResponse.status, errorText);
+      let errorPayload: unknown = null;
+      try {
+        errorPayload = JSON.parse(errorText);
+      } catch {
+        errorPayload = { error: errorText || `Backend error: ${backendResponse.status}` };
+      }
+      console.error("[StoreDomain] Backend error:", backendResponse.status, errorPayload);
       return NextResponse.json(
-        { error: `Backend error: ${backendResponse.status}` },
+        errorPayload,
         { status: backendResponse.status }
       );
     }

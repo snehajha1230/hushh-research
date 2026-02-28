@@ -126,6 +126,8 @@ export class CacheSyncService {
         iv: string;
         tag: string;
         algorithm?: string;
+        dataVersion?: number;
+        updatedAt?: string;
       };
       domainSummary?: DomainSummaryPatch;
       metadataTimestamp?: string;

@@ -172,6 +172,7 @@ export class UnlockWarmOrchestrator {
     const cache = CacheService.getInstance();
     const warmPriority = resolveWarmPriority(params.routePath);
     const shouldWarmFinancial =
+      warmPriority === "market" ||
       warmPriority === "dashboard" ||
       warmPriority === "analysis" ||
       warmPriority === "default";

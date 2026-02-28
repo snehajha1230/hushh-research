@@ -17,6 +17,7 @@ import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { CheckCircle2, ChevronDown, ChevronUp, FileChartColumn, X } from "lucide-react";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { useSmoothStreamProgress } from "@/lib/morphy-ux/hooks/use-smooth-stream-progress";
+import { toInvestorStreamText } from "@/lib/copy/investor-language";
 import {
   Collapsible,
   CollapsibleContent,
@@ -76,11 +77,19 @@ const stageMessages: Record<ImportStage, string> = {
 };
 
 function normalizeStreamLine(rawLine: string): string {
-  return String(rawLine || "")
+  const normalized = String(rawLine || "")
     .replace(/```(?:json)?/gi, " ")
     .replace(/```/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+  if (!normalized) return "";
+  const tagged = normalized.match(/^\[([^\]]+)\]\s*(.*)$/);
+  if (tagged) {
+    const tag = (tagged[1] || "").trim();
+    const message = toInvestorStreamText((tagged[2] || "").trim());
+    return message ? `[${tag}] ${message}` : `[${tag}]`;
+  }
+  return toInvestorStreamText(normalized);
 }
 
 function streamLineKey(line: string): string {
@@ -211,8 +220,37 @@ export function ImportProgressView({
     setStickRawToBottom(distanceFromBottom <= 24);
   };
 
-  const holdingsCount = holdingsExtracted || liveHoldings.length;
+  const uniqueLiveHoldings = useMemo(() => {
+    if (liveHoldings.length <= 1) return liveHoldings;
+    const seen = new Set<string>();
+    const unique: LiveHoldingPreview[] = [];
+    for (const holding of liveHoldings) {
+      const symbol = String(holding.symbol || "").trim().toUpperCase();
+      const name = String(holding.name || "").trim().toLowerCase();
+      const qty =
+        typeof holding.quantity === "number" && Number.isFinite(holding.quantity)
+          ? holding.quantity.toFixed(6)
+          : "";
+      const value =
+        typeof holding.market_value === "number" && Number.isFinite(holding.market_value)
+          ? holding.market_value.toFixed(2)
+          : "";
+      const assetType = String(holding.asset_type || "").trim().toLowerCase();
+      const key = [symbol, name, qty, value, assetType].join("|");
+      if (!key.replace(/\|/g, "").trim()) continue;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(holding);
+    }
+    return unique;
+  }, [liveHoldings]);
+  const holdingsCount =
+    uniqueLiveHoldings.length > 0 ? uniqueLiveHoldings.length : holdingsExtracted;
   const rawCountBadge = effectiveRawLines.length || thoughtCount;
+  const displayStatusMessage = useMemo(
+    () => normalizeStreamLine(statusMessage || stageMessages[stage]),
+    [statusMessage, stage]
+  );
 
   return (
     <Card className={cn("w-full", className)}>
@@ -258,9 +296,7 @@ export function ImportProgressView({
           )}
         </div>
 
-        <p className="text-sm text-muted-foreground">
-          {statusMessage || stageMessages[stage]}
-        </p>
+        <p className="text-sm text-muted-foreground">{displayStatusMessage}</p>
 
         <Collapsible open={rawExpanded} onOpenChange={setRawExpanded}>
           <div className="rounded-xl border border-border/60 bg-muted/20 p-3">
@@ -334,12 +370,12 @@ export function ImportProgressView({
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
-                {liveHoldings.length === 0 ? (
+                {uniqueLiveHoldings.length === 0 ? (
                   <div className="rounded-lg border border-border/40 bg-background/70 px-2.5 py-2 text-xs text-muted-foreground">
                     No holdings detected yet. They will appear here during parsing.
                   </div>
                 ) : (
-                  liveHoldings.map((holding, idx) => (
+                  uniqueLiveHoldings.map((holding, idx) => (
                     <div
                       key={`${holding.symbol || holding.name || "holding"}-${idx}`}
                       className="rounded-lg border border-border/40 bg-background/70 px-2.5 py-2 text-xs"
