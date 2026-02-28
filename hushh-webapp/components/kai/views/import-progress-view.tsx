@@ -57,6 +57,7 @@ export interface ImportProgressViewProps {
   holdingsTotal?: number;
   errorMessage?: string;
   onCancel?: () => void;
+  onRetry?: () => void;
   onContinue?: () => void;
   onBackToDashboard?: () => void;
   className?: string;
@@ -136,8 +137,9 @@ export function ImportProgressView({
   liveHoldings = [],
   holdingsExtracted = 0,
   holdingsTotal,
-  errorMessage: _errorMessage,
+  errorMessage,
   onCancel,
+  onRetry,
   onContinue,
   onBackToDashboard,
   className,
@@ -381,7 +383,25 @@ export function ImportProgressView({
           </div>
         </Collapsible>
 
-        {/* Error is already surfaced via status + raw stream event lines to avoid duplicate banners */}
+        {stage === "error" && (
+          <div className="rounded-xl border border-red-500/25 bg-red-500/10 p-4">
+            <p className="text-sm font-medium text-red-600 dark:text-red-400">
+              {errorMessage || statusMessage || "Import failed while processing the statement."}
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {onRetry && (
+                <MorphyButton variant="gradient" size="sm" onClick={onRetry}>
+                  Retry Import
+                </MorphyButton>
+              )}
+              {onCancel && (
+                <MorphyButton variant="muted" size="sm" onClick={onCancel}>
+                  Back
+                </MorphyButton>
+              )}
+            </div>
+          </div>
+        )}
 
         {stage === "complete" && (
           <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">

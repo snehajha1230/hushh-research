@@ -189,6 +189,9 @@ const TRADE_ACTION_SYMBOLS = new Set([
 
 const CASH_EQUIVALENT_SYMBOLS = new Set(["CASH", "MMF", "SWEEP", "QACDS"]);
 const MAX_RAW_STREAM_LINES = 350;
+const STREAM_STALL_WARNING_MS = 45_000;
+const STREAM_STALL_ABORT_MS = 150_000;
+const STREAM_STALL_CHECK_INTERVAL_MS = 5_000;
 
 function normalizeTickerSymbol(
   value: unknown,
@@ -451,6 +454,7 @@ export function KaiFlow({
     holdingsExtracted: 0,
   });
   const abortControllerRef = useRef<AbortController | null>(null);
+  const lastImportFileRef = useRef<File | null>(null);
   const setBusyOperation = useKaiSession((s) => s.setBusyOperation);
 
   useEffect(() => {
@@ -806,6 +810,11 @@ export function KaiFlow({
       }
 
       const tokenForImport = effectiveVaultOwnerToken;
+      lastImportFileRef.current = file;
+      let lastStreamEventAt = Date.now();
+      let streamStallWarningShown = false;
+      let streamStallAbortTriggered = false;
+      let stallMonitorId: number | null = null;
 
       try {
         setState("importing");
@@ -1063,9 +1072,48 @@ export function KaiFlow({
           return lines.filter(Boolean);
         };
 
+        stallMonitorId = window.setInterval(() => {
+          const idleMs = Date.now() - lastStreamEventAt;
+          if (!streamStallWarningShown && idleMs >= STREAM_STALL_WARNING_MS) {
+            streamStallWarningShown = true;
+            const stalledSec = Math.floor(idleMs / 1000);
+            setStreaming((prev) => ({
+              ...prev,
+              stageTrail: appendTrailLine(
+                prev.stageTrail,
+                `[WATCHDOG] No stream updates for ${stalledSec}s. Still waiting...`
+              ),
+              rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
+                `[WATCHDOG] No stream updates for ${stalledSec}s. Still waiting...`,
+              ]),
+              statusMessage: `Still processing... (${stalledSec}s since last update)`,
+            }));
+          }
+          if (!streamStallAbortTriggered && idleMs >= STREAM_STALL_ABORT_MS) {
+            streamStallAbortTriggered = true;
+            const stalledSec = Math.floor(idleMs / 1000);
+            setStreaming((prev) => ({
+              ...prev,
+              stageTrail: appendTrailLine(
+                prev.stageTrail,
+                `[ERROR] Import stream stalled for ${stalledSec}s. Aborting stream.`
+              ),
+              rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
+                `[ERROR] Import stream stalled for ${stalledSec}s. Aborting stream.`,
+              ]),
+              statusMessage: "Import stream stalled. Retrying is recommended.",
+            }));
+            abortControllerRef.current?.abort();
+          }
+        }, STREAM_STALL_CHECK_INTERVAL_MS);
+
         await consumeCanonicalKaiStream(
           response,
           (envelope: KaiStreamEnvelope) => {
+            lastStreamEventAt = Date.now();
+            if (streamStallWarningShown) {
+              streamStallWarningShown = false;
+            }
             const payload = envelope.payload as Record<string, unknown>;
 
             switch (envelope.event) {
@@ -1376,6 +1424,26 @@ export function KaiFlow({
         }
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") {
+          if (streamStallAbortTriggered) {
+            const stalledMessage =
+              "Import stalled with no backend updates. Please retry this statement.";
+            setError(stalledMessage);
+            toast.error(stalledMessage);
+            setStreaming((prev) => ({
+              ...prev,
+              stage: "error",
+              stageTrail: prev.stageTrail.includes(`[ERROR] ${stalledMessage}`)
+                ? prev.stageTrail
+                : [...prev.stageTrail, `[ERROR] ${stalledMessage}`],
+              rawStreamLines: appendRawStreamLines(prev.rawStreamLines, [
+                `[ERROR] ${stalledMessage}`,
+              ]),
+              errorMessage: stalledMessage,
+              statusMessage: stalledMessage,
+            }));
+            setState("importing");
+            return;
+          }
           console.log("[KaiFlow] Import cancelled by user");
           setState("import_required");
           return;
@@ -1407,6 +1475,9 @@ export function KaiFlow({
         }));
         setState("importing");
       } finally {
+        if (stallMonitorId !== null) {
+          window.clearInterval(stallMonitorId);
+        }
         setBusyOperation("portfolio_import_stream", false);
       }
     },
@@ -1486,9 +1557,10 @@ export function KaiFlow({
     }
   }, [flowData.portfolioData, mode, router, setBusyOperation]);
 
-  // Handle retry import after error
-  const _handleRetryImport = useCallback(() => {
+  // Handle retry import after stream error/stall.
+  const handleRetryImport = useCallback(() => {
     setError(null);
+    const retryFile = lastImportFileRef.current;
     setStreaming({
       stage: "idle",
       stageTrail: [],
@@ -1506,8 +1578,12 @@ export function KaiFlow({
       holdingsTotal: undefined,
       errorMessage: undefined,
     });
+    if (retryFile) {
+      void handleFileUpload(retryFile);
+      return;
+    }
     setState("import_required");
-  }, []);
+  }, [handleFileUpload]);
 
   const handleReviewParsedPortfolio = useCallback(() => {
     if (!flowData.parsedPortfolio) {
@@ -1819,6 +1895,7 @@ export function KaiFlow({
           thoughts={streaming.thoughts}
           thoughtCount={streaming.thoughtCount}
           errorMessage={streaming.errorMessage}
+          onRetry={streaming.stage === "error" ? handleRetryImport : undefined}
           onCancel={handleCancelImport}
         />
       )}
