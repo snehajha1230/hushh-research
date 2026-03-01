@@ -161,7 +161,7 @@ export async function storeKaiPreferences(
 export async function logKaiAudit(
   sessionId: string,
   action: string,
-  metadata: Record<string, any> = {}
+  metadata: Record<string, unknown> = {}
 ): Promise<void> {
   // Optional: Add audit logging endpoint
   console.log(`[Kai Audit] ${action}`, { sessionId, ...metadata });

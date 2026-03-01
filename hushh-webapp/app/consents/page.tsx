@@ -790,9 +790,20 @@ export default function ConsentsPage() {
 
     return () => {
       cancelled = true;
-  reset();
+      reset();
     };
-  }, [authLoading, vaultOwnerToken, _user?.uid]);
+  }, [
+    authLoading,
+    completeStep,
+    fetchActiveConsents,
+    fetchAuditLog,
+    fetchPendingConsents,
+    initialized,
+    registerSteps,
+    reset,
+    vaultOwnerToken,
+    _user?.uid,
+  ]);
 
   // =========================================================================
   // FCM: React to consent push notifications (FCM-only architecture)
@@ -874,7 +885,7 @@ export default function ConsentsPage() {
     if (userId) {
       const effectiveToken = session?.token || vaultOwnerToken || "";
       // Force refresh after actions
-      const promises: Promise<any>[] = [
+      const promises: Promise<unknown>[] = [
         fetchPendingConsents(userId, effectiveToken, true),
         fetchAuditLog(userId, effectiveToken, true),
       ];

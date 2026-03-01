@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, X } from "lucide-react";
-import { toast } from "sonner";
+import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -379,7 +379,8 @@ export default function KaiAnalysisPage() {
   const handleLiveDecisionSaved = useCallback(
     (entry: AnalysisHistoryEntry) => {
       if (summaryLoadingToastIdRef.current === null) {
-        summaryLoadingToastIdRef.current = toast.loading("Preparing summary…", {
+        summaryLoadingToastIdRef.current = toast.info("Preparing summary…", {
+          duration: Infinity,
           description: "Final recommendation is ready. Loading summary view.",
         });
       }
@@ -468,7 +469,8 @@ export default function KaiAnalysisPage() {
       workspaceTab === "summary" &&
       activeEntry
     ) {
-      toast.success("Summary ready.", { id: summaryLoadingToastIdRef.current });
+      toast.dismiss(summaryLoadingToastIdRef.current);
+      toast.success("Summary ready.");
       summaryLoadingToastIdRef.current = null;
     }
   }, [activeEntry, workspaceTab]);

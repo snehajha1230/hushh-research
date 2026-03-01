@@ -51,11 +51,11 @@ export interface AgentState {
   // Rich data from agent_complete
   recommendation?: string;
   confidence?: number;
-  metrics?: Record<string, any>;
+  metrics?: Record<string, unknown>;
   sources?: string[];
   // Fundamental-specific
-  keyMetrics?: Record<string, any>;
-  quantMetrics?: Record<string, any>;
+  keyMetrics?: Record<string, unknown>;
+  quantMetrics?: Record<string, unknown>;
   businessMoat?: string;
   financialResilience?: string;
   growthEfficiency?: string;
@@ -65,9 +65,9 @@ export interface AgentState {
   sentimentScore?: number;
   keyCatalysts?: string[];
   // Valuation-specific
-  valuationMetrics?: Record<string, any>;
-  peerComparison?: Record<string, any>;
-  priceTargets?: Record<string, any>;
+  valuationMetrics?: Record<string, unknown>;
+  peerComparison?: Record<string, unknown>;
+  priceTargets?: Record<string, unknown>;
 }
 
 export interface Insight {

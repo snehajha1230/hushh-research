@@ -175,6 +175,23 @@ function buildTickerSectorLookup(rows: TickerUniverseRow[]): Map<string, { secto
   return lookup;
 }
 
+function buildTickerLookupCandidates(symbol: string): string[] {
+  const normalized = String(symbol || "").trim().toUpperCase();
+  if (!normalized) return [];
+  const candidates = new Set<string>([normalized]);
+
+  if (normalized.includes("-")) {
+    candidates.add(normalized.replace(/-/g, "."));
+  }
+
+  // Common class-share fallback (e.g. BRKB -> BRK.B) for vendor mismatch.
+  if (/^[A-Z]{3,5}[A-Z]$/.test(normalized)) {
+    candidates.add(`${normalized.slice(0, -1)}.${normalized.slice(-1)}`);
+  }
+
+  return Array.from(candidates);
+}
+
 function resolveSectorCoveragePct(
   mapped: ReturnType<typeof mapPortfolioToDashboardViewModel>,
   tickerSectorLookup: Map<string, { sector?: string; industry?: string }>
@@ -187,8 +204,10 @@ function resolveSectorCoveragePct(
   }
 
   const covered = investablePositions.filter((position) => {
-    const symbol = String(position.displaySymbol || "").trim().toUpperCase();
-    const enriched = tickerSectorLookup.get(symbol);
+    const symbol = String(position.tickerSymbol || position.displaySymbol || "").trim().toUpperCase();
+    const enriched = buildTickerLookupCandidates(symbol)
+      .map((candidate) => tickerSectorLookup.get(candidate))
+      .find((row) => row && (isSpecificSectorLabel(row.sector) || isSpecificSectorLabel(row.industry)));
     return (
       isSpecificSectorLabel(position.sector) ||
       isSpecificSectorLabel(enriched?.sector) ||
@@ -659,8 +678,12 @@ export function AnalysisHistoryDashboard({
       let tickerSectorLookup = buildTickerSectorLookup(initialTickerRows);
       if (tickerSectorLookup.size === 0) {
         try {
-          const rows = await preloadTickerUniverse();
-          tickerSectorLookup = buildTickerSectorLookup(rows);
+          const cachedRows = await preloadTickerUniverse();
+          tickerSectorLookup = buildTickerSectorLookup(cachedRows);
+          if (tickerSectorLookup.size === 0) {
+            const freshRows = await preloadTickerUniverse({ forceRefresh: true });
+            tickerSectorLookup = buildTickerSectorLookup(freshRows);
+          }
         } catch {
           // Keep fallback coverage if ticker-universe preload fails.
         }

@@ -250,9 +250,15 @@ function inferOwnedPosition(result: DecisionResult): boolean | null {
 }
 
 function normalizeSentimentPercent(raw: unknown): number | null {
-  if (typeof raw !== "number" || !Number.isFinite(raw)) return null;
+  const numeric =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string"
+      ? Number.parseFloat(raw.replace(/%/g, "").trim())
+      : Number.NaN;
+  if (!Number.isFinite(numeric)) return null;
   // Support both [-1, 1] and [-100, 100] score conventions.
-  const asPercent = Math.abs(raw) <= 1 ? raw * 100 : raw;
+  const asPercent = Math.abs(numeric) <= 1 ? numeric * 100 : numeric;
   return Math.max(-100, Math.min(100, asPercent));
 }
 

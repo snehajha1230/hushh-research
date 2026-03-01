@@ -352,11 +352,17 @@ export default function PortfolioHealthPage() {
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          throw new Error(
-            (errorData as any)?.detail ||
-            (errorData as any)?.error ||
-            "Portfolio health analysis failed"
-          );
+          const errorRecord =
+            errorData && typeof errorData === "object" && !Array.isArray(errorData)
+              ? (errorData as Record<string, unknown>)
+              : {};
+          const detailMessage =
+            typeof errorRecord.detail === "string"
+              ? errorRecord.detail
+              : typeof errorRecord.error === "string"
+                ? errorRecord.error
+                : null;
+          throw new Error(detailMessage || "Portfolio health analysis failed");
         }
 
         const readNumber = (value: unknown): number | undefined =>
