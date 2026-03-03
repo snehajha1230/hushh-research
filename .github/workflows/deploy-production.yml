@@ -38,6 +38,9 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Set GCP project context
+        run: gcloud config set project "${{ env.GCP_PROJECT_ID }}"
+
       - name: Resolve deployment scope
         id: scope
         shell: bash
@@ -72,13 +75,16 @@ jobs:
         if: steps.scope.outputs.deploy_backend == 'true'
         run: |
           gcloud builds submit \
-            --config=deploy/backend.cloudbuild.yaml
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/backend.cloudbuild.yaml \
+            --substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_ENVIRONMENT=production
 
       - name: Get backend URL
         if: steps.scope.outputs.deploy_backend == 'true'
         id: backend-url
         run: |
           BACKEND_URL=$(gcloud run services describe ${{ env.BACKEND_SERVICE }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
             --format='value(status.url)')
           echo "url=$BACKEND_URL" >> $GITHUB_OUTPUT
@@ -93,13 +99,16 @@ jobs:
         if: steps.scope.outputs.deploy_frontend == 'true'
         run: |
           gcloud builds submit \
-            --config=deploy/frontend.cloudbuild.yaml
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/frontend.cloudbuild.yaml \
+            --substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_OBS_ENV=production
 
       - name: Get frontend URL
         if: steps.scope.outputs.deploy_frontend == 'true'
         id: frontend-url
         run: |
           FRONTEND_URL=$(gcloud run services describe ${{ env.FRONTEND_SERVICE }} \
+            --project=${{ env.GCP_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
             --format='value(status.url)')
           echo "url=$FRONTEND_URL" >> $GITHUB_OUTPUT

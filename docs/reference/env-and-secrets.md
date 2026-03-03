@@ -50,6 +50,7 @@ The script reports:
 | `DEFAULT_CONSENT_TOKEN_EXPIRY_MS` | `hushh_mcp/config.py` | No | |
 | `DEFAULT_TRUST_LINK_EXPIRY_MS` | same | No | |
 | `ENVIRONMENT` | `hushh_mcp/config.py`, `api/routes/debug_firebase.py` | No | |
+| `OTEL_ENABLED` | `api/middlewares/observability.py` | No | Enables OpenTelemetry export to Cloud Trace when true |
 | `AGENT_ID` | `hushh_mcp/config.py` | No | |
 | `HUSHH_HACKATHON` | `hushh_mcp/config.py` | No | |
 | `CONSENT_TIMEOUT_SECONDS` | `api/routes/sse.py`, `developer.py` | No | |
@@ -70,8 +71,12 @@ The script reports:
 | Variable | Where read | Required | Notes |
 |----------|------------|----------|--------|
 | `NEXT_PUBLIC_BACKEND_URL` | `lib/api/consent.ts`, `lib/config.ts`, api routes, etc. | Yes | Prod build: from Secret Manager `BACKEND_URL` |
-| `NEXT_PUBLIC_FIREBASE_*` (6 keys) | `lib/firebase/config.ts` | Yes | API key, auth domain, project ID, storage bucket, messaging sender ID, app ID |
+| `NEXT_PUBLIC_FIREBASE_*` (6 base keys) | `lib/firebase/config.ts` | Yes | API key, auth domain, project ID, storage bucket, messaging sender ID, app ID |
 | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | `lib/notifications/fcm-service.ts` | Yes (prod build) | Web FCM token registration; from Firebase Console. See [fcm-notifications.md](../../consent-protocol/docs/reference/fcm-notifications.md). |
+| `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT` / `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING` / `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION` | `lib/firebase/config.ts` | Recommended | Use UAT + production IDs; staging key is legacy-compatible alias |
+| `NEXT_PUBLIC_GTM_ID_UAT` / `NEXT_PUBLIC_GTM_ID_STAGING` / `NEXT_PUBLIC_GTM_ID_PRODUCTION` | `app/layout.tsx`, `lib/observability/env.ts` | Recommended | Use UAT + production GTM IDs; staging key is legacy-compatible alias |
+| `NEXT_PUBLIC_OBSERVABILITY_ENV` | `lib/observability/env.ts` | Recommended | Use `uat` or `production` (`staging` is accepted as legacy alias) |
+| `NEXT_PUBLIC_OBSERVABILITY_ENABLED` / `NEXT_PUBLIC_OBSERVABILITY_DEBUG` / `NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE` | `lib/observability/env.ts` | No | Client analytics rollout controls |
 | `NEXT_PUBLIC_CONSENT_TIMEOUT_SECONDS` | `lib/constants.ts` | No | |
 | `NEXT_PUBLIC_FRONTEND_URL` | `lib/config.ts` | No | |
 | `CAPACITOR_BUILD` | `next.config.ts` | Build script | |
@@ -97,6 +102,7 @@ The script reports:
 | `GOOGLE_API_KEY` | Yes (for Gemini) | Yes | Local: `.env`; Prod: Secret Manager | Or GEMINI_API_KEY |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Yes (auth) | Yes | Local: `.env`; Prod: Secret Manager | JSON string |
 | `ENVIRONMENT` | No | No | Default development; Prod: Cloud Run | production / development |
+| `OTEL_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Enables OpenTelemetry export to Cloud Trace |
 | `GOOGLE_GENAI_USE_VERTEXAI` | No | No | Local: `.env`; Prod: Cloud Run env | True for Vertex AI |
 | `AGENT_ID` | No | No | `.env` (default agent_hushh_default) | |
 | `HUSHH_HACKATHON` | No | No | `.env` (default disabled) | |
@@ -111,6 +117,7 @@ The script reports:
 | `CONSENT_SSE_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Keep false in production (FCM-first) |
 | `SYNC_REMOTE_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Keep false in production |
 | `DEVELOPER_API_ENABLED` | No | No | Local: `.env`; Prod: Cloud Run env | Keep false in production |
+| `OBS_DATA_STALE_RATIO_THRESHOLD` | No | No | Local: `.env`; Scheduler/Job env | Threshold for Supabase data-health stale-ratio anomaly |
 | `DEVELOPER_REGISTRY_JSON` | Non-prod when enabled | No | Local/non-prod env | Runtime developer registry JSON |
 | `MCP_DEVELOPER_TOKEN` | Recommended | Yes (prod) | Local: `.env`; Prod: Secret Manager | Service auth for `/api/user/lookup` |
 
@@ -141,6 +148,16 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Yes | No | Same | Required by current Cloud Build frontend manifest |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Yes | No | Same | Required by current Cloud Build frontend manifest |
 | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | Yes | No | Same | **Web push (FCM)**: VAPID key from Firebase Console -> Cloud Messaging -> Web configuration -> Key pair. Required for production build and consent push on web. See [fcm-notifications.md](../../consent-protocol/docs/reference/fcm-notifications.md). |
+| `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT` | Recommended | No | `.env.local` / CI / build-arg | Analytics measurement ID for UAT (preferred key) |
+| `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING` | Optional legacy | No | `.env.local` / CI / build-arg | Backward-compatible alias for UAT measurement ID |
+| `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION` | Recommended | No | `.env.local` / CI / Prod build-arg | Analytics measurement ID for production |
+| `NEXT_PUBLIC_GTM_ID_UAT` | Recommended | No | `.env.local` / CI / build-arg | GTM container for UAT (preferred key) |
+| `NEXT_PUBLIC_GTM_ID_STAGING` | Optional legacy | No | `.env.local` / CI / build-arg | Backward-compatible alias for UAT GTM container |
+| `NEXT_PUBLIC_GTM_ID_PRODUCTION` | Recommended | No | `.env.local` / CI / Prod build-arg | GTM container for production |
+| `NEXT_PUBLIC_OBSERVABILITY_ENV` | Recommended | No | `.env.local` / CI / build-arg | `uat` / `production` (`staging` accepted as alias) |
+| `NEXT_PUBLIC_OBSERVABILITY_ENABLED` | No | No | `.env.local` / CI / Prod build-arg | Toggle analytics emission |
+| `NEXT_PUBLIC_OBSERVABILITY_DEBUG` | No | No | `.env.local` / CI / Prod build-arg | Debug logging for observability client |
+| `NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE` | No | No | `.env.local` / CI / Prod build-arg | Sampling rate (0-1) |
 | `CAPACITOR_BUILD` | For native build | No | Set by npm script | true for cap:build |
 | `ENVIRONMENT_MODE` | No | No | development / production | |
 | `NODE_ENV` | No | No | Set by Next.js / CI | |
@@ -183,7 +200,7 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 
 **Strict parity:** `DATABASE_URL` is not used anywhere. Migrations (`db/migrate.py`) use **DB_*** only, via `db.connection.get_database_url()`. Do **not** create or keep `DATABASE_URL` in Secret Manager; delete it if present.
 
-### Frontend (8 centrally-managed values, build-time only) — all used by `deploy/frontend.cloudbuild.yaml`
+### Frontend (12 centrally-managed values, build-time only) — all used by `deploy/frontend.cloudbuild.yaml`
 
 | Secret name | Build-arg / usage in code |
 |-------------|---------------------------|
@@ -195,24 +212,28 @@ Secret Manager must hold **exactly** the keys the code uses. No extra secrets; n
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | `NEXT_PUBLIC_FIREBASE_APP_ID` |
 | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` (Web FCM push key) |
+| `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING` | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING` |
+| `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION` | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION` |
+| `NEXT_PUBLIC_GTM_ID_STAGING` | `NEXT_PUBLIC_GTM_ID_STAGING` |
+| `NEXT_PUBLIC_GTM_ID_PRODUCTION` | `NEXT_PUBLIC_GTM_ID_PRODUCTION` |
 
 ### gcloud CLI: list and create only these secrets
 
 ```bash
-# List existing secrets (ensure only the 18 above exist for this project)
+# List existing secrets (ensure only the 22 above exist for this project)
 gcloud secrets list --project=YOUR_PROJECT_ID
 
 # Create a missing backend secret (repeat for each of the 10 names)
 gcloud secrets create SECRET_KEY --replication-policy=automatic --project=YOUR_PROJECT_ID
 echo -n "your-value" | gcloud secrets versions add SECRET_KEY --data-file=- --project=YOUR_PROJECT_ID
 
-# Create missing frontend values in Secret Manager (repeat for each of the 8 names)
+# Create missing frontend values in Secret Manager (repeat for each of the 12 names)
 gcloud secrets create BACKEND_URL --replication-policy=automatic --project=YOUR_PROJECT_ID
 echo -n "https://your-backend.run.app" | gcloud secrets versions add BACKEND_URL --data-file=- --project=YOUR_PROJECT_ID
 ```
 
 **Required backend 10:** `SECRET_KEY`, `VAULT_ENCRYPTION_KEY`, `GOOGLE_API_KEY`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `FRONTEND_URL`, `DB_USER`, `DB_PASSWORD`, `APP_REVIEW_MODE`, `REVIEWER_UID`, `MCP_DEVELOPER_TOKEN`.
-**Required frontend 8:** `BACKEND_URL`, `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_VAPID_KEY`.
+**Required frontend 12:** `BACKEND_URL`, `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_VAPID_KEY`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION`, `NEXT_PUBLIC_GTM_ID_STAGING`, `NEXT_PUBLIC_GTM_ID_PRODUCTION`.
 
 These Firebase values are public client config, but storing them in Secret Manager keeps deployment manifests free of hardcoded production values.
 
@@ -238,7 +259,9 @@ Production release process:
   - `IOS_GOOGLESERVICE_INFO_PLIST_B64`
   - `ANDROID_GOOGLE_SERVICES_JSON_B64`
 - Decode and overwrite template files in release CI before native build/sign (or run `npm run inject:mobile-firebase` in `hushh-webapp/`).
+- Optionally fetch latest artifacts from Firebase directly: `npm run sync:mobile-firebase`.
 - Run `npm run verify:mobile-firebase:release` to fail fast if templates were not replaced.
+  - This release gate also enforces analytics readiness (`IS_ANALYTICS_ENABLED=true` on iOS and `services.analytics_service` present on Android).
 
 Repository guard:
 - CI runs `npm run verify:mobile-firebase` to ensure committed files remain templates (no production artifact commits).

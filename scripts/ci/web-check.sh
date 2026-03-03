@@ -28,6 +28,7 @@ npm run typecheck
 npm run lint -- --max-warnings="${WEB_LINT_WARNING_BUDGET}"
 npm run verify:design-system
 npm run verify:investor-language
+npm run verify:mobile-firebase
 
 NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-https://api.example.com}" \
 NEXT_PUBLIC_FIREBASE_API_KEY="${NEXT_PUBLIC_FIREBASE_API_KEY:-test-api-key}" \

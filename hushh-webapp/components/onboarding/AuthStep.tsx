@@ -23,6 +23,7 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { ROUTES } from "@/lib/navigation/routes";
 import { type KaiLegalDocumentType } from "@/lib/legal/kai-legal-content";
+import { trackEvent } from "@/lib/observability/client";
 
 export function AuthStep({
   redirectPath,
@@ -98,6 +99,10 @@ export function AuthStep({
     getRedirectResult(auth)
       .then((result) => {
         if (result?.user) {
+          trackEvent("auth_succeeded", {
+            action: "redirect",
+            result: "success",
+          });
           debugLog("[AuthStep] Redirect result found, navigating to:", redirectPath);
           setNativeUser(result.user);
           void resolveAndNavigate(result.user.uid);
@@ -108,6 +113,10 @@ export function AuthStep({
       });
 
     if (user) {
+      trackEvent("auth_succeeded", {
+        action: "redirect",
+        result: "success",
+      });
       debugLog("[AuthStep] User authenticated, navigating to:", redirectPath);
       void resolveAndNavigate(user.uid);
     }
@@ -136,6 +145,9 @@ export function AuthStep({
   }
 
   const handleGoogleLogin = async () => {
+    trackEvent("auth_started", {
+      action: "google",
+    });
     try {
       const authResult = await AuthService.signInWithGoogle();
       const authenticatedUser = authResult.user;
@@ -143,20 +155,37 @@ export function AuthStep({
       debugLog("[AuthStep] signInWithGoogle returned user");
 
       if (authenticatedUser) {
+        trackEvent("auth_succeeded", {
+          action: "google",
+          result: "success",
+        });
         setNativeUser(authenticatedUser);
         await resolveAndNavigate(authenticatedUser.uid);
       } else {
         debugError("[AuthStep] No user returned from signInWithGoogle");
+        trackEvent("auth_failed", {
+          action: "google",
+          result: "error",
+          error_class: "missing_user",
+        });
         morphyToast.error("Sign-in completed but no user session was returned.", {
           description: "Please try again.",
         });
       }
     } catch (err: any) {
       debugError("[AuthStep] Google login failed", err);
+      trackEvent("auth_failed", {
+        action: "google",
+        result: "error",
+        error_class: "auth_failed",
+      });
     }
   };
 
   const handleAppleLogin = async () => {
+    trackEvent("auth_started", {
+      action: "apple",
+    });
     try {
       const authResult = await AuthService.signInWithApple();
       const authenticatedUser = authResult.user;
@@ -164,20 +193,37 @@ export function AuthStep({
       debugLog("[AuthStep] signInWithApple returned user");
 
       if (authenticatedUser) {
+        trackEvent("auth_succeeded", {
+          action: "apple",
+          result: "success",
+        });
         setNativeUser(authenticatedUser);
         await resolveAndNavigate(authenticatedUser.uid);
       } else {
         debugError("[AuthStep] No user returned from signInWithApple");
+        trackEvent("auth_failed", {
+          action: "apple",
+          result: "error",
+          error_class: "missing_user",
+        });
         morphyToast.error("Sign-in completed but no user session was returned.", {
           description: "Please try again.",
         });
       }
     } catch (err: any) {
       debugError("[AuthStep] Apple login failed", err);
+      trackEvent("auth_failed", {
+        action: "apple",
+        result: "error",
+        error_class: "auth_failed",
+      });
     }
   };
 
   const handleReviewerLogin = async () => {
+    trackEvent("auth_started", {
+      action: "reviewer",
+    });
     try {
       if (!reviewModeConfig.enabled) {
         throw new Error("Reviewer mode is not enabled");
@@ -188,13 +234,27 @@ export function AuthStep({
       const authenticatedUser = authResult.user;
 
       if (authenticatedUser) {
+        trackEvent("auth_succeeded", {
+          action: "reviewer",
+          result: "success",
+        });
         setNativeUser(authenticatedUser);
         await resolveAndNavigate(authenticatedUser.uid);
       } else {
+        trackEvent("auth_failed", {
+          action: "reviewer",
+          result: "error",
+          error_class: "missing_user",
+        });
         morphyToast.error("Reviewer login failed: no user session returned.");
       }
     } catch (err: any) {
       debugError("[AuthStep] Reviewer login failed", err);
+      trackEvent("auth_failed", {
+        action: "reviewer",
+        result: "error",
+        error_class: "auth_failed",
+      });
       morphyToast.error(err.message || "Failed to sign in as reviewer");
     }
   };

@@ -94,9 +94,12 @@ Deploys Next.js frontend to Cloud Run:
 
 ## 🔄 CI/CD Setup (GitHub/GitLab)
 
-### GitHub Actions: Deploy workflow (deploy branch)
+### GitHub Actions: Deploy workflows (production + UAT)
 
-The repo includes [.github/workflows/deploy-production.yml](../.github/workflows/deploy-production.yml), which runs on **push to the `deploy` branch** (and on manual dispatch). It does not run on `main`.
+The repo includes:
+
+- [.github/workflows/deploy-production.yml](../.github/workflows/deploy-production.yml): manual production deploy (`workflow_dispatch`).
+- [.github/workflows/deploy-uat.yml](../.github/workflows/deploy-uat.yml): auto deploy on push to `deploy_uat` and manual dispatch.
 
 Manual dispatch now supports `scope`:
 
@@ -106,9 +109,9 @@ Manual dispatch now supports `scope`:
 
 **For seamless deployment:**
 
-1. **GitHub secret:** In the repo settings, add a secret **`GCP_SA_KEY`** containing the JSON key of a Google Cloud service account that has permissions for Cloud Build, Secret Manager, and Cloud Run.
-2. **Branch flow:** After merging to `main`, update the `deploy` branch (e.g. merge `main` into `deploy` or push to `deploy`) so the workflow builds from an up-to-date state. Then push to `deploy` to trigger the workflow, or run it manually from the Actions tab.
-3. **Approval policy:** reviewer exclusions (for repo owner or specific users) are configured in GitHub Environment settings, not in repo code. Use Settings -> Environments -> `production` -> Required reviewers.
+1. **GitHub secret:** add `GCP_SA_KEY` (and optionally `GCP_SA_KEY_UAT`) with Cloud Build + Cloud Run + Secret Manager permissions.
+2. **Branch flow:** merge to `deploy_uat` for UAT rollout; use manual dispatch for production rollout.
+3. **Approval policy:** configure environment reviewers in GitHub Environments (`production`, `uat`) rather than repo code.
 
 ### CI Security Gates
 
@@ -165,7 +168,7 @@ All required secrets must exist in Google Cloud Secret Manager before deployment
   echo "your-db-password" | gcloud secrets create DB_PASSWORD --data-file=-
   ```
 
-**Frontend build-time (8 centrally-managed values):**
+**Frontend build-time (12 centrally-managed values):**
 - `BACKEND_URL`
 - `NEXT_PUBLIC_FIREBASE_API_KEY`
 - `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
@@ -174,6 +177,10 @@ All required secrets must exist in Google Cloud Secret Manager before deployment
 - `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
 - `NEXT_PUBLIC_FIREBASE_APP_ID`
 - `NEXT_PUBLIC_FIREBASE_VAPID_KEY` (web push / FCM)
+- `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING`
+- `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION`
+- `NEXT_PUBLIC_GTM_ID_STAGING`
+- `NEXT_PUBLIC_GTM_ID_PRODUCTION`
 
 These Firebase values are public client config, but are still centrally injected from Secret Manager to avoid hardcoded deploy YAML values.
 
@@ -187,7 +194,26 @@ See [docs/reference/env-and-secrets.md](../docs/reference/env-and-secrets.md) fo
   - `ANDROID_GOOGLE_SERVICES_JSON_B64`
 - Inject both during native release CI and overwrite template files before build/sign.
 - Use `npm run inject:mobile-firebase` in `hushh-webapp/` after exporting those secrets into env vars.
+- Or fetch latest artifacts directly from Firebase and write both files in place:
+  ```bash
+  cd hushh-webapp
+  npm run sync:mobile-firebase
+  ```
 - Run `npm run verify:mobile-firebase` with `REQUIRE_PROD_FIREBASE_ARTIFACTS=true` in release jobs to fail fast if templates were not replaced.
+
+### Observability Provisioning (Automated)
+
+Use the idempotent setup script to provision observability infra in GCP:
+
+```bash
+bash deploy/observability/setup_gcp_observability.sh
+```
+
+Optional email notification channel wiring:
+
+```bash
+OBS_ALERT_EMAIL=you@example.com bash deploy/observability/setup_gcp_observability.sh
+```
 
 ### Verify Secrets
 

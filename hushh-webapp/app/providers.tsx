@@ -33,6 +33,7 @@ import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOn
 import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { Capacitor } from "@capacitor/core";
+import { ObservabilityRouteObserver } from "@/components/observability/route-observer";
 import {
   resetKaiBottomChromeVisibility,
   useKaiBottomChromeVisibility,
@@ -122,6 +123,7 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+      <ObservabilityRouteObserver />
       <StepProgressProvider>
         <StatusBarManager />
         {/* Step-based progress bar at top of viewport */}

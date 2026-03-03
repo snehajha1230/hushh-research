@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
@@ -30,6 +30,7 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
+import { trackEvent } from "@/lib/observability/client";
 
 type Stage = "loading" | "wizard" | "persona";
 type OnboardingSource = "pre_vault" | "vault";
@@ -74,6 +75,7 @@ export default function KaiOnboardingPage() {
   const [profile, setProfile] = useState<KaiProfileV2 | null>(null);
   const [preVaultState, setPreVaultState] = useState<PreVaultOnboardingState | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const onboardingStartedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -171,6 +173,14 @@ export default function KaiOnboardingPage() {
     return computePersona(wizardAnswers, preVaultState?.risk_profile ?? null);
   }, [source, wizardAnswers, profile?.preferences.risk_profile, preVaultState?.risk_profile]);
 
+  useEffect(() => {
+    if (!source || stage !== "wizard" || onboardingStartedRef.current) return;
+    onboardingStartedRef.current = true;
+    trackEvent("onboarding_started", {
+      source,
+    });
+  }, [source, stage]);
+
   if (authLoading) {
     return <HushhLoader label="Loading onboarding..." variant="fullscreen" />;
   }
@@ -250,9 +260,17 @@ export default function KaiOnboardingPage() {
             toast.success("Preferences saved. Next step: connect your portfolio or Plaid.");
             setOnboardingRequiredCookie(false);
             setOnboardingFlowActiveCookie(true);
+            trackEvent("onboarding_completed", {
+              action: "complete",
+              result: "success",
+            });
             router.replace("/kai/import");
           } catch (error) {
             console.error("[KaiOnboardingPage] Failed to finalize onboarding:", error);
+            trackEvent("onboarding_completed", {
+              action: "complete",
+              result: "error",
+            });
             toast.error("Couldn't complete onboarding. Please retry.");
           } finally {
             setSaving(false);
@@ -316,9 +334,17 @@ export default function KaiOnboardingPage() {
           toast.info("Preferences skipped. You can edit them later.");
           setOnboardingRequiredCookie(false);
           setOnboardingFlowActiveCookie(false);
+          trackEvent("onboarding_completed", {
+            action: "skip",
+            result: "success",
+          });
           router.replace("/kai");
         } catch (error) {
           console.error("[KaiOnboardingPage] Skip failed:", error);
+          trackEvent("onboarding_completed", {
+            action: "skip",
+            result: "error",
+          });
           toast.error("Couldn't skip onboarding. Please retry.");
         } finally {
           setSaving(false);
@@ -360,8 +386,16 @@ export default function KaiOnboardingPage() {
           }
 
           setStage("persona");
+          trackEvent("onboarding_step_completed", {
+            action: "preferences",
+            result: "success",
+          });
         } catch (error) {
           console.error("[KaiOnboardingPage] Failed to save preferences:", error);
+          trackEvent("onboarding_step_completed", {
+            action: "preferences",
+            result: "error",
+          });
           toast.error("Couldn't save preferences. Please retry.");
         } finally {
           setSaving(false);

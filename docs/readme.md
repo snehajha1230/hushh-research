@@ -42,6 +42,7 @@ For repo-level setup instructions, see the root [`readme.md`](../readme.md) and 
 | Validate world-model evolution safely | [reference/world-model-compatibility-playbook.md](./reference/world-model-compatibility-playbook.md) |
 | Fill PR impact map consistently | [reference/pr-impact-checklist.md](./reference/pr-impact-checklist.md) |
 | Check runtime DB facts (sanitized snapshot) | [reference/runtime-db-fact-sheet.md](./reference/runtime-db-fact-sheet.md) |
+| Operate Google-first observability stack | [reference/observability-google-first.md](./reference/observability-google-first.md) |
 | Read the product vision | [vision/README.md](./vision/README.md) |
 | Deep-dive Agent Kai vision | [vision/kai/README.md](./vision/kai/README.md) |
 

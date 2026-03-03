@@ -1,0 +1,162 @@
+import { ROUTES } from "@/lib/navigation/routes";
+
+export const ROUTE_ID_VALUES = [
+  "landing",
+  "login",
+  "logout",
+  "profile",
+  "consents",
+  "kai_home",
+  "kai_onboarding",
+  "kai_import",
+  "kai_dashboard",
+  "kai_analysis",
+  "kai_optimize",
+  "kai_dashboard_legacy_redirect",
+  "unknown",
+] as const;
+
+export type RouteId = (typeof ROUTE_ID_VALUES)[number];
+
+export function resolveRouteId(pathname: string): RouteId {
+  if (pathname === ROUTES.HOME) return "landing";
+  if (pathname === ROUTES.LOGIN) return "login";
+  if (pathname === ROUTES.LOGOUT) return "logout";
+  if (pathname === ROUTES.PROFILE) return "profile";
+  if (pathname === ROUTES.CONSENTS) return "consents";
+  if (pathname === ROUTES.KAI_HOME) return "kai_home";
+  if (pathname === ROUTES.KAI_ONBOARDING) return "kai_onboarding";
+  if (pathname === ROUTES.KAI_IMPORT) return "kai_import";
+  if (pathname === ROUTES.KAI_DASHBOARD) return "kai_dashboard";
+  if (pathname === ROUTES.KAI_ANALYSIS) return "kai_analysis";
+  if (pathname === ROUTES.KAI_OPTIMIZE) return "kai_optimize";
+
+  if (pathname.startsWith(`${ROUTES.KAI_DASHBOARD}/`)) {
+    return "kai_dashboard_legacy_redirect";
+  }
+
+  return "unknown";
+}
+
+const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
+  { regex: /^\/api\/vault\/check(?:\?.*)?$/i, template: "/db/vault/check" },
+  { regex: /^\/api\/vault\/get(?:\?.*)?$/i, template: "/db/vault/get" },
+  {
+    regex: /^\/api\/vault\/bootstrap-state(?:\?.*)?$/i,
+    template: "/db/vault/bootstrap-state",
+  },
+  {
+    regex: /^\/api\/world-model\/metadata\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/world-model/metadata/{user_id}",
+  },
+  {
+    regex: /^\/api\/world-model\/scopes\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/world-model/scopes/{user_id}",
+  },
+  {
+    regex: /^\/api\/world-model\/data\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/world-model/data/{user_id}",
+  },
+  {
+    regex: /^\/api\/world-model\/domain-data\/[^/?]+\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/world-model/domain-data/{user_id}/{domain}",
+  },
+  {
+    regex: /^\/api\/kai\/market\/insights\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/market/insights/{user_id}",
+  },
+  {
+    regex: /^\/api\/kai\/dashboard\/profile-picks\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/dashboard/profile-picks/{user_id}",
+  },
+  {
+    regex: /^\/api\/kai\/portfolio\/summary\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/kai/portfolio/summary/{user_id}",
+  },
+  {
+    regex: /^\/api\/kai\/analyze\/run\/start(?:\?.*)?$/i,
+    template: "/api/kai/analyze/run/start",
+  },
+  {
+    regex: /^\/api\/kai\/analyze\/run\/active(?:\?.*)?$/i,
+    template: "/api/kai/analyze/run/active",
+  },
+  {
+    regex: /^\/api\/kai\/analyze\/run\/[^/?]+\/stream(?:\?.*)?$/i,
+    template: "/api/kai/analyze/run/{run_id}/stream",
+  },
+  {
+    regex: /^\/api\/kai\/analyze\/run\/[^/?]+\/cancel(?:\?.*)?$/i,
+    template: "/api/kai/analyze/run/{run_id}/cancel",
+  },
+  {
+    regex: /^\/api\/kai\/portfolio\/import\/run\/start(?:\?.*)?$/i,
+    template: "/api/kai/portfolio/import/run/start",
+  },
+  {
+    regex: /^\/api\/kai\/portfolio\/import\/run\/active(?:\?.*)?$/i,
+    template: "/api/kai/portfolio/import/run/active",
+  },
+  {
+    regex: /^\/api\/kai\/portfolio\/import\/run\/[^/?]+\/stream(?:\?.*)?$/i,
+    template: "/api/kai/portfolio/import/run/{run_id}/stream",
+  },
+  {
+    regex: /^\/api\/kai\/portfolio\/import\/run\/[^/?]+\/cancel(?:\?.*)?$/i,
+    template: "/api/kai/portfolio/import/run/{run_id}/cancel",
+  },
+  {
+    regex: /^\/api\/consent\/pending(?:\?.*)?$/i,
+    template: "/api/consent/pending",
+  },
+  {
+    regex: /^\/api\/consent\/pending\/approve(?:\?.*)?$/i,
+    template: "/api/consent/pending/approve",
+  },
+  {
+    regex: /^\/api\/consent\/pending\/deny(?:\?.*)?$/i,
+    template: "/api/consent/pending/deny",
+  },
+  {
+    regex: /^\/api\/consent\/revoke(?:\?.*)?$/i,
+    template: "/api/consent/revoke",
+  },
+  {
+    regex: /^\/api\/account\/delete(?:\?.*)?$/i,
+    template: "/api/account/delete",
+  },
+];
+
+export function normalizeApiPathToTemplate(path: string): string {
+  const withoutQuery = path.split("?")[0] || "/";
+
+  for (const rule of API_TEMPLATE_RULES) {
+    if (rule.regex.test(path)) {
+      return rule.template;
+    }
+  }
+
+  // Generic fallback: hide likely identifiers in dynamic path segments.
+  const sanitized = withoutQuery
+    .split("/")
+    .map((segment, index) => {
+      if (!segment || index === 0 || segment === "api" || segment === "db") {
+        return segment;
+      }
+
+      const looksNumeric = /^\d+$/.test(segment);
+      const looksUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          segment
+        );
+      const looksOpaqueId = /^[a-z0-9_-]{10,}$/i.test(segment);
+
+      if (looksNumeric || looksUuid || looksOpaqueId) {
+        return "{id}";
+      }
+      return segment;
+    })
+    .join("/");
+
+  return sanitized || "/";
+}
