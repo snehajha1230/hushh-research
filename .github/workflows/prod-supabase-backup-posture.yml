@@ -1,0 +1,53 @@
+name: Prod Supabase Backup Posture
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup-posture:
+    name: Daily Supabase Backup Posture Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate required ops secrets
+        shell: bash
+        env:
+          SUPABASE_PROJECT_REF_PROD: ${{ secrets.SUPABASE_PROJECT_REF_PROD }}
+          SUPABASE_MANAGEMENT_TOKEN: ${{ secrets.SUPABASE_MANAGEMENT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_PROJECT_REF_PROD}" ] || [ -z "${SUPABASE_MANAGEMENT_TOKEN}" ]; then
+            echo "Missing required GitHub secrets: SUPABASE_PROJECT_REF_PROD and/or SUPABASE_MANAGEMENT_TOKEN"
+            exit 1
+          fi
+
+      - name: Run backup posture policy check
+        shell: bash
+        env:
+          SUPABASE_PROJECT_REF_PROD: ${{ secrets.SUPABASE_PROJECT_REF_PROD }}
+          SUPABASE_MANAGEMENT_TOKEN: ${{ secrets.SUPABASE_MANAGEMENT_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ops/supabase_backup_posture_check.py \
+            --project-ref "${SUPABASE_PROJECT_REF_PROD}" \
+            --management-token "${SUPABASE_MANAGEMENT_TOKEN}" \
+            --require-pitr \
+            --max-backup-age-hours 24 \
+            --report-path /tmp/prod-backup-posture-report.json
+
+      - name: Upload backup posture artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-backup-posture-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: /tmp/prod-backup-posture-report.json

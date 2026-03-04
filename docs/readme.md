@@ -43,6 +43,7 @@ For repo-level setup instructions, see the root [`readme.md`](../readme.md) and 
 | Fill PR impact map consistently | [reference/pr-impact-checklist.md](./reference/pr-impact-checklist.md) |
 | Check runtime DB facts (sanitized snapshot) | [reference/runtime-db-fact-sheet.md](./reference/runtime-db-fact-sheet.md) |
 | Operate Google-first observability stack | [reference/observability-google-first.md](./reference/observability-google-first.md) |
+| Run production DB backup/recovery operations | [reference/production-db-backup-and-recovery.md](./reference/production-db-backup-and-recovery.md) |
 | Read the product vision | [vision/README.md](./vision/README.md) |
 | Deep-dive Agent Kai vision | [vision/kai/README.md](./vision/kai/README.md) |
 
@@ -81,6 +82,7 @@ docs/
     world-model-compatibility-playbook.md # Migration-safe world-model rules
     pr-impact-checklist.md           # Mandatory PR impact mapping
     runtime-db-fact-sheet.md         # Sanitized runtime table/function snapshot
+    production-db-backup-and-recovery.md # Prod backup posture, restore drills, migration governance
 
   guides/                            # How do I DO something
     getting-started.md               # Prerequisites, setup, run, deploy

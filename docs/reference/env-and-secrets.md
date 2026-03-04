@@ -28,6 +28,18 @@ The script reports:
 - missing required secrets
 - legacy keys still wired
 
+### Ops-only GitHub secrets (backup/recovery governance)
+
+These are not Cloud Run runtime secrets. They are required in GitHub Actions for production DB backup posture checks and pre-deploy restore-point gates:
+
+- `SUPABASE_PROJECT_REF_PROD`
+- `SUPABASE_MANAGEMENT_TOKEN`
+
+Used by:
+- `.github/workflows/deploy-production.yml`
+- `.github/workflows/prod-supabase-backup-posture.yml`
+- `scripts/ops/supabase_backup_posture_check.py`
+
 ---
 
 ## Audit: env vars read by code
@@ -245,6 +257,25 @@ gcloud secrets delete DATABASE_URL --project=YOUR_PROJECT_ID
 ```
 
 Verify manually with `gcloud secrets list --project=YOUR_PROJECT_ID` and the checklist in [deploy/README.md](../../deploy/README.md).
+
+---
+
+## Backup/Recovery Ops Keys (GitHub Actions)
+
+| Key | Scope | Used by | Notes |
+|-----|-------|---------|-------|
+| `SUPABASE_PROJECT_REF_PROD` | GitHub Actions secret | Backup posture checks + pre-deploy restore-point gate | Supabase project ref for production DB |
+| `SUPABASE_MANAGEMENT_TOKEN` | GitHub Actions secret | Backup posture checks + pre-deploy restore-point gate | Supabase Management API token |
+
+Validation command:
+
+```bash
+python3 scripts/ops/supabase_backup_posture_check.py \
+  --project-ref "$SUPABASE_PROJECT_REF_PROD" \
+  --management-token "$SUPABASE_MANAGEMENT_TOKEN" \
+  --require-pitr \
+  --max-backup-age-hours 24
+```
 
 ---
 

@@ -19,6 +19,7 @@ env:
   BACKEND_SERVICE: consent-protocol
   FRONTEND_SERVICE: hushh-webapp
   CLOUD_RUN_REVISION_RETENTION: "10"
+  SUPABASE_BACKUP_MAX_AGE_HOURS: "24"
 
 jobs:
   deploy:
@@ -70,6 +71,99 @@ jobs:
           echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
           echo "deploy_backend=$DEPLOY_BACKEND" >> "$GITHUB_OUTPUT"
           echo "deploy_frontend=$DEPLOY_FRONTEND" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python for DB governance gates
+        if: steps.scope.outputs.deploy_backend == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install DB governance dependencies
+        if: steps.scope.outputs.deploy_backend == 'true'
+        run: python3 -m pip install --disable-pip-version-check asyncpg
+
+      - name: Pre-deploy Supabase backup gate
+        if: steps.scope.outputs.deploy_backend == 'true'
+        id: backup-gate
+        env:
+          SUPABASE_PROJECT_REF_PROD: ${{ secrets.SUPABASE_PROJECT_REF_PROD }}
+          SUPABASE_MANAGEMENT_TOKEN: ${{ secrets.SUPABASE_MANAGEMENT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_PROJECT_REF_PROD}" ] || [ -z "${SUPABASE_MANAGEMENT_TOKEN}" ]; then
+            echo "Missing required GitHub secrets: SUPABASE_PROJECT_REF_PROD and/or SUPABASE_MANAGEMENT_TOKEN"
+            exit 1
+          fi
+
+          python3 scripts/ops/supabase_backup_posture_check.py \
+            --project-ref "${SUPABASE_PROJECT_REF_PROD}" \
+            --management-token "${SUPABASE_MANAGEMENT_TOKEN}" \
+            --require-pitr \
+            --max-backup-age-hours "${SUPABASE_BACKUP_MAX_AGE_HOURS}" \
+            --create-restore-point \
+            --restore-point-label "predeploy-${GITHUB_SHA:-local}" \
+            --report-path /tmp/backup-posture-report.json
+
+          RESTORE_POINT_ID="$(python3 -c "import json; from pathlib import Path; payload=json.loads(Path('/tmp/backup-posture-report.json').read_text(encoding='utf-8')); restore_point=payload.get('restore_point', {}) if isinstance(payload, dict) else {}; print(str(restore_point.get('id') or '').strip())")"
+
+          if [ -z "${RESTORE_POINT_ID}" ]; then
+            RESTORE_POINT_ID="created-no-id"
+          fi
+          echo "restore_point_id=${RESTORE_POINT_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Migration governance and DB drift gate
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SERVICE_JSON="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json)"
+
+          DB_HOST="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_HOST") | .value' | tail -n 1)"
+          DB_PORT="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_PORT") | .value' | tail -n 1)"
+          DB_NAME="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_NAME") | .value' | tail -n 1)"
+
+          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::${DB_USER}"
+          echo "::add-mask::${DB_PASSWORD}"
+
+          if [ -z "${DB_HOST}" ] || [ -z "${DB_USER}" ] || [ -z "${DB_PASSWORD}" ]; then
+            echo "Failed to resolve DB credentials/host for migration governance gate."
+            exit 1
+          fi
+
+          export DB_HOST DB_USER DB_PASSWORD
+          export DB_PORT="${DB_PORT:-5432}"
+          export DB_NAME="${DB_NAME:-postgres}"
+          python3 scripts/ops/db_migration_release_guard.py \
+            --report-path /tmp/db-migration-guard-report.json
+
+      - name: Generate production migration release manifest
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ops/generate_migration_release_manifest.py \
+            --output /tmp/prod-migration-release-manifest.json \
+            --environment production \
+            --restore-point-id "${{ steps.backup-gate.outputs.restore_point_id }}" \
+            --backup-report-path /tmp/backup-posture-report.json
+
+      - name: Upload production DB governance artifacts
+        if: always() && steps.scope.outputs.deploy_backend == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: prod-db-governance-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: |
+            /tmp/backup-posture-report.json
+            /tmp/db-migration-guard-report.json
+            /tmp/prod-migration-release-manifest.json
 
       - name: Deploy backend using Cloud Build
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -127,6 +221,7 @@ jobs:
           echo "Scope: ${{ steps.scope.outputs.scope }}"
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
             echo "Backend: ${{ steps.backend-url.outputs.url }}"
+            echo "Restore point: ${{ steps.backup-gate.outputs.restore_point_id }}"
           else
             echo "Backend: skipped"
           fi

@@ -186,6 +186,25 @@ bash scripts/verify-pre-launch.sh
 Blocking rule:
 - Launch gate is strict-blocking. Any failing check or non-clean git tree is a release blocker.
 
+## Production Deploy DB Governance Gates
+
+The production deploy workflow (`.github/workflows/deploy-production.yml`) enforces additional DB governance before backend deploy:
+
+1. Supabase backup posture gate:
+- requires PITR probe success
+- requires latest successful backup age `<24h`
+- creates a pre-deploy restore point
+
+2. Migration governance + drift gate:
+- checks migration filename monotonicity (`consent-protocol/db/migrations`)
+- checks contract version alignment (`consent-protocol/db/schema_contract/prod_core_schema.json`)
+- checks live DB schema contract in read-only mode
+
+3. Manifest artifact:
+- emits a production migration release manifest with restore-point linkage for audit traceability
+
+The daily scheduled workflow `.github/workflows/prod-supabase-backup-posture.yml` runs the same backup posture policy and uploads a report artifact.
+
 ---
 
 ## Related Docs

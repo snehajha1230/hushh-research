@@ -65,6 +65,23 @@ gcloud builds submit --config=deploy/frontend.cloudbuild.yaml
 
    **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, and `SYNC_REMOTE_ENABLED` are set as Cloud Run env vars (not secrets). **Do not use `DATABASE_URL`** — migrations and scripts use DB_* only (strict parity). Delete `DATABASE_URL` from Secret Manager if present.
 
+4. **Configure production backup governance secrets** (GitHub Actions)
+
+   Add these repository secrets for production backup/PITR gates:
+
+   - `SUPABASE_PROJECT_REF_PROD`
+   - `SUPABASE_MANAGEMENT_TOKEN`
+
+   Validate locally:
+
+   ```bash
+   python3 scripts/ops/supabase_backup_posture_check.py \
+     --project-ref "$SUPABASE_PROJECT_REF_PROD" \
+     --management-token "$SUPABASE_MANAGEMENT_TOKEN" \
+     --require-pitr \
+     --max-backup-age-hours 24
+   ```
+
 ---
 
 ## 🔧 Cloud Build Configuration
@@ -213,6 +230,19 @@ Optional email notification channel wiring:
 
 ```bash
 OBS_ALERT_EMAIL=you@example.com bash deploy/observability/setup_gcp_observability.sh
+```
+
+### Production DB Governance Helpers
+
+```bash
+# Read-only migration governance + DB drift checks
+python3 scripts/ops/db_migration_release_guard.py \
+  --report-path /tmp/db-migration-guard-report.json
+
+# Generate audit manifest for a production release
+python3 scripts/ops/generate_migration_release_manifest.py \
+  --output /tmp/prod-migration-release-manifest.json \
+  --environment production
 ```
 
 ### Verify Secrets

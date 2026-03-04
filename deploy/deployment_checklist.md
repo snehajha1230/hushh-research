@@ -68,6 +68,29 @@
   
   **Note:** `DB_HOST`, `DB_PORT`, `DB_NAME`, `CONSENT_SSE_ENABLED`, `SYNC_REMOTE_ENABLED`, `DEVELOPER_API_ENABLED`, and `CORS_ALLOWED_ORIGINS` are Cloud Run env vars (not secrets). Do not use `DATABASE_URL`; migrations use DB_* only. Delete `DATABASE_URL` from Secret Manager for strict parity.
 
+- [x] Configure GitHub Actions backup governance secrets:
+  - [x] `SUPABASE_PROJECT_REF_PROD`
+  - [x] `SUPABASE_MANAGEMENT_TOKEN`
+
+- [x] Run pre-deploy backup posture gate (read-only + restore point)
+
+  ```bash
+  python3 scripts/ops/supabase_backup_posture_check.py \
+    --project-ref "$SUPABASE_PROJECT_REF_PROD" \
+    --management-token "$SUPABASE_MANAGEMENT_TOKEN" \
+    --require-pitr \
+    --max-backup-age-hours 24 \
+    --create-restore-point \
+    --restore-point-label "predeploy-$(git rev-parse --short HEAD)"
+  ```
+
+- [x] Run migration governance + DB drift gate
+
+  ```bash
+  python3 scripts/ops/db_migration_release_guard.py \
+    --report-path /tmp/db-migration-guard-report.json
+  ```
+
 ---
 
 ## Backend Deployment
