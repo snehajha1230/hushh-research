@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   LiquidGlassSceneProvider,
   LiquidGlassSceneRoot,
+  useSceneMetrics,
 } from "@/components/labs/liquid-glass-scene";
+import { paintLabBackdrop, roundedRectPath } from "@/lib/labs/liquid-glass-scene-paint";
 import { useLiquidGlassRendererMode } from "@/components/labs/liquid-glass-renderer-mode";
 import { useSpringValue } from "@/lib/labs/liquid-glass-core";
 
@@ -156,10 +158,14 @@ function LiquidGlassSwitch({
   const rendererMode = useLiquidGlassRendererMode();
   const dimensions = SIZE_PRESETS[size];
   const filterId = `liquid-switch-${useId().replace(/:/g, "-")}`;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const metrics = useSceneMetrics(containerRef);
   const [pointerDown, setPointerDown] = useState(false);
+  const [motionActive, setMotionActive] = useState(false);
   const [xDragRatio, setXDragRatio] = useState(checked ? 1 : 0);
   const initialPointerXRef = useRef(0);
   const currentCheckedRef = useRef(checked);
+  const motionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     currentCheckedRef.current = checked;
@@ -182,6 +188,31 @@ function LiquidGlassSwitch({
   const activeThumbScale = pointerDown ? thumbActiveScale : thumbRestScale;
   const backgroundOpacity = pointerDown ? 0.1 : 1;
   const scaleRatio = pointerDown ? 0.9 : 0.4;
+  const visualState = pointerDown ? (motionActive ? "dragging" : "held") : checked ? "active" : "idle";
+  const thumbFilterOptions = useMemo(
+    () => ({
+      width: thumbWidth,
+      height: thumbHeight,
+      radius: thumbRadius,
+      bezelWidth: dimensions.bezelWidth,
+      glassThickness: dimensions.glassThickness,
+      refractiveIndex: 1.5,
+      bezelType: "lip" as const,
+      shape: "pill" as const,
+      blur: 0.2,
+      scaleRatio,
+      specularOpacity: 0.5,
+      specularSaturation: 6,
+    }),
+    [
+      dimensions.bezelWidth,
+      dimensions.glassThickness,
+      scaleRatio,
+      thumbHeight,
+      thumbRadius,
+      thumbWidth,
+    ]
+  );
 
   const springRatio = useSpringValue(xDragRatio, {
     stiffness: 140,
@@ -204,6 +235,9 @@ function LiquidGlassSwitch({
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
       if (!pointerDown || disabled) return;
+      setMotionActive(true);
+      if (motionTimeoutRef.current) clearTimeout(motionTimeoutRef.current);
+      motionTimeoutRef.current = setTimeout(() => setMotionActive(false), 70);
       const baseRatio = currentCheckedRef.current ? 1 : 0;
       const displacementX = event.clientX - initialPointerXRef.current;
       const ratio = baseRatio + displacementX / travel;
@@ -216,6 +250,8 @@ function LiquidGlassSwitch({
     const handlePointerUp = (event: PointerEvent) => {
       if (!pointerDown) return;
       setPointerDown(false);
+      setMotionActive(false);
+      if (motionTimeoutRef.current) clearTimeout(motionTimeoutRef.current);
       const distance = event.clientX - initialPointerXRef.current;
       if (Math.abs(distance) > 4) {
         const nextChecked = xDragRatio > 0.5;
@@ -236,35 +272,77 @@ function LiquidGlassSwitch({
     };
   }, [disabled, onCheckedChange, pointerDown, travel, xDragRatio]);
 
+  useEffect(() => {
+    return () => {
+      if (motionTimeoutRef.current) clearTimeout(motionTimeoutRef.current);
+    };
+  }, []);
+
+  const lensLeft = thumbMarginLeft + thumbX;
+  const lensTop = (sliderHeight - thumbHeight) / 2;
+  const paintMirrorScene = useCallback(
+    (ctx: CanvasRenderingContext2D, env: { width: number; height: number; scale: number; padding?: number }) => {
+      paintLabBackdrop(ctx, {
+        width: env.width,
+        height: env.height,
+        offsetX: metrics.x + lensLeft,
+        offsetY: metrics.y + lensTop,
+        sceneWidth: metrics.width,
+        sceneHeight: metrics.height,
+        padding: env.padding,
+        image: null,
+      });
+      ctx.save();
+      ctx.translate(-lensLeft, -lensTop);
+      paintSwitchSubstrate(ctx, {
+        width: sliderWidth,
+        height: sliderHeight,
+        fillRatio: Math.max(0, Math.min(1, xDragRatio)),
+        fillColor: backgroundColor,
+      });
+      ctx.restore();
+    },
+    [backgroundColor, lensLeft, lensTop, metrics.x, metrics.y, metrics.width, metrics.height, sliderHeight, sliderWidth, xDragRatio]
+  );
+
   return (
-    <div className={disabled ? "cursor-not-allowed opacity-50" : "select-none touch-none"}>
+    <div ref={containerRef} className={disabled ? "cursor-not-allowed opacity-50" : "select-none touch-none"}>
       <div
-        className="relative transition-colors duration-150"
+        className="relative"
         style={{
           width: sliderWidth,
           height: sliderHeight,
-          backgroundColor,
           borderRadius: sliderHeight / 2,
         }}
       >
+        <div
+          className="absolute inset-0 overflow-hidden"
+          style={{
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 34%, rgba(18,21,28,0.15) 100%)",
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: sliderHeight / 2,
+            boxShadow:
+              "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -6px 14px rgba(0,0,0,0.08)",
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: `${Math.max(18, xDragRatio * 100)}%`,
+              backgroundColor,
+              borderRadius: sliderHeight / 2,
+              opacity: 0.9,
+            }}
+          />
+        </div>
+
         <LiquidGlassFilter
           filterId={filterId}
           enabled
           mode={rendererMode}
-          options={{
-            width: thumbWidth,
-            height: thumbHeight,
-            radius: thumbRadius,
-            bezelWidth: dimensions.bezelWidth,
-            glassThickness: dimensions.glassThickness,
-            refractiveIndex: 1.5,
-            bezelType: "lip",
-            shape: "pill",
-            blur: 0.2,
-            scaleRatio,
-            specularOpacity: 0.5,
-            specularSaturation: 6,
-          }}
+          options={thumbFilterOptions}
         />
 
         <button
@@ -277,8 +355,8 @@ function LiquidGlassSwitch({
             initialPointerXRef.current = event.clientX;
           }}
           className={
-          disabled
-            ? `absolute ${CONTROL_RESET_CLASS} cursor-not-allowed`
+            disabled
+              ? `absolute ${CONTROL_RESET_CLASS} cursor-not-allowed`
               : rendererMode === "mirror"
                 ? `absolute ${CONTROL_RESET_CLASS}`
                 : `absolute ${CONTROL_RESET_CLASS} transition-transform duration-100 ease-out`
@@ -298,6 +376,9 @@ function LiquidGlassSwitch({
               filterId={filterId}
               mode={rendererMode}
               pressed={pointerDown}
+              state={visualState}
+              mirrorOptions={thumbFilterOptions}
+              mirrorScene={paintMirrorScene}
               className="absolute inset-0 overflow-hidden"
               style={{
                 borderRadius: thumbRadius,
@@ -313,4 +394,46 @@ function LiquidGlassSwitch({
       </div>
     </div>
   );
+}
+
+function paintSwitchSubstrate(
+  ctx: CanvasRenderingContext2D,
+  {
+    width,
+    height,
+    fillRatio,
+    fillColor,
+  }: {
+    width: number;
+    height: number;
+    fillRatio: number;
+    fillColor: string;
+  }
+) {
+  const radius = height / 2;
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, "rgba(255,255,255,0.08)");
+  gradient.addColorStop(0.34, "rgba(255,255,255,0.02)");
+  gradient.addColorStop(1, "rgba(18,21,28,0.15)");
+  roundedRectPath(ctx, 0, 0, width, height, radius);
+  ctx.fillStyle = gradient;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.1)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.save();
+  roundedRectPath(ctx, 0, 0, width, height, radius);
+  ctx.clip();
+  roundedRectPath(ctx, 0, 0, Math.max(18, width * fillRatio), height, radius);
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+  roundedRectPath(ctx, 1, 1, Math.max(16, width * fillRatio - 2), height * 0.48, radius - 1);
+  ctx.fillStyle = "rgba(255,255,255,0.16)";
+  ctx.fill();
+  ctx.restore();
+
+  roundedRectPath(ctx, 1, 1, width - 2, height * 0.38, radius - 1);
+  ctx.fillStyle = "rgba(255,255,255,0.065)";
+  ctx.fill();
 }

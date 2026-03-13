@@ -1,17 +1,14 @@
 "use client";
 
-import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
-import {
-  useLiquidGlassScene,
-} from "@/components/labs/liquid-glass-scene";
+import { LiquidGlassCanvasLens, type LiquidGlassMirrorScenePainter } from "@/components/labs/liquid-glass-canvas-lens";
 import { useLiquidFilterAssets, type LiquidFilterOptions } from "@/lib/labs/liquid-glass-core";
 import {
   resolveLiquidGlassStyle,
-  resolveMirrorCloneLayerStyle,
-  resolveMirrorCloneViewportStyle,
   resolveMirrorGlassContainerStyle,
   resolveMirrorHighlightStyle,
+  type LiquidGlassMirrorVisualState,
   type LiquidGlassRendererMode,
 } from "@/lib/labs/liquid-glass-renderer";
 
@@ -36,7 +33,7 @@ export function LiquidGlassFilter({
     )
   );
 
-  if (!enabled || !assets) return null;
+  if (!enabled || !assets || mode !== "reference") return null;
 
   return (
     <svg
@@ -105,127 +102,72 @@ export function LiquidGlassFilter({
   );
 }
 
-function LiquidGlassMirrorLayer({
-  filterId,
-  bodyRef,
-  borderRadius,
-  compact,
-  pressed,
-}: {
-  filterId: string;
-  bodyRef: React.RefObject<HTMLDivElement | null>;
-  borderRadius: CSSProperties["borderRadius"];
-  compact?: boolean;
-  pressed?: boolean;
-}) {
-  const { sceneRootRef, sceneVersion } = useLiquidGlassScene();
-  const viewportRef = useRef<HTMLDivElement | null>(null);
-  const cloneLayerRef = useRef<HTMLDivElement | null>(null);
-  const cloneNodeRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    const sceneRoot = sceneRootRef.current;
-    const cloneLayer = cloneLayerRef.current;
-    if (!sceneRoot || !cloneLayer) return;
-
-    cloneLayer.replaceChildren();
-    const clone = sceneRoot.cloneNode(true) as HTMLElement;
-    clone.removeAttribute("data-liquid-scene-root");
-    clone.setAttribute("aria-hidden", "true");
-    clone.style.position = "absolute";
-    clone.style.left = "0";
-    clone.style.top = "0";
-    clone.style.margin = "0";
-    clone.style.pointerEvents = "none";
-    clone.style.transformOrigin = "top left";
-    clone.querySelectorAll("[id]").forEach((node) => node.removeAttribute("id"));
-    cloneLayer.appendChild(clone);
-    cloneNodeRef.current = clone;
-
-    return () => {
-      cloneLayer.replaceChildren();
-      cloneNodeRef.current = null;
-    };
-  }, [sceneRootRef, sceneVersion]);
-
-  useEffect(() => {
-    let rafId = 0;
-
-    const sync = () => {
-      const sceneRoot = sceneRootRef.current;
-      const bodyNode = bodyRef.current;
-      const clone = cloneNodeRef.current;
-      if (sceneRoot && bodyNode && clone) {
-        const sceneRect = sceneRoot.getBoundingClientRect();
-        const bodyRect = bodyNode.getBoundingClientRect();
-        clone.style.width = `${sceneRect.width}px`;
-        clone.style.height = `${sceneRect.height}px`;
-        clone.style.transform = `translate3d(${sceneRect.left - bodyRect.left}px, ${sceneRect.top - bodyRect.top}px, 0)`;
-      }
-      rafId = window.requestAnimationFrame(sync);
-    };
-
-    rafId = window.requestAnimationFrame(sync);
-    return () => window.cancelAnimationFrame(rafId);
-  }, [bodyRef, sceneRootRef, sceneVersion]);
-
-  return (
-    <div ref={viewportRef} className="absolute inset-0 overflow-hidden" style={resolveMirrorCloneViewportStyle(borderRadius)}>
-      <div
-        ref={cloneLayerRef}
-        className="absolute inset-0 overflow-hidden"
-        style={resolveMirrorCloneLayerStyle(filterId, { compact, pressed })}
-      />
-    </div>
-  );
-}
-
 export function LiquidGlassBody({
   filterId,
   mode,
   style,
   compact = false,
   pressed = false,
+  state,
   className,
   children,
+  mirrorOptions,
+  mirrorScene,
 }: {
   filterId: string;
   mode: LiquidGlassRendererMode;
   style?: CSSProperties;
   compact?: boolean;
   pressed?: boolean;
+  state?: LiquidGlassMirrorVisualState;
   className?: string;
   children?: ReactNode;
+  mirrorOptions?: LiquidFilterOptions;
+  mirrorScene?: LiquidGlassMirrorScenePainter;
 }) {
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const borderRadius = style?.borderRadius ?? "inherit";
-
   if (mode === "reference") {
     return (
       <div
-        ref={bodyRef}
         className={className}
-        style={glassBackdropStyle(filterId, style ?? {}, { mode, compact, pressed })}
+        style={glassBackdropStyle(filterId, style ?? {}, { mode, compact, pressed, state })}
       >
         {children}
       </div>
     );
   }
 
+  const resolvedState = state ?? (pressed ? "pressed" : compact ? "active" : "idle");
+
+  // Extract the backgroundColor from the resolved style so we can layer it
+  // between the canvas and the highlight.
+  const resolvedStyle = resolveMirrorGlassContainerStyle(style ?? {}, { compact, pressed, state: resolvedState });
+  const { backgroundColor: bgColor, ...containerStyleWithoutBg } = resolvedStyle;
+
   return (
     <div
-      ref={bodyRef}
       className={className}
-      style={resolveMirrorGlassContainerStyle(style ?? {}, { compact, pressed })}
+      style={containerStyleWithoutBg}
     >
-      <LiquidGlassMirrorLayer
-        filterId={filterId}
-        bodyRef={bodyRef}
-        borderRadius={borderRadius}
-        compact={compact}
-        pressed={pressed}
-      />
-      <div style={resolveMirrorHighlightStyle({ compact, pressed })} />
+      {mirrorOptions && mirrorScene ? (
+        <LiquidGlassCanvasLens
+          options={mirrorOptions}
+          state={resolvedState}
+          paintScene={mirrorScene}
+          className="absolute inset-0"
+        />
+      ) : null}
+      {bgColor ? (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundColor: bgColor as string,
+            borderRadius: "inherit",
+            pointerEvents: "none",
+          }}
+        />
+      ) : null}
+      <div style={resolveMirrorHighlightStyle({ compact, pressed, state: resolvedState })} />
       {children}
     </div>
   );
@@ -238,11 +180,13 @@ export function glassBackdropStyle(
     mode = "reference",
     compact = false,
     pressed = false,
+    state,
   }: {
     mode?: LiquidGlassRendererMode;
     compact?: boolean;
     pressed?: boolean;
+    state?: LiquidGlassMirrorVisualState;
   } = {}
 ): CSSProperties {
-  return resolveLiquidGlassStyle(filterId, mode, base, { compact, pressed });
+  return resolveLiquidGlassStyle(filterId, mode, base, { compact, pressed, state });
 }

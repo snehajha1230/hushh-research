@@ -7,12 +7,15 @@ import {
   useMemo,
   useRef,
   useState,
+  useCallback,
 } from "react";
 
 import {
   LiquidGlassSceneProvider,
   LiquidGlassSceneRoot,
+  useSceneMetrics,
 } from "@/components/labs/liquid-glass-scene";
+import { paintLabBackdrop, roundedRectPath, useLabSceneImage } from "@/lib/labs/liquid-glass-scene-paint";
 import { useLiquidGlassRendererMode } from "@/components/labs/liquid-glass-renderer-mode";
 import { cn } from "@/lib/utils";
 
@@ -86,6 +89,7 @@ const SIZE_PRESETS: Record<
 export function LiquidGlassSearchDemo() {
   const [query, setQuery] = useState("");
   const [showBackgroundImage, setShowBackgroundImage] = useState(false);
+  const backgroundImage = useLabSceneImage(showBackgroundImage);
   const sceneStyle = useMemo(
     () =>
       showBackgroundImage
@@ -172,6 +176,8 @@ export function LiquidGlassSearchDemo() {
             onValueChange={setQuery}
             placeholder="Search"
             size="large"
+            backgroundImage={backgroundImage}
+            showBackgroundImage={showBackgroundImage}
           />
         </div>
 
@@ -191,17 +197,24 @@ function LiquidGlassSearchBar({
   onValueChange,
   placeholder,
   size,
+  backgroundImage,
+  showBackgroundImage,
 }: {
   value: string;
   onValueChange: (next: string) => void;
   placeholder: string;
   size: SearchSize;
+  backgroundImage: HTMLImageElement | null;
+  showBackgroundImage: boolean;
 }) {
   const rendererMode = useLiquidGlassRendererMode();
   const dimensions = SIZE_PRESETS[size];
   const inputFilterId = `${useId().replace(/:/g, "-")}-input`;
   const orbFilterId = `${useId().replace(/:/g, "-")}-orb`;
   const inputContainerRef = useRef<HTMLDivElement | null>(null);
+  const orbRef = useRef<HTMLButtonElement | null>(null);
+  const inputMetrics = useSceneMetrics(inputContainerRef);
+  const orbMetrics = useSceneMetrics(orbRef);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [inputWidth, setInputWidth] = useState(100);
   const [focused, setFocused] = useState(false);
@@ -284,121 +297,216 @@ function LiquidGlassSearchBar({
     }),
     [dimensions]
   );
+  const fieldMirrorScene = useCallback(
+    (ctx: CanvasRenderingContext2D, env: { width: number; height: number; scale: number; padding?: number }) => {
+      paintLabBackdrop(ctx, {
+        width: env.width,
+        height: env.height,
+        offsetX: inputMetrics.x,
+        offsetY: inputMetrics.y,
+        sceneWidth: inputMetrics.width,
+        sceneHeight: inputMetrics.height,
+        padding: env.padding,
+        image: backgroundImage,
+      });
+      paintSearchFieldSubstrate(ctx, {
+        width: inputWidth,
+        height: dimensions.height,
+        radius: dimensions.radius,
+        active: isExpanded,
+      });
+    },
+    [backgroundImage, dimensions.height, dimensions.radius, inputMetrics.x, inputMetrics.y, inputMetrics.width, inputMetrics.height, inputWidth, isExpanded]
+  );
+  const orbMirrorScene = useCallback(
+    (ctx: CanvasRenderingContext2D, env: { width: number; height: number; scale: number; padding?: number }) => {
+      paintLabBackdrop(ctx, {
+        width: env.width,
+        height: env.height,
+        offsetX: orbMetrics.x,
+        offsetY: orbMetrics.y,
+        sceneWidth: orbMetrics.width,
+        sceneHeight: orbMetrics.height,
+        padding: env.padding,
+        image: backgroundImage,
+      });
+      ctx.save();
+      ctx.translate(-(inputWidth - dimensions.orbSize - (dimensions.height - dimensions.orbSize) / 2), 0);
+      paintSearchFieldSubstrate(ctx, {
+        width: inputWidth,
+        height: dimensions.height,
+        radius: dimensions.radius,
+        active: isExpanded,
+      });
+      ctx.restore();
+    },
+    [
+      backgroundImage,
+      dimensions.height,
+      dimensions.orbSize,
+      dimensions.radius,
+      inputWidth,
+      isExpanded,
+      orbMetrics.x,
+      orbMetrics.y,
+      orbMetrics.width,
+      orbMetrics.height,
+    ]
+  );
 
   return (
     <div className="relative flex w-full select-none items-center" style={{ height: dimensions.height }}>
-      <div
-        ref={inputContainerRef}
-        className="absolute inset-0 transition-[transform] duration-300 ease-[cubic-bezier(0.25,0.8,0.25,1)]"
-        style={{
-          zIndex: 10,
-          transform: isExpanded
-            ? `scale(1.02) translateX(${showCloseOrb ? -dimensions.translateX : 0}px)`
-            : "scale(1)",
-          transformOrigin: "center center",
-        }}
-      >
-        <LiquidGlassFilter
-          filterId={inputFilterId}
-          enabled
-          options={inputFilterOptions}
-          mode={rendererMode}
-        />
-
-        <LiquidGlassBody
-          filterId={inputFilterId}
-          mode={rendererMode}
-          className="absolute inset-0 z-0 overflow-hidden transition-[box-shadow,background-color,border-color] duration-300"
-          style={{
-            borderRadius: dimensions.radius,
-            backgroundColor: "rgba(255,255,255,0.05)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            boxShadow: isExpanded
-              ? "0 4px 24px rgba(0,0,0,0.1)"
-              : "0 2px 10px rgba(0,0,0,0.05)",
-          }}
-        />
-
         <div
-          className="absolute inset-0 z-10 flex items-center"
-          style={{ paddingLeft: dimensions.radius * 0.8 }}
+          ref={inputContainerRef}
+          className="absolute inset-0 transition-[transform] duration-300 ease-[cubic-bezier(0.25,0.8,0.25,1)]"
+          style={{
+            zIndex: 10,
+            transform: isExpanded
+              ? `scale(1.02) translateX(${showCloseOrb ? -dimensions.translateX : 0}px)`
+              : "scale(1)",
+            transformOrigin: "center center",
+          }}
         >
-          <Search
-            className={cn(
-              "shrink-0 transition-colors duration-300",
-              isExpanded
-                ? "text-black dark:text-white"
-                : "text-black/50 dark:text-white/50"
-            )}
-            size={dimensions.iconSize}
-            style={{ marginRight: dimensions.gap }}
-          />
-
-          <input
-            ref={inputRef}
-            type="text"
-            value={value}
-            onChange={(event) => onValueChange(event.target.value)}
-            placeholder={placeholder}
-            className="h-full w-full flex-1 appearance-none border-none bg-transparent font-medium leading-none text-black/90 outline-none transition-[padding] duration-300 placeholder:text-black/40 dark:text-white/90 dark:placeholder:text-white/40"
-            style={{
-              fontSize: dimensions.fontSize,
-              paddingRight: showCloseOrb
-                ? dimensions.orbSize + dimensions.gap
-                : dimensions.radius,
-            }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-          />
-        </div>
-      </div>
-
-      <button
-        type="button"
-        className={`absolute top-1/2 ${CONTROL_RESET_CLASS} cursor-pointer transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]`}
-        style={{
-          width: dimensions.orbSize,
-          height: dimensions.orbSize,
-          right: (dimensions.height - dimensions.orbSize) / 2,
-          transform: `translateX(${dimensions.translateX}px) translateY(-50%) scale(${orbScale}) rotate(${showCloseOrb ? 0 : -90}deg)`,
-          opacity: orbOpacity,
-          pointerEvents: showCloseOrb ? "auto" : "none",
-          zIndex: 20,
-        }}
-        onMouseDown={(event) => {
-          event.preventDefault();
-          onValueChange("");
-          inputRef.current?.focus();
-        }}
-      >
-        <LiquidGlassFilter
-          filterId={orbFilterId}
-          enabled
-          options={orbFilterOptions}
-          mode={rendererMode}
-        />
-
-        <div className="relative h-full w-full">
-          <LiquidGlassBody
-            filterId={orbFilterId}
+          <LiquidGlassFilter
+            filterId={inputFilterId}
+            enabled
+            options={inputFilterOptions}
             mode={rendererMode}
-            compact
-            pressed={showCloseOrb}
-            className="absolute inset-0 z-10 overflow-hidden"
+          />
+
+          <LiquidGlassBody
+            filterId={inputFilterId}
+            mode={rendererMode}
+            state={isExpanded ? "active" : "idle"}
+            mirrorOptions={inputFilterOptions}
+            mirrorScene={fieldMirrorScene}
+            className="absolute inset-0 z-0 overflow-hidden transition-[box-shadow,background-color,border-color] duration-300"
             style={{
               borderRadius: dimensions.radius,
               backgroundColor: "rgba(255,255,255,0.05)",
               border: "1px solid rgba(255,255,255,0.08)",
-              boxShadow:
-                "0 4px 15px rgba(0,0,0,0.1), inset 0 0 5px rgba(255,255,255,0.1)",
+              boxShadow: isExpanded
+                ? "0 4px 24px rgba(0,0,0,0.1)"
+                : "0 2px 10px rgba(0,0,0,0.05)",
             }}
           />
 
-          <div className="absolute inset-0 z-20 flex items-center justify-center text-black/60 dark:text-white/70">
-            <X size={dimensions.iconSize} />
+          <div
+            className="absolute inset-0 z-10 flex items-center"
+            style={{ paddingLeft: dimensions.radius * 0.8 }}
+          >
+            <Search
+              className={cn(
+                "shrink-0 transition-colors duration-300",
+                isExpanded
+                  ? "text-black dark:text-white"
+                  : "text-black/50 dark:text-white/50"
+              )}
+              size={dimensions.iconSize}
+              style={{ marginRight: dimensions.gap }}
+            />
+
+            <input
+              ref={inputRef}
+              type="text"
+              value={value}
+              onChange={(event) => onValueChange(event.target.value)}
+              placeholder={placeholder}
+              className="h-full w-full flex-1 appearance-none border-none bg-transparent font-medium leading-none text-black/90 outline-none transition-[padding] duration-300 placeholder:text-black/40 dark:text-white/90 dark:placeholder:text-white/40"
+              style={{
+                fontSize: dimensions.fontSize,
+                paddingRight: showCloseOrb
+                  ? dimensions.orbSize + dimensions.gap
+                  : dimensions.radius,
+              }}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+            />
           </div>
         </div>
-      </button>
-    </div>
+
+        <button
+          ref={orbRef}
+          type="button"
+          className={`absolute top-1/2 ${CONTROL_RESET_CLASS} cursor-pointer transition-transform duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]`}
+          style={{
+            width: dimensions.orbSize,
+            height: dimensions.orbSize,
+            right: (dimensions.height - dimensions.orbSize) / 2,
+            transform: `translateX(${dimensions.translateX}px) translateY(-50%) scale(${orbScale}) rotate(${showCloseOrb ? 0 : -90}deg)`,
+            opacity: orbOpacity,
+            pointerEvents: showCloseOrb ? "auto" : "none",
+            zIndex: 20,
+          }}
+          onMouseDown={(event) => {
+            event.preventDefault();
+            onValueChange("");
+            inputRef.current?.focus();
+          }}
+        >
+          <LiquidGlassFilter
+            filterId={orbFilterId}
+            enabled
+            options={orbFilterOptions}
+            mode={rendererMode}
+          />
+
+          <div className="relative h-full w-full">
+            <LiquidGlassBody
+              filterId={orbFilterId}
+              mode={rendererMode}
+              compact
+              pressed={showCloseOrb}
+              state={showCloseOrb ? "active" : "idle"}
+              mirrorOptions={orbFilterOptions}
+              mirrorScene={orbMirrorScene}
+              className="absolute inset-0 z-10 overflow-hidden"
+              style={{
+                borderRadius: dimensions.radius,
+                backgroundColor: "rgba(255,255,255,0.05)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                boxShadow:
+                  "0 4px 15px rgba(0,0,0,0.1), inset 0 0 5px rgba(255,255,255,0.1)",
+              }}
+            />
+
+            <div className="absolute inset-0 z-20 flex items-center justify-center text-black/60 dark:text-white/70">
+              <X size={dimensions.iconSize} />
+            </div>
+          </div>
+        </button>
+      </div>
   );
+}
+
+function paintSearchFieldSubstrate(
+  ctx: CanvasRenderingContext2D,
+  {
+    width,
+    height,
+    radius,
+    active,
+  }: {
+    width: number;
+    height: number;
+    radius: number;
+    active: boolean;
+  }
+) {
+  roundedRectPath(ctx, 0, 0, width, height, radius);
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.08)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  if (active) {
+    const band = ctx.createLinearGradient(0, 0, width, 0);
+    band.addColorStop(0, "rgba(255,255,255,0.08)");
+    band.addColorStop(0.5, "rgba(255,255,255,0.02)");
+    band.addColorStop(1, "rgba(255,255,255,0.08)");
+    roundedRectPath(ctx, width * 0.12, height * 0.16, width * 0.62, height * 0.22, height * 0.11);
+    ctx.fillStyle = band;
+    ctx.fill();
+  }
 }

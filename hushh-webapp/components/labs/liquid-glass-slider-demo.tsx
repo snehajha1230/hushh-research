@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import {
   LiquidGlassSceneProvider,
   LiquidGlassSceneRoot,
+  useSceneMetrics,
 } from "@/components/labs/liquid-glass-scene";
+import { paintLabBackdrop, roundedRectPath } from "@/lib/labs/liquid-glass-scene-paint";
 import { useLiquidGlassRendererMode } from "@/components/labs/liquid-glass-renderer-mode";
 import { useSpringValue } from "@/lib/labs/liquid-glass-core";
 
@@ -148,11 +150,15 @@ function LiquidGlassSlider({
   const dimensions = SIZE_PRESETS[size];
   const filterId = `liquid-slider-${useId().replace(/:/g, "-")}`;
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const thumbRef = useRef<HTMLButtonElement | null>(null);
+  const metrics = useSceneMetrics(thumbRef);
   const [containerWidth, setContainerWidth] = useState(300);
   const [dragging, setDragging] = useState(false);
+  const [motionActive, setMotionActive] = useState(false);
   const [thumbX, setThumbX] = useState(0);
   const startXRef = useRef(0);
   const startThumbXRef = useRef(0);
+  const motionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const trackLeftInset = (dimensions.thumbWidth * (1 - SCALE_REST)) / 2;
   const range = Math.max(1, containerWidth - dimensions.thumbWidth);
@@ -185,6 +191,9 @@ function LiquidGlassSlider({
   useEffect(() => {
     const handleMove = (event: PointerEvent) => {
       if (!dragging || disabled) return;
+      setMotionActive(true);
+      if (motionTimeoutRef.current) clearTimeout(motionTimeoutRef.current);
+      motionTimeoutRef.current = setTimeout(() => setMotionActive(false), 70);
       const deltaX = event.clientX - startXRef.current;
       const maxThumbX = Math.max(0, containerWidth - dimensions.thumbWidth);
       const newThumbX = Math.max(0, Math.min(maxThumbX, startThumbXRef.current + deltaX));
@@ -196,6 +205,8 @@ function LiquidGlassSlider({
 
     const handleUp = () => {
       setDragging(false);
+      setMotionActive(false);
+      if (motionTimeoutRef.current) clearTimeout(motionTimeoutRef.current);
     };
 
     window.addEventListener("pointermove", handleMove);
@@ -206,16 +217,83 @@ function LiquidGlassSlider({
     };
   }, [containerWidth, dimensions.thumbWidth, disabled, dragging, max, min, onValueChange]);
 
+  useEffect(() => {
+    return () => {
+      if (motionTimeoutRef.current) clearTimeout(motionTimeoutRef.current);
+    };
+  }, []);
+
   const pressMultiplier = dragging ? 0.9 : 0.4;
   const scaleRatio = pressMultiplier;
   const scaleSpring = dragging ? SCALE_DRAG : SCALE_REST;
   const backgroundOpacity = dragging ? 0.1 : 1;
+  const visualState = dragging ? (motionActive ? "dragging" : "held") : "active";
   const springThumbX = useSpringValue(thumbX, {
     stiffness: 140,
     damping: 18,
     mass: 1,
     precision: 0.001,
   });
+  const thumbFilterOptions = useMemo(
+    () => ({
+      width: dimensions.thumbWidth,
+      height: dimensions.thumbHeight,
+      radius: dimensions.thumbRadius,
+      bezelWidth: dimensions.bezelWidth,
+      glassThickness: dimensions.glassThickness,
+      refractiveIndex: 1.45,
+      bezelType: "convex_squircle" as const,
+      shape: "pill" as const,
+      blur: 0,
+      scaleRatio: pressMultiplier,
+      specularOpacity: 0.4,
+      specularSaturation: 7,
+    }),
+    [
+      dimensions.bezelWidth,
+      dimensions.glassThickness,
+      dimensions.thumbHeight,
+      dimensions.thumbRadius,
+      dimensions.thumbWidth,
+      pressMultiplier,
+    ]
+  );
+  const paintMirrorScene = useCallback(
+    (ctx: CanvasRenderingContext2D, env: { width: number; height: number; scale: number; padding?: number }) => {
+      paintLabBackdrop(ctx, {
+        width: env.width,
+        height: env.height,
+        offsetX: metrics.x,
+        offsetY: metrics.y,
+        sceneWidth: metrics.width,
+        sceneHeight: metrics.height,
+        padding: env.padding,
+        image: null,
+      });
+      ctx.save();
+      ctx.translate(-springThumbX, 0);
+      paintSliderSubstrate(ctx, {
+        trackLeftInset,
+        trackTop: (dimensions.thumbHeight - dimensions.sliderHeight) / 2,
+        sliderWidth: containerWidth,
+        sliderHeight: dimensions.sliderHeight,
+        fillWidth: Math.max(0, springThumbX + dimensions.thumbWidth / 2 - trackLeftInset),
+      });
+      ctx.restore();
+    },
+    [
+      containerWidth,
+      dimensions.sliderHeight,
+      dimensions.thumbHeight,
+      dimensions.thumbWidth,
+      metrics.x,
+      metrics.y,
+      metrics.width,
+      metrics.height,
+      springThumbX,
+      trackLeftInset,
+    ]
+  );
 
   return (
     <div
@@ -230,8 +308,12 @@ function LiquidGlassSlider({
           top: (dimensions.thumbHeight - dimensions.sliderHeight) / 2,
           left: trackLeftInset,
           right: trackLeftInset,
-          backgroundColor: "#89898F66",
+          background:
+            "linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 34%, rgba(20,23,30,0.12) 100%)",
+          border: "1px solid rgba(255,255,255,0.09)",
           borderRadius: dimensions.sliderHeight / 2,
+          boxShadow:
+            "inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -6px 12px rgba(0,0,0,0.08)",
         }}
       >
         <div className="h-full w-full overflow-hidden rounded-full">
@@ -241,6 +323,7 @@ function LiquidGlassSlider({
               width: Math.max(0, springThumbX + dimensions.thumbWidth / 2 - trackLeftInset),
               borderRadius: dimensions.sliderHeight / 2,
               backgroundColor: "#0377F7",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.18)",
             }}
           />
         </div>
@@ -250,25 +333,13 @@ function LiquidGlassSlider({
         filterId={filterId}
         enabled
         mode={rendererMode}
-        options={{
-          width: dimensions.thumbWidth,
-          height: dimensions.thumbHeight,
-          radius: dimensions.thumbRadius,
-          bezelWidth: dimensions.bezelWidth,
-          glassThickness: dimensions.glassThickness,
-          refractiveIndex: 1.45,
-          bezelType: "convex_squircle",
-          shape: "pill",
-          blur: 0,
-          scaleRatio,
-          specularOpacity: 0.4,
-          specularSaturation: 7,
-        }}
+        options={thumbFilterOptions}
       />
 
-        <button
-          type="button"
-          className={
+      <button
+        ref={thumbRef}
+        type="button"
+        className={
           disabled
             ? `absolute ${CONTROL_RESET_CLASS} cursor-not-allowed`
             : rendererMode === "mirror"
@@ -298,6 +369,9 @@ function LiquidGlassSlider({
             filterId={filterId}
             mode={rendererMode}
             pressed={dragging}
+            state={visualState}
+            mirrorOptions={thumbFilterOptions}
+            mirrorScene={paintMirrorScene}
             className="absolute inset-0 overflow-hidden"
             style={{
               borderRadius: dimensions.thumbRadius,
@@ -310,4 +384,49 @@ function LiquidGlassSlider({
       </button>
     </div>
   );
+}
+
+function paintSliderSubstrate(
+  ctx: CanvasRenderingContext2D,
+  {
+    trackLeftInset,
+    trackTop,
+    sliderWidth,
+    sliderHeight,
+    fillWidth,
+  }: {
+    trackLeftInset: number;
+    trackTop: number;
+    sliderWidth: number;
+    sliderHeight: number;
+    fillWidth: number;
+  }
+) {
+  const trackWidth = Math.max(0, sliderWidth - trackLeftInset * 2);
+  const radius = sliderHeight / 2;
+  const gradient = ctx.createLinearGradient(0, trackTop, 0, trackTop + sliderHeight);
+  gradient.addColorStop(0, "rgba(255,255,255,0.08)");
+  gradient.addColorStop(0.34, "rgba(255,255,255,0.02)");
+  gradient.addColorStop(1, "rgba(20,23,30,0.12)");
+  roundedRectPath(ctx, trackLeftInset, trackTop, trackWidth, sliderHeight, radius);
+  ctx.fillStyle = gradient;
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.09)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  ctx.save();
+  roundedRectPath(ctx, trackLeftInset, trackTop, trackWidth, sliderHeight, radius);
+  ctx.clip();
+  roundedRectPath(ctx, trackLeftInset, trackTop, fillWidth, sliderHeight, radius);
+  ctx.fillStyle = "#0377F7";
+  ctx.fill();
+  roundedRectPath(ctx, trackLeftInset, trackTop, fillWidth, sliderHeight * 0.52, radius);
+  ctx.fillStyle = "rgba(255,255,255,0.18)";
+  ctx.fill();
+  ctx.restore();
+
+  roundedRectPath(ctx, trackLeftInset + 1, trackTop + 1, trackWidth - 2, sliderHeight * 0.42, radius - 1);
+  ctx.fillStyle = "rgba(255,255,255,0.075)";
+  ctx.fill();
 }
