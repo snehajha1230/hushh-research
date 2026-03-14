@@ -81,44 +81,6 @@
       ],
       "fixAvailable": true
     },
-    "@vitest/coverage-v8": {
-      "name": "@vitest/coverage-v8",
-      "severity": "moderate",
-      "isDirect": true,
-      "via": [
-        "vitest"
-      ],
-      "effects": [],
-      "range": "<=2.2.0-beta.2",
-      "nodes": [
-        "node_modules/@vitest/coverage-v8"
-      ],
-      "fixAvailable": {
-        "name": "@vitest/coverage-v8",
-        "version": "4.1.0",
-        "isSemVerMajor": true
-      }
-    },
-    "@vitest/mocker": {
-      "name": "@vitest/mocker",
-      "severity": "moderate",
-      "isDirect": false,
-      "via": [
-        "vite"
-      ],
-      "effects": [
-        "vitest"
-      ],
-      "range": "<=3.0.0-beta.4",
-      "nodes": [
-        "node_modules/@vitest/mocker"
-      ],
-      "fixAvailable": {
-        "name": "vitest",
-        "version": "4.1.0",
-        "isSemVerMajor": true
-      }
-    },
     "ajv": {
       "name": "ajv",
       "severity": "moderate",
@@ -178,11 +140,7 @@
       "nodes": [
         "node_modules/esbuild"
       ],
-      "fixAvailable": {
-        "name": "vitest",
-        "version": "4.1.0",
-        "isSemVerMajor": true
-      }
+      "fixAvailable": true
     },
     "fast-xml-parser": {
       "name": "fast-xml-parser",
@@ -475,8 +433,7 @@
       "nodes": [
         "node_modules/@typescript-eslint/typescript-estree/node_modules/minimatch",
         "node_modules/glob/node_modules/minimatch",
-        "node_modules/minimatch",
-        "node_modules/test-exclude/node_modules/minimatch"
+        "node_modules/minimatch"
       ],
       "fixAvailable": true
     },
@@ -630,62 +587,12 @@
       "via": [
         "esbuild"
       ],
-      "effects": [
-        "@vitest/mocker",
-        "vite-node",
-        "vitest"
-      ],
+      "effects": [],
       "range": "0.11.0 - 6.1.6",
       "nodes": [
         "node_modules/vite"
       ],
-      "fixAvailable": {
-        "name": "vitest",
-        "version": "4.1.0",
-        "isSemVerMajor": true
-      }
-    },
-    "vite-node": {
-      "name": "vite-node",
-      "severity": "moderate",
-      "isDirect": false,
-      "via": [
-        "vite"
-      ],
-      "effects": [
-        "vitest"
-      ],
-      "range": "<=2.2.0-beta.2",
-      "nodes": [
-        "node_modules/vite-node"
-      ],
-      "fixAvailable": {
-        "name": "vitest",
-        "version": "4.1.0",
-        "isSemVerMajor": true
-      }
-    },
-    "vitest": {
-      "name": "vitest",
-      "severity": "moderate",
-      "isDirect": true,
-      "via": [
-        "@vitest/mocker",
-        "vite",
-        "vite-node"
-      ],
-      "effects": [
-        "@vitest/coverage-v8"
-      ],
-      "range": "0.0.1 - 0.0.12 || 0.0.29 - 0.0.122 || 0.3.3 - 3.0.0-beta.4",
-      "nodes": [
-        "node_modules/vitest"
-      ],
-      "fixAvailable": {
-        "name": "vitest",
-        "version": "4.1.0",
-        "isSemVerMajor": true
-      }
+      "fixAvailable": true
     },
     "yauzl": {
       "name": "yauzl",
@@ -723,18 +630,18 @@
     "vulnerabilities": {
       "info": 0,
       "low": 9,
-      "moderate": 10,
+      "moderate": 6,
       "high": 5,
       "critical": 0,
-      "total": 24
+      "total": 20
     },
     "dependencies": {
       "prod": 427,
-      "dev": 740,
-      "optional": 179,
-      "peer": 28,
+      "dev": 773,
+      "optional": 231,
+      "peer": 29,
       "peerOptional": 0,
-      "total": 1255
+      "total": 1288
     }
   }
 }
