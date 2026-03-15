@@ -84,11 +84,19 @@ The script reports:
 - whether each required key exists in the target project
 - missing keys (if any), with non-zero exit on failure
 
+### Firebase identity plane rule
+
+1. The application uses one Firebase identity plane across `development`, `uat`, and `production`.
+2. Environment separation is primarily at the database / backend runtime layer, not by switching Firebase projects for web messaging.
+3. `NEXT_PUBLIC_FIREBASE_*` and `FIREBASE_SERVICE_ACCOUNT_JSON` must stay aligned with the Firebase project used for login and ID-token verification.
+4. `NEXT_PUBLIC_AUTH_FIREBASE_*` and `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` are compatibility overrides only. If they are set to a different project, the client and backend must still resolve to the same effective Firebase identity plane for auth + FCM.
+5. A split where auth uses one Firebase project and web messaging/default admin uses another is considered config drift and will break web FCM registration.
+
 ### Branch divergence note (current)
 
-1. `deploy_uat` currently includes analytics/auth-split expectations (`NEXT_PUBLIC_AUTH_FIREBASE_*`, measurement IDs, GTM IDs).
+1. `deploy_uat` currently carries analytics keys plus optional auth-override keys (`NEXT_PUBLIC_AUTH_FIREBASE_*`).
 2. Production branch rollout does not yet require all analytics keys until the dedicated migration step is approved.
-3. Production analytics migration remains deferred by policy; do not mutate production to match UAT-only analytics during routine UAT delivery.
+3. Auth override keys are not a signal that UAT should use a different Firebase project for messaging. They remain compatibility inputs only.
 
 ### Ops-only GitHub secrets (backup/recovery governance)
 
@@ -157,7 +165,7 @@ Used by:
 | `BACKEND_URL` | Server-side api routes | No | Fallback for NEXT_PUBLIC_BACKEND_URL |
 | `SESSION_SECRET` | `lib/auth/session.ts` | If session API | Server-only |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | `lib/firebase/admin.ts` | Server-side Firebase | Server-only |
-| `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` | `lib/firebase/admin.ts` | Recommended for auth-split | Server-only; used for token verification when web auth project differs |
+| `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` | `lib/firebase/admin.ts` | Optional compatibility override | Server-only; if set differently from `FIREBASE_SERVICE_ACCOUNT_JSON`, default/admin messaging must still resolve to the same effective Firebase project |
 
 ---
 
@@ -223,10 +231,10 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 | `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` | Yes | No | Same | Required by current Cloud Build frontend manifest |
 | `NEXT_PUBLIC_FIREBASE_APP_ID` | Yes | No | Same | Required by current Cloud Build frontend manifest |
 | `NEXT_PUBLIC_FIREBASE_VAPID_KEY` | Yes | No | Same | **Web push (FCM)**: VAPID key from Firebase Console -> Cloud Messaging -> Web configuration -> Key pair. Required for production build and consent push on web. See [fcm-notifications.md](../../../consent-protocol/docs/reference/fcm-notifications.md). |
-| `NEXT_PUBLIC_AUTH_FIREBASE_API_KEY` | Recommended (auth-split) | No | `.env.local` / CI / build-arg | Optional auth-only override for web login project |
-| `NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN` | Recommended (auth-split) | No | Same | Optional auth-only override for web login project |
-| `NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID` | Recommended (auth-split) | No | Same | Optional auth-only override for web login project |
-| `NEXT_PUBLIC_AUTH_FIREBASE_APP_ID` | Recommended (auth-split) | No | Same | Optional auth-only override for web login project |
+| `NEXT_PUBLIC_AUTH_FIREBASE_API_KEY` | Optional compatibility override | No | `.env.local` / CI / build-arg | Keep equal to `NEXT_PUBLIC_FIREBASE_*` unless a temporary auth override is explicitly required |
+| `NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN` | Optional compatibility override | No | Same | Same rule: do not diverge from the primary Firebase project unless intentionally testing an override |
+| `NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID` | Optional compatibility override | No | Same | Same rule |
+| `NEXT_PUBLIC_AUTH_FIREBASE_APP_ID` | Optional compatibility override | No | Same | Same rule |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_UAT` | Recommended | No | `.env.local` / CI / build-arg | Analytics measurement ID for UAT (preferred key) |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING` | Optional legacy | No | `.env.local` / CI / build-arg | Backward-compatible alias for UAT measurement ID |
 | `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION` | Recommended | No | `.env.local` / CI / Prod build-arg | Analytics measurement ID for production |
@@ -244,7 +252,7 @@ These are used by MCP modules (`mcp_modules/`) for MCP server functionality, not
 | `BACKEND_URL` | Server-side | No | Same as NEXT_PUBLIC_BACKEND_URL where used | |
 | `SESSION_SECRET` | If using session API | Yes | Server env only | Not in client |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | Server-side Firebase | Yes | Server env only | |
-| `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` | Auth-split token verification | Yes (for auth-split) | Server env only | Falls back to FIREBASE_SERVICE_ACCOUNT_JSON if unset |
+| `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON` | Auth token verification compatibility override | No | Server env only | Falls back to `FIREBASE_SERVICE_ACCOUNT_JSON` if unset; keep aligned with the same Firebase identity plane |
 | `NEXT_PUBLIC_CONSENT_TIMEOUT_SECONDS` | No | No | Optional; sync with backend | |
 | `NEXT_PUBLIC_FRONTEND_URL` | No | No | Optional | |
 
@@ -328,6 +336,9 @@ echo -n "https://your-backend.run.app" | gcloud secrets versions add BACKEND_URL
 **Required backend 11:** `SECRET_KEY`, `VAULT_ENCRYPTION_KEY`, `GOOGLE_API_KEY`, `FIREBASE_SERVICE_ACCOUNT_JSON`, `FIREBASE_AUTH_SERVICE_ACCOUNT_JSON`, `FRONTEND_URL`, `DB_USER`, `DB_PASSWORD`, `APP_REVIEW_MODE`, `REVIEWER_UID`, `MCP_DEVELOPER_TOKEN`.
 **Required backend Plaid secrets when brokerage is enabled:** `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_TOKEN_ENCRYPTION_KEY`.
 **Required frontend 16:** `BACKEND_URL`, `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_VAPID_KEY`, `NEXT_PUBLIC_AUTH_FIREBASE_API_KEY`, `NEXT_PUBLIC_AUTH_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_AUTH_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_AUTH_FIREBASE_APP_ID`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_STAGING`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_PRODUCTION`, `NEXT_PUBLIC_GTM_ID_STAGING`, `NEXT_PUBLIC_GTM_ID_PRODUCTION`.
+
+Operational note:
+- For normal deployments, the `NEXT_PUBLIC_AUTH_FIREBASE_*` values should match the primary `NEXT_PUBLIC_FIREBASE_*` values. If they intentionally differ, the repo must still force auth, messaging, and backend admin onto the same effective Firebase project.
 
 These Firebase values are public client config, but storing them in Secret Manager keeps deployment manifests free of hardcoded production values.
 

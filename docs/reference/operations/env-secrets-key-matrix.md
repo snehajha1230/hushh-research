@@ -16,9 +16,10 @@ Canonical environment keys:
 
 Current branch divergence policy:
 
-1. `deploy_uat` carries analytics/auth-split keys as the active rollout lane.
+1. `deploy_uat` carries analytics keys plus optional auth-override keys as the active rollout lane.
 2. Production analytics key parity is intentionally deferred until approved migration.
 3. Missing production analytics keys should be tracked as migration backlog, not silently backfilled outside release planning.
+4. Auth-override keys do not imply a different Firebase messaging project. The effective Firebase identity plane must remain unified.
 
 Profile bootstrap rule:
 

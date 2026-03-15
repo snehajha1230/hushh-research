@@ -770,11 +770,58 @@ export function ConsentCenterView({
             title={deliveryCopy.title}
             description={deliveryCopy.description}
             icon={BellRing}
+            actions={
+              notificationState.deliveryMode !== "push_active" ? (
+                <Button
+                  variant="none"
+                  effect="fade"
+                  size="sm"
+                  disabled={notificationState.isRetryingPushRegistration}
+                  onClick={() => notificationState.retryPushRegistration()}
+                >
+                  {notificationState.isRetryingPushRegistration ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4" />
+                  )}
+                  Retry push registration
+                </Button>
+              ) : null
+            }
           />
           {notificationState.deliveryDetail ? (
             <p className="px-5 text-xs text-muted-foreground">
               Detail: {notificationState.deliveryDetail}
             </p>
+          ) : null}
+          {notificationState.deliveryMode !== "push_active" ? (
+            <div className="grid gap-3 px-5 pb-5 md:grid-cols-3">
+              <div className="rounded-[20px] border border-border/60 bg-background/70 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  Browser permission
+                </p>
+                <p className="mt-2 text-sm text-foreground">
+                  Confirm notifications are allowed for this origin before retrying.
+                </p>
+              </div>
+              <div className="rounded-[20px] border border-border/60 bg-background/70 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  Token registration
+                </p>
+                <p className="mt-2 text-sm text-foreground">
+                  A healthy retry should create a row in <code>user_push_tokens</code>.
+                </p>
+              </div>
+              <div className="rounded-[20px] border border-border/60 bg-background/70 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  Firebase Console
+                </p>
+                <p className="mt-2 text-sm text-foreground">
+                  Check the active project&apos;s Cloud Messaging web configuration and
+                  use the project-specific VAPID key.
+                </p>
+              </div>
+            </div>
           ) : null}
         </ContentSurface>
       ) : null}
