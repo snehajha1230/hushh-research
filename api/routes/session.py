@@ -245,7 +245,10 @@ async def lookup_user_by_email(
         cred = credentials.ApplicationDefault()
         firebase_admin.initialize_app(cred)
 
-    required_token = os.getenv("MCP_DEVELOPER_TOKEN", "").strip()
+    required_token = (
+        str(os.getenv("HUSHH_DEVELOPER_TOKEN", "")).strip()
+        or str(os.getenv("MCP_DEVELOPER_TOKEN", "")).strip()
+    )
     if not required_token:
         raise HTTPException(status_code=503, detail="Lookup endpoint not configured")
     if not x_mcp_developer_token or x_mcp_developer_token != required_token:
