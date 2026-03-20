@@ -41,6 +41,11 @@ import {
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
+import {
+  clearSessionStorage,
+  removeLocalItem,
+  removeSessionItem,
+} from "@/lib/utils/session-storage";
 
 // Pre-compute platform check to avoid dynamic imports in callbacks
 const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -180,8 +185,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
             );
             // DEFENSIVE CLEANUP: Remove any legacy vault_key from storage
             // Vault key should be managed by VaultContext (memory-only)
-            localStorage.removeItem("vault_key");
-            sessionStorage.removeItem("vault_key");
+            removeLocalItem("vault_key");
+            removeSessionItem("vault_key");
 
             // Reactive state will handle UI updates (e.g. VaultLockGuard will see locked vault)
             // No need to force reload, which causes loops on some Android devices
@@ -263,9 +268,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       // DEFENSIVE CLEANUP: Remove any legacy vault_key from storage
       // Vault key should be managed by VaultContext (memory-only)
-      localStorage.removeItem("vault_key");
-      localStorage.removeItem("user_id");
-      sessionStorage.clear();
+      removeLocalItem("vault_key");
+      removeLocalItem("user_id");
+      clearSessionStorage();
 
       router.push(redirectTo);
     }

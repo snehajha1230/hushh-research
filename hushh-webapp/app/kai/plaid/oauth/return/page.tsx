@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import {
+  AppPageContentRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -151,39 +154,43 @@ export default function KaiPlaidOauthReturnPage() {
   if (stage !== "error") {
     return (
       <AppPageShell as="div" width="narrow" className="flex min-h-[60vh] items-center justify-center">
-        <HushhLoader
-          label={
-            stage === "redirecting"
-              ? "Returning to Kai..."
-              : "Resuming your Plaid brokerage connection..."
-          }
-        />
+        <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
+          <HushhLoader
+            label={
+              stage === "redirecting"
+                ? "Returning to Kai..."
+                : "Resuming your Plaid brokerage connection..."
+            }
+          />
+        </AppPageContentRegion>
       </AppPageShell>
     );
   }
 
   return (
     <AppPageShell as="div" width="narrow" className="flex min-h-[60vh] items-center justify-center">
-      <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
-        <h1 className="text-lg font-semibold text-foreground">Plaid connection needs attention</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{error}</p>
-        <div className="mt-4 flex flex-col gap-2">
-          <Button onClick={() => router.replace(returnPath)} className="w-full">
-            Back to Kai
-          </Button>
-          <Button
-            variant="none"
-            effect="fade"
-            onClick={() => {
-              clearPlaidOAuthResumeSession();
-              router.replace(ROUTES.KAI_DASHBOARD);
-            }}
-            className="w-full"
-          >
-            Reset Plaid Resume
-          </Button>
+      <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
+        <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
+          <h1 className="text-lg font-semibold text-foreground">Plaid connection needs attention</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+          <div className="mt-4 flex flex-col gap-2">
+            <Button onClick={() => router.replace(returnPath)} className="w-full">
+              Back to Kai
+            </Button>
+            <Button
+              variant="none"
+              effect="fade"
+              onClick={() => {
+                clearPlaidOAuthResumeSession();
+                router.replace(ROUTES.KAI_DASHBOARD);
+              }}
+              className="w-full"
+            >
+              Reset Plaid Resume
+            </Button>
+          </div>
         </div>
-      </div>
+      </AppPageContentRegion>
     </AppPageShell>
   );
 }

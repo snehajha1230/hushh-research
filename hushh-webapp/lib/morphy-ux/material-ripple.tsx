@@ -270,7 +270,7 @@ export const MaterialRipple = ({
   return (
     <div
       ref={containerRef}
-      className={`morphy-ripple-host absolute inset-0 ${className}`}
+      className={`morphy-ripple-host absolute inset-0 isolate overflow-hidden ${className}`}
       // Let the ripple host own the clip boundary for rounded actionables.
       style={{ borderRadius: "inherit", contain: "paint" }}
     />

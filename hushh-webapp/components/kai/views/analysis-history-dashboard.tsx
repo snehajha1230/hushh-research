@@ -897,7 +897,7 @@ export function AnalysisHistoryDashboard({
   // ----- Loading state -----
   if (loading) {
     return (
-      <div className="px-4 sm:px-6 pb-safe max-w-4xl mx-auto">
+      <div className="w-full pb-safe">
         <div className="flex min-h-52 items-center justify-center rounded-2xl border border-border/40 bg-card/60">
           <HushhLoader variant="inline" label="Loading analysis history…" />
         </div>
@@ -908,7 +908,7 @@ export function AnalysisHistoryDashboard({
   // ----- Empty state -----
   if (entries.length === 0) {
     return (
-      <div className="space-y-6 px-4 sm:px-6 pb-safe max-w-4xl mx-auto">
+      <div className="w-full space-y-6 pb-safe">
         <EmptyState />
         {showDebateInputs ? (
           <DebateInputsCard
@@ -924,7 +924,7 @@ export function AnalysisHistoryDashboard({
 
   // ----- Populated state -----
   return (
-    <div className="space-y-6 px-4 sm:px-6 pb-safe max-w-4xl mx-auto">
+    <div className="w-full space-y-6 pb-safe">
       {/* Header (search is global in Kai layout) */}
       <div className="flex items-center gap-2">
         <Icon icon={Search} size="sm" className="text-muted-foreground" />
@@ -937,21 +937,21 @@ export function AnalysisHistoryDashboard({
       </div>
 
       {/* Data Table */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
-        <DataTable
-          columns={columns}
-          data={entries}
-          searchKey="ticker"
-          searchPlaceholder="Search analysis history by ticker..."
-          enableSearch
-          filterKey="decision"
-          filterOptions={[
-            { label: "Buy", value: "buy" },
-            { label: "Hold / Watch", value: "hold" },
-            { label: "Reduce", value: "reduce" },
-          ]}
-        />
-      </div>
+      <DataTable
+        columns={columns}
+        data={entries}
+        searchKey="ticker"
+        searchPlaceholder="Search analysis history by ticker..."
+        enableSearch
+        filterKey="decision"
+        filterOptions={[
+          { label: "Buy", value: "buy" },
+          { label: "Hold / Watch", value: "hold" },
+          { label: "Reduce", value: "reduce" },
+        ]}
+        tableContainerClassName="rounded-[22px] border-border/60 bg-background/60"
+        tableClassName="min-w-[640px]"
+      />
 
       {showDebateInputs ? (
         <DebateInputsCard

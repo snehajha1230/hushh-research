@@ -24,7 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildRiaWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import {
   isIAMSchemaNotReadyError,
@@ -37,10 +37,12 @@ import {
 
 function formatVerificationStatus(status?: string | null) {
   switch (status) {
-    case "finra_verified":
-      return "FINRA verified";
+    case "verified":
+      return "IAPD verified";
     case "active":
       return "Active";
+    case "bypassed":
+      return "Bypassed";
     case "submitted":
       return "Submitted";
     case "rejected":
@@ -54,7 +56,8 @@ function formatVerificationStatus(status?: string | null) {
 function verificationTone(status?: string | null): "neutral" | "warning" | "success" | "critical" {
   switch (status) {
     case "active":
-    case "finra_verified":
+    case "verified":
+    case "bypassed":
       return "success";
     case "submitted":
       return "warning";
@@ -86,7 +89,8 @@ function formatInviteStatus(status?: string | null) {
 function heroCopy(status?: string | null) {
   switch (status) {
     case "active":
-    case "finra_verified":
+    case "verified":
+    case "bypassed":
       return {
         title: "Your RIA workspace is ready.",
         description:
@@ -185,7 +189,9 @@ export default function RiaHomePage() {
   }, [riaCapability, user]);
 
   const verificationStatus =
-    (status || riaOnboardingStatus)?.verification_status || "draft";
+    (status || riaOnboardingStatus)?.advisory_status ||
+    (status || riaOnboardingStatus)?.verification_status ||
+    "draft";
   const hero = heroCopy(verificationStatus);
 
   const metrics = useMemo(() => {
@@ -387,9 +393,7 @@ export default function RiaHomePage() {
                       trailing={
                         client.investor_user_id ? (
                           <Button asChild variant="none" effect="fade" size="sm">
-                            <Link
-                              href={`/ria/workspace/${encodeURIComponent(client.investor_user_id)}`}
-                            >
+                            <Link href={buildRiaWorkspaceRoute(client.investor_user_id)}>
                               Open
                             </Link>
                           </Button>

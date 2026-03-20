@@ -15,7 +15,11 @@ import {
 import { toast } from "sonner";
 
 import { PortfolioSourceSwitcher } from "@/components/kai/portfolio-source-switcher";
-import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import {
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   SurfaceCard,
@@ -419,38 +423,41 @@ export function InvestmentsMasterView({
       width="wide"
       className="pb-10"
     >
-      <PageHeader
-        eyebrow="Kai Investments"
-        title="Investments"
-        description="Review the current source, connected brokerages, positions, and recent investment activity in one place."
-        icon={Building2}
-        accent="emerald"
-        actions={
-          <>
-            <Button variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_PORTFOLIO)}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to portfolio
-            </Button>
-            <Button variant="none" effect="fade" onClick={() => handleRefresh()}>
-              <RefreshCw
-                className={cn("mr-2 h-4 w-4", (isPlaidRefreshing || isLinkingPlaid) && "animate-spin")}
-              />
-              Refresh
-            </Button>
-            {isPlaidRefreshing ? (
-              <Button variant="none" effect="fade" onClick={() => handleCancelRefresh()}>
-                Cancel refresh
+      <AppPageHeaderRegion>
+        <PageHeader
+          eyebrow="Kai Investments"
+          title="Investments"
+          description="Review the current source, connected brokerages, positions, and recent investment activity in one place."
+          icon={Building2}
+          accent="emerald"
+          actions={
+            <>
+              <Button variant="none" effect="fade" onClick={() => router.push(ROUTES.KAI_PORTFOLIO)}>
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Back to portfolio
               </Button>
-            ) : null}
-            <Button variant="blue-gradient" effect="fill" onClick={handleOptimize}>
-              <ArrowRight className="mr-2 h-4 w-4" />
-              Optimize current source
-            </Button>
-          </>
-        }
-      />
+              <Button variant="none" effect="fade" onClick={() => handleRefresh()}>
+                <RefreshCw
+                  className={cn("mr-2 h-4 w-4", (isPlaidRefreshing || isLinkingPlaid) && "animate-spin")}
+                />
+                Refresh
+              </Button>
+              {isPlaidRefreshing ? (
+                <Button variant="none" effect="fade" onClick={() => handleCancelRefresh()}>
+                  Cancel refresh
+                </Button>
+              ) : null}
+              <Button variant="blue-gradient" effect="fill" onClick={handleOptimize}>
+                <ArrowRight className="mr-2 h-4 w-4" />
+                Optimize current source
+              </Button>
+            </>
+          }
+        />
+      </AppPageHeaderRegion>
 
-      <SurfaceStack className="mt-6">
+      <AppPageContentRegion>
+        <SurfaceStack>
         <PortfolioSourceSwitcher
           activeSource={activeSource}
           availableSources={availableSources}
@@ -638,7 +645,8 @@ export function InvestmentsMasterView({
             trailing={<ArrowRight className="h-4 w-4 text-muted-foreground" />}
           />
         </SettingsGroup>
-      </SurfaceStack>
+        </SurfaceStack>
+      </AppPageContentRegion>
     </AppPageShell>
   );
 }

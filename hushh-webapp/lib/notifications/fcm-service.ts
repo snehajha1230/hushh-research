@@ -15,6 +15,7 @@
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { ROUTES } from "@/lib/navigation/routes";
+import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 
 // Event name for FCM messages (both web and native dispatch this)
 export const FCM_MESSAGE_EVENT = "fcm-message";
@@ -694,15 +695,15 @@ function setupNativeListeners(): void {
           typeof data.type === "string" &&
           data.type === "consent_request"
         ) {
-          window.location.href = `${ROUTES.CONSENTS}?tab=pending`;
+          assignWindowLocation(`${ROUTES.CONSENTS}?tab=pending`);
         } else if (
           data &&
           typeof data.type === "string" &&
           data.type === "kai_analysis_complete"
         ) {
-          window.location.href = ROUTES.KAI_DASHBOARD;
+          assignWindowLocation(ROUTES.KAI_DASHBOARD);
         } else {
-          window.location.href = ROUTES.HOME;
+          assignWindowLocation(ROUTES.HOME);
         }
       }
     );

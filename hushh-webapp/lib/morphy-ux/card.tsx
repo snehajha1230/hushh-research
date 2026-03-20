@@ -36,27 +36,27 @@ const CARD_PRESET_SHELL_CLASSES: Record<
 > = {
   compact: {
     shell:
-      "!rounded-[20px] !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-compact)] !shadow-[var(--app-card-shadow-standard)]",
+      "!rounded-[20px] !border-transparent !bg-[var(--app-card-surface-compact)] !shadow-[var(--app-card-shadow-standard)]",
     spacing: "p-0",
   },
   default: {
     shell:
-      "!rounded-[22px] !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-default)] !shadow-[var(--app-card-shadow-standard)]",
+      "!rounded-[22px] !border-transparent !bg-[var(--app-card-surface-default)] !shadow-[var(--app-card-shadow-standard)]",
     spacing: "p-4 sm:p-6",
   },
   hero: {
     shell:
-      "!rounded-[28px] !border-[color:var(--app-card-border-strong)] !bg-[var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
+      "!rounded-[28px] !border-transparent !bg-[var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
     spacing: "p-0",
   },
   surface: {
     shell:
-      "!rounded-[24px] !border-[color:var(--app-card-border-standard)] !bg-[var(--app-card-surface-surface)] !shadow-[var(--app-card-shadow-standard)]",
+      "!rounded-[24px] !border-transparent !bg-[var(--app-card-surface-surface)] !shadow-[var(--app-card-shadow-standard)]",
     spacing: "min-w-0 p-0",
   },
   "surface-feature": {
     shell:
-      "!rounded-[24px] !border-[color:var(--app-card-border-strong)] !bg-[var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
+      "!rounded-[24px] !border-transparent !bg-[var(--app-card-surface-hero)] !shadow-[var(--app-card-shadow-feature)]",
     spacing: "min-w-0 p-0",
   },
 };
@@ -137,27 +137,31 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
       <Comp
         ref={ref}
         className={cn(
-          "relative !overflow-visible border border-solid transition-[border-color,box-shadow,background-color] duration-200",
+          "relative !overflow-visible border border-solid border-transparent transition-[border-color,box-shadow,background-color] duration-200",
           presetConfig.shell,
           "!text-card-foreground",
-          effect === "fade" ? "!backdrop-blur-none" : "backdrop-blur-xl backdrop-saturate-150",
+          effect === "fade"
+            ? "!backdrop-blur-none"
+            : "backdrop-blur-[22px] backdrop-saturate-[155%] backdrop-contrast-[1.02]",
           presetConfig.spacing,
-          showRipple ? "hover:!border-[var(--morphy-primary-start)]/18" : "",
           interactive ? "cursor-pointer" : "",
           fullHeight ? "h-full" : "",
-          selected ? "!border-[var(--morphy-primary-start)]/40" : "",
+          selected ? "ring-1 ring-sky-500/25 dark:ring-sky-400/30" : "",
           className
         )}
         {...props}
       >
-        {effect === "glass" && glassAccent !== "none" ? (
+        {effect === "glass" ? (
           <div
             aria-hidden
             className={cn(
               "pointer-events-none absolute inset-0",
-              glassAccent === "soft"
-                ? "bg-[radial-gradient(92%_75%_at_16%_14%,rgba(255,255,255,0.22)_0%,transparent_66%)] opacity-100 dark:bg-[radial-gradient(92%_75%_at_16%_14%,rgba(255,255,255,0.08)_0%,transparent_66%)]"
-                : "bg-[radial-gradient(92%_75%_at_16%_14%,rgba(255,255,255,0.28)_0%,transparent_60%),radial-gradient(78%_65%_at_86%_100%,rgba(15,23,42,0.06)_0%,transparent_64%)] opacity-100 dark:bg-[radial-gradient(92%_75%_at_16%_14%,rgba(255,255,255,0.1)_0%,transparent_60%),radial-gradient(78%_65%_at_86%_100%,rgba(255,255,255,0.03)_0%,transparent_64%)]"
+              glassAccent === "none" &&
+                "bg-[linear-gradient(180deg,rgba(255,255,255,0.22)_0%,rgba(255,255,255,0.12)_16%,rgba(255,255,255,0.04)_32%,transparent_48%),radial-gradient(135%_92%_at_50%_0%,rgba(255,255,255,0.28)_0%,transparent_54%),radial-gradient(135%_92%_at_50%_100%,rgba(148,163,184,0.09)_0%,transparent_60%)] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.045)_0%,rgba(255,255,255,0.018)_16%,transparent_30%),radial-gradient(135%_92%_at_50%_0%,rgba(255,255,255,0.05)_0%,transparent_56%),radial-gradient(135%_92%_at_50%_100%,rgba(0,0,0,0.18)_0%,transparent_62%)]",
+              glassAccent === "soft" &&
+                "bg-[linear-gradient(180deg,rgba(255,255,255,0.26)_0%,rgba(255,255,255,0.14)_16%,rgba(255,255,255,0.05)_34%,transparent_52%),radial-gradient(135%_96%_at_50%_0%,rgba(255,255,255,0.32)_0%,transparent_54%),radial-gradient(135%_96%_at_50%_100%,rgba(148,163,184,0.11)_0%,transparent_62%)] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.055)_0%,rgba(255,255,255,0.022)_16%,transparent_32%),radial-gradient(135%_96%_at_50%_0%,rgba(255,255,255,0.06)_0%,transparent_56%),radial-gradient(135%_96%_at_50%_100%,rgba(0,0,0,0.22)_0%,transparent_64%)]",
+              glassAccent === "balanced" &&
+                "bg-[linear-gradient(180deg,rgba(255,255,255,0.3)_0%,rgba(255,255,255,0.16)_16%,rgba(255,255,255,0.06)_36%,transparent_54%),radial-gradient(140%_100%_at_50%_0%,rgba(255,255,255,0.36)_0%,transparent_54%),radial-gradient(140%_100%_at_50%_100%,rgba(148,163,184,0.13)_0%,transparent_64%)] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.065)_0%,rgba(255,255,255,0.026)_16%,transparent_34%),radial-gradient(140%_100%_at_50%_0%,rgba(255,255,255,0.075)_0%,transparent_56%),radial-gradient(140%_100%_at_50%_100%,rgba(0,0,0,0.24)_0%,transparent_66%)]"
             )}
             style={{ borderRadius: "inherit" }}
           />

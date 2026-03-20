@@ -20,14 +20,16 @@ const SURFACE_CONTRACTS: SurfaceContract[] = [
     includes: [
       "CARD_PRESET_SHELL_CLASSES",
       "var(--app-card-surface-default)",
-      "var(--app-card-border-standard)",
       "var(--app-card-shadow-standard)",
       "var(--app-card-shadow-feature)",
       "overflow-visible",
       "MaterialRipple",
+      "ring-1 ring-sky-500/25 dark:ring-sky-400/30",
     ],
     excludes: [
       "showRipple ? \"overflow-hidden\" : \"\"",
+      "!border-[color:var(--app-card-border-standard)]",
+      "!border-[color:var(--app-card-border-strong)]",
     ],
   },
   {
@@ -45,8 +47,17 @@ const SURFACE_CONTRACTS: SurfaceContract[] = [
   },
   {
     file: "components/app-ui/page-sections.tsx",
-    includes: ["ACCENT_STYLES", "text-sky-700", "text-emerald-700", "text-amber-700", "text-rose-700", "text-violet-700"],
-    excludes: ["NEUTRAL_SECTION_STYLE"],
+    includes: [
+      "ACCENT_STYLES",
+      "HeaderLeading",
+      "text-sky-700",
+      "text-emerald-700",
+      "text-amber-700",
+      "text-rose-700",
+      "text-violet-700",
+      "self-center",
+    ],
+    excludes: ["NEUTRAL_SECTION_STYLE", "bg-gradient-to-r"],
   },
   {
     file: "components/developers/developer-docs-hub.tsx",
@@ -58,22 +69,22 @@ const SURFACE_CONTRACTS: SurfaceContract[] = [
   },
   {
     file: "components/kai/views/kai-market-preview-view.tsx",
-    includes: ["AppPageShell", "SurfaceStack", "SurfaceCard"],
+    includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack", "SurfaceCard"],
     excludes: ['<Card variant="muted"', 'rounded-[24px] p-0'],
   },
   {
     file: "components/kai/views/investments-master-view.tsx",
-    includes: ["AppPageShell", "SurfaceStack", "SurfaceCard"],
+    includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack", "SurfaceCard"],
     excludes: ['rounded-[24px] border border-border/70 bg-background/82', '<Card variant='],
   },
   {
     file: "app/kai/analysis/page.tsx",
-    includes: ["AppPageShell", "SurfaceStack", "SurfaceCard"],
+    includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack", "SurfaceCard"],
     excludes: ['rounded-2xl border border-border/60 bg-background/70'],
   },
   {
     file: "app/kai/optimize/page.tsx",
-    includes: ["AppPageShell", "SurfaceStack", "SurfaceCard"],
+    includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack", "SurfaceCard"],
     excludes: ["<Card", "showRipple={false}"],
   },
   {
@@ -93,12 +104,12 @@ const SURFACE_CONTRACTS: SurfaceContract[] = [
   },
   {
     file: "components/consent/consent-center-view.tsx",
-    includes: ["AppPageShell", "SurfaceStack", "SurfaceInset"],
+    includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack", "SurfaceInset"],
     excludes: ['rounded-[24px] border border-border/60 bg-background/65'],
   },
   {
     file: "components/ria/ria-page-shell.tsx",
-    includes: ["AppPageShell", "SurfaceStack", "SurfaceCard"],
+    includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack", "SurfaceCard"],
     excludes: ["ContentSurface", 'rounded-[28px] border border-border/70'],
   },
   {

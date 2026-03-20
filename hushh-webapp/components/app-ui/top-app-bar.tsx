@@ -215,11 +215,11 @@ export function TopAppBar({ className }: TopAppBarProps) {
 
   const topGlassStyle = useMemo<React.CSSProperties>(
     () => ({
-      "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.46)",
-      "--app-bar-glass-bg-dark": "rgba(10, 12, 16, 0.64)",
-      "--app-bar-glass-blur": "2px",
+      "--app-bar-glass-bg-light": "rgba(255, 255, 255, 0.52)",
+      "--app-bar-glass-bg-dark": "rgba(12, 15, 21, 0.58)",
+      "--app-bar-glass-blur": "6px",
       "--app-bar-shadow": "none",
-      "--app-bar-mask-overscan": "30px",
+      "--app-bar-mask-overscan": "26px",
     } as React.CSSProperties),
     []
   );

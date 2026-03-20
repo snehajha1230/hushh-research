@@ -31,7 +31,7 @@ Compatibility fallback (temporary): frontend still accepts `NEXT_PUBLIC_OBSERVAB
 2. RIA routes:
    1. `/ria/onboarding`
    2. `/ria/clients`
-   3. `/ria/workspace/[clientId]`
+   3. `/ria/workspace?clientId=<investor_user_id>`
 3. Compatibility aliases:
    1. `/ria/requests` -> `/consents?actor=ria&view=outgoing`
    2. `/ria/settings` -> `/profile?section=ria`

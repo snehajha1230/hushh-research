@@ -94,7 +94,8 @@ The script reports:
    - local development: `CONSENT_SSE_ENABLED=true`
    - UAT: `CONSENT_SSE_ENABLED=true`
    - production: `CONSENT_SSE_ENABLED=false` unless there is an explicit incident-response or rollout reason to enable it
-8. `RIA_DEV_BYPASS_ENABLED` is the only RIA dev-bypass switch. When `true`, it enables the Dev Bypass flow for any non-production backend environment. It must remain `false` in production.
+8. `ADVISORY_VERIFICATION_BYPASS_ENABLED` and `BROKER_VERIFICATION_BYPASS_ENABLED` are the capability-specific non-production bypass switches. Both must remain `false` in production.
+9. `RIA_DEV_BYPASS_ENABLED` remains only as a legacy compatibility alias for advisory bypass and should not be the primary switch in new configs.
 
 ### Branch divergence note (current)
 

@@ -2,6 +2,7 @@
 
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
+import { getLocalItem, setLocalItem } from "@/lib/utils/session-storage";
 
 export type TickerUniverseRow = {
   ticker: string;
@@ -82,7 +83,7 @@ function safeParse(json: string): CachePayload | null {
 
 function readFromStorage(): CachePayload | null {
   if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const raw = getLocalItem(STORAGE_KEY);
   if (!raw) return null;
   return safeParse(raw);
 }
@@ -90,7 +91,7 @@ function readFromStorage(): CachePayload | null {
 function writeToStorage(payload: CachePayload) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    setLocalItem(STORAGE_KEY, JSON.stringify(payload));
   } catch {
     // ignore quota / private mode
   }

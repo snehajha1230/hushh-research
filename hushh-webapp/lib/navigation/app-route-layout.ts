@@ -11,10 +11,11 @@ export interface AppRouteLayoutContractEntry {
   route: string;
   mode: AppRouteLayoutMode;
   shellVerification?: AppRouteShellVerification;
+  exemptionReason?: string;
 }
 
 export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] = [
-  { route: ROUTES.HOME, mode: "hidden" },
+  { route: ROUTES.HOME, mode: "hidden", exemptionReason: "Public landing route uses chrome-free marketing layout." },
   {
     route: ROUTES.DEVELOPERS,
     mode: "standard",
@@ -23,23 +24,16 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
       includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion"],
     },
   },
-  { route: ROUTES.LOGIN, mode: "hidden" },
-  { route: ROUTES.LOGOUT, mode: "hidden" },
-  { route: ROUTES.LABS_PROFILE_APPEARANCE, mode: "hidden" },
-  {
-    route: ROUTES.CONSENTS,
-    mode: "standard",
-    shellVerification: {
-      file: "components/consent/consent-center-view.tsx",
-      includes: ["AppPageShell", "SurfaceStack"],
-    },
-  },
+  { route: ROUTES.LOGIN, mode: "hidden", exemptionReason: "Auth-only route intentionally bypasses the signed-in app shell." },
+  { route: ROUTES.LOGOUT, mode: "hidden", exemptionReason: "Logout route is a transitional auth screen, not a standard content page." },
+  { route: ROUTES.LABS_PROFILE_APPEARANCE, mode: "hidden", exemptionReason: "Labs route is intentionally isolated from the primary app shell." },
+  { route: ROUTES.CONSENTS, mode: "redirect", exemptionReason: "Compatibility alias routes into the shared consent sheet instead of rendering a standalone page." },
   {
     route: ROUTES.KAI_HOME,
     mode: "standard",
     shellVerification: {
       file: "components/kai/views/kai-market-preview-view.tsx",
-      includes: ["AppPageShell", "SurfaceStack"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"],
     },
   },
   {
@@ -47,13 +41,14 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
     mode: "standard",
     shellVerification: {
       file: "app/kai/analysis/page.tsx",
-      includes: ["AppPageShell", "SurfaceStack"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"],
     },
   },
-  { route: "/kai/dashboard", mode: "redirect" },
+  { route: "/kai/dashboard", mode: "redirect", exemptionReason: "Compatibility redirect route only launches the canonical portfolio/dashboard entry." },
   {
     route: "/kai/dashboard/analysis",
     mode: "redirect",
+    exemptionReason: "Compatibility redirect route only launches the canonical analysis entry.",
     shellVerification: {
       file: "app/kai/dashboard/analysis/page.tsx",
       includes: ["AppPageShell"],
@@ -72,19 +67,20 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
     mode: "standard",
     shellVerification: {
       file: "components/kai/views/investments-master-view.tsx",
-      includes: ["AppPageShell", "SurfaceStack"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"],
     },
   },
   {
     route: ROUTES.KAI_ONBOARDING,
     mode: "flow",
+    exemptionReason: "Fullscreen onboarding flow owns its own shell and safe-area spacing.",
   },
   {
     route: ROUTES.KAI_OPTIMIZE,
     mode: "standard",
     shellVerification: {
       file: "app/kai/optimize/page.tsx",
-      includes: ["AppPageShell", "SurfaceStack"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack", "PageHeader"],
     },
   },
   {
@@ -92,7 +88,7 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
     mode: "standard",
     shellVerification: {
       file: "app/kai/plaid/oauth/return/page.tsx",
-      includes: ["AppPageShell"],
+      includes: ["AppPageShell", "AppPageContentRegion"],
     },
   },
   {
@@ -108,15 +104,15 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
     mode: "standard",
     shellVerification: {
       file: "components/ria/ria-page-shell.tsx",
-      includes: ["AppPageShell"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"],
     },
   },
   {
-    route: `${ROUTES.MARKETPLACE_RIA_PROFILE}/[riaId]`,
+    route: ROUTES.MARKETPLACE_RIA_PROFILE,
     mode: "standard",
     shellVerification: {
       file: "components/ria/ria-page-shell.tsx",
-      includes: ["AppPageShell"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"],
     },
   },
   {
@@ -124,7 +120,7 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
     mode: "standard",
     shellVerification: {
       file: "app/profile/page.tsx",
-      includes: ["AppPageShell"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "PageHeader", "SurfaceStack"],
     },
   },
   {
@@ -132,7 +128,7 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
     mode: "standard",
     shellVerification: {
       file: "components/ria/ria-page-shell.tsx",
-      includes: ["AppPageShell", "SurfaceStack"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"],
     },
   },
   {
@@ -140,7 +136,7 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
     mode: "standard",
     shellVerification: {
       file: "components/ria/ria-page-shell.tsx",
-      includes: ["AppPageShell", "SurfaceStack"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"],
     },
   },
   {
@@ -148,7 +144,7 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
     mode: "standard",
     shellVerification: {
       file: "components/ria/ria-page-shell.tsx",
-      includes: ["AppPageShell", "SurfaceStack"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"],
     },
   },
   {
@@ -156,23 +152,25 @@ export const APP_ROUTE_LAYOUT_CONTRACT: readonly AppRouteLayoutContractEntry[] =
     mode: "standard",
     shellVerification: {
       file: "components/ria/ria-page-shell.tsx",
-      includes: ["AppPageShell", "SurfaceStack"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"],
     },
   },
   {
     route: ROUTES.RIA_REQUESTS,
     mode: "redirect",
+    exemptionReason: "Compatibility alias routes into the shared consent workspace.",
   },
   {
     route: ROUTES.RIA_SETTINGS,
     mode: "redirect",
+    exemptionReason: "Compatibility alias routes into the canonical profile/settings surface.",
   },
   {
-    route: "/ria/workspace/[clientId]",
+    route: ROUTES.RIA_WORKSPACE,
     mode: "standard",
     shellVerification: {
       file: "components/ria/ria-page-shell.tsx",
-      includes: ["AppPageShell", "SurfaceStack"],
+      includes: ["AppPageShell", "AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"],
     },
   },
 ] as const;

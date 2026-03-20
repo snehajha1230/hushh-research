@@ -38,6 +38,8 @@ import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-servi
 import { VaultMethodService, type VaultMethod } from "@/lib/services/vault-method-service";
 import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-prompt-local-service";
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
+import { copyToClipboard } from "@/lib/utils/clipboard";
+import { reloadWindow } from "@/lib/utils/browser-navigation";
 import {
   toInvestorLoading,
   toInvestorMessage,
@@ -382,8 +384,13 @@ export function VaultFlow({
     }
   };
 
-  const handleCopyRecoveryKey = () => {
-    navigator.clipboard.writeText(recoveryKey);
+  const handleCopyRecoveryKey = async () => {
+    const copiedToClipboard = await copyToClipboard(recoveryKey);
+    if (!copiedToClipboard) {
+      toast.error("Could not copy the recovery key on this device.");
+      return;
+    }
+
     setCopied(true);
     toast.success("Recovery key copied to clipboard");
     setTimeout(() => setCopied(false), 2000);
@@ -474,7 +481,7 @@ export function VaultFlow({
               </div>
               <p className="text-muted-foreground">{error}</p>
               <Button
-                onClick={() => window.location.reload()}
+                onClick={reloadWindow}
                 variant="none"
                 className="border border-input bg-background hover:bg-accent hover:text-accent-foreground"
               >

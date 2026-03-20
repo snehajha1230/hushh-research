@@ -30,9 +30,14 @@ import {
   SettingsRow,
   SettingsSegmentedTabs,
 } from "@/components/profile/settings-ui";
-import { ConsentCenterView } from "@/components/consent/consent-center-view";
-import { AppPageShell } from "@/components/app-ui/app-page-shell";
-import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { useConsentSheet } from "@/components/consent/consent-sheet-controller";
+import {
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -207,6 +212,7 @@ export default function ProfilePage() {
   const { personaState, refresh: refreshPersonaState } = usePersonaState();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const pendingConsents = usePendingConsentCount();
+  const { openConsentSheet } = useConsentSheet();
   const { registerSteps, completeStep, reset } = useStepProgress();
 
   const [showVaultUnlock, setShowVaultUnlock] = useState(false);
@@ -913,9 +919,11 @@ export default function ProfilePage() {
       width="profile"
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
     >
-      <div className="space-y-5 sm:space-y-6 md:space-y-8">
-        <header className="space-y-4 sm:space-y-5">
-          <div className="flex flex-col items-start gap-3 text-left min-[430px]:flex-row min-[430px]:items-center sm:gap-4">
+      <AppPageHeaderRegion>
+        <PageHeader
+          eyebrow="Profile settings"
+          title={user.displayName || "User"}
+          leading={
             <Avatar className="h-16 w-16 shrink-0 ring-4 ring-primary/18 sm:h-24 sm:w-24">
               <AvatarImage
                 src={user.photoURL || undefined}
@@ -934,28 +942,23 @@ export default function ProfilePage() {
                 )}
               </AvatarFallback>
             </Avatar>
-            <div className="min-w-0 flex-1 space-y-1.5 sm:space-y-2">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-muted-foreground">
-                Profile settings
-              </p>
-              <h1 className="break-words text-2xl font-semibold tracking-tight sm:text-3xl">
-                {user.displayName || "User"}
-              </h1>
-              <div
-                className="inline-flex w-full max-w-full items-start gap-2 rounded-2xl border border-border/80 bg-background/75 px-3 py-2 text-sm text-muted-foreground min-[430px]:w-auto min-[430px]:items-center min-[430px]:rounded-full min-[430px]:py-1.5"
-                title={provider.name}
-              >
-                <ProviderIcon providerId={provider.id} />
-                <span className="min-w-0 text-left [overflow-wrap:anywhere]">
-                  {user.email || "Not available"}
-                </span>
-              </div>
+          }
+          description={
+            <div
+              className="inline-flex w-full max-w-full items-start gap-2 rounded-2xl border border-border/80 bg-background/75 px-3 py-2 text-sm text-muted-foreground min-[430px]:w-auto min-[430px]:items-center min-[430px]:rounded-full min-[430px]:py-1.5"
+              title={provider.name}
+            >
+              <ProviderIcon providerId={provider.id} />
+              <span className="min-w-0 text-left [overflow-wrap:anywhere]">
+                {user.email || "Not available"}
+              </span>
             </div>
-          </div>
-          <div className="h-px w-full bg-foreground/18 dark:bg-white/18" />
-        </header>
+          }
+        />
+      </AppPageHeaderRegion>
 
-        <div className="space-y-4 sm:space-y-5">
+      <AppPageContentRegion>
+        <SurfaceStack compact>
           <SettingsSegmentedTabs
             value={activeTab}
             onValueChange={(next) =>
@@ -1085,7 +1088,7 @@ export default function ProfilePage() {
                 }
                 chevron
                 stackTrailingOnMobile
-                onClick={() => updateProfileView({ tab: "privacy", panel: "consents" })}
+                onClick={() => openConsentSheet({ view: "pending" })}
               />
               <SettingsRow
                 icon={RefreshCw}
@@ -1121,23 +1124,11 @@ export default function ProfilePage() {
             </SettingsGroup>
             </div>
           ) : null}
-        </div>
-
-        <p className="text-center text-xs leading-5 text-muted-foreground">
+          <p className="text-center text-xs leading-5 text-muted-foreground">
           Your records are protected before storage, and only your Vault credentials can unlock them.
-        </p>
-      </div>
-
-      <SettingsDetailPanel
-        open={activePanel === "consents"}
-        onOpenChange={(open) => {
-          if (!open) closeDetailPanel();
-        }}
-        title="Consent center"
-        description="Review pending approvals, active grants, and your consent history without leaving profile."
-      >
-        <ConsentCenterView embedded />
-      </SettingsDetailPanel>
+          </p>
+        </SurfaceStack>
+      </AppPageContentRegion>
 
       <SettingsDetailPanel
         open={activePanel === "support"}

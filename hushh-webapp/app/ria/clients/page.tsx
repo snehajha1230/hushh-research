@@ -34,9 +34,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildRiaWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { ConsentCenterService } from "@/lib/services/consent-center-service";
+import { copyToClipboard } from "@/lib/utils/clipboard";
 import {
   isIAMSchemaNotReadyError,
   RiaService,
@@ -77,10 +78,12 @@ function buildInviteLink(inviteToken: string) {
 
 function formatVerificationStatus(status?: string | null) {
   switch (status) {
-    case "finra_verified":
-      return "FINRA verified";
+    case "verified":
+      return "IAPD verified";
     case "active":
       return "Active";
+    case "bypassed":
+      return "Bypassed";
     case "submitted":
       return "Submitted";
     case "rejected":
@@ -94,7 +97,8 @@ function formatVerificationStatus(status?: string | null) {
 function verificationTone(status?: string | null): "neutral" | "warning" | "success" | "critical" {
   switch (status) {
     case "active":
-    case "finra_verified":
+    case "verified":
+    case "bypassed":
       return "success";
     case "submitted":
       return "warning";
@@ -195,6 +199,8 @@ export default function RiaClientsPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { riaCapability, riaOnboardingStatus } = usePersonaState();
+  const advisoryVerificationStatus =
+    riaOnboardingStatus?.advisory_status || riaOnboardingStatus?.verification_status;
 
   const [items, setItems] = useState<RiaClientAccess[]>([]);
   const [loading, setLoading] = useState(true);
@@ -224,7 +230,10 @@ export default function RiaClientsPage() {
 
   async function copyInviteLink(inviteToken: string, marker: string) {
     try {
-      await navigator.clipboard.writeText(buildInviteLink(inviteToken));
+      const copied = await copyToClipboard(buildInviteLink(inviteToken));
+      if (!copied) {
+        throw new Error("clipboard_unavailable");
+      }
       setCopiedInviteId(marker);
       window.setTimeout(() => {
         setCopiedInviteId((current) => (current === marker ? null : current));
@@ -492,12 +501,12 @@ export default function RiaClientsPage() {
               items={[
                 {
                   label: "Verification",
-                  value: formatVerificationStatus(riaOnboardingStatus?.verification_status),
+                  value: formatVerificationStatus(advisoryVerificationStatus),
                   helper:
-                    verificationTone(riaOnboardingStatus?.verification_status) === "success"
+                    verificationTone(advisoryVerificationStatus) === "success"
                       ? "Requests and workspaces are enabled."
                       : "Trusted verification still gates advisor access.",
-                  tone: verificationTone(riaOnboardingStatus?.verification_status),
+                  tone: verificationTone(advisoryVerificationStatus),
                 },
                 {
                   label: "Connected",
@@ -807,9 +816,7 @@ export default function RiaClientsPage() {
                   <div className="flex flex-wrap gap-2">
                     {detail.granted_scopes.length > 0 ? (
                       <Button asChild variant="blue-gradient" effect="fill" size="sm">
-                        <Link
-                          href={`/ria/workspace/${encodeURIComponent(detail.investor_user_id)}`}
-                        >
+                        <Link href={buildRiaWorkspaceRoute(detail.investor_user_id)}>
                           Open workspace
                         </Link>
                       </Button>

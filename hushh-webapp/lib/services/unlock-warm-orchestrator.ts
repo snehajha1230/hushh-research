@@ -3,6 +3,8 @@
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { persistKaiMarketHomePayload } from "@/lib/kai/market-home-cache";
+import { getKaiActivePickSource } from "@/lib/kai/pick-source-selection";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { WorldModelService } from "@/lib/services/world-model-service";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
@@ -190,6 +192,7 @@ export class UnlockWarmOrchestrator {
   }): Promise<UnlockWarmResult> {
     const cache = CacheService.getInstance();
     const warmPriority = resolveWarmPriority(params.routePath);
+    const activePickSource = getKaiActivePickSource(params.userId);
     const shouldWarmFinancial =
       warmPriority === "market" ||
       warmPriority === "dashboard" ||
@@ -235,7 +238,12 @@ export class UnlockWarmOrchestrator {
 
     if (warmPriority === "market" && shouldWarmMarket) {
       try {
-        const defaultMarketKey = CACHE_KEYS.KAI_MARKET_HOME(params.userId, "default", 7, "default");
+        const defaultMarketKey = CACHE_KEYS.KAI_MARKET_HOME(
+          params.userId,
+          "default",
+          7,
+          activePickSource
+        );
         const cachedDefault = cache.get(defaultMarketKey);
         if (cachedDefault) {
           result.kaiMarketWarmed = true;
@@ -244,8 +252,14 @@ export class UnlockWarmOrchestrator {
             userId: params.userId,
             vaultOwnerToken: params.vaultOwnerToken,
             daysBack: 7,
+            pickSource: activePickSource,
           });
           cache.set(defaultMarketKey, kaiHome, WARM_CACHE_TTL_MS);
+          persistKaiMarketHomePayload({
+            userId: params.userId,
+            pickSource: activePickSource,
+            payload: kaiHome,
+          });
           result.kaiMarketWarmed = true;
         }
       } catch (error) {
@@ -276,7 +290,12 @@ export class UnlockWarmOrchestrator {
     if (warmPriority === "market" && shouldWarmMarket && !result.kaiMarketWarmed) {
       try {
         const symbolsKey = toSymbolsKey(symbols);
-        const cacheKey = CACHE_KEYS.KAI_MARKET_HOME(params.userId, symbolsKey, 7, "default");
+        const cacheKey = CACHE_KEYS.KAI_MARKET_HOME(
+          params.userId,
+          symbolsKey,
+          7,
+          activePickSource
+        );
         const cached = cache.get(cacheKey);
         if (cached) {
           result.kaiMarketWarmed = true;
@@ -286,11 +305,21 @@ export class UnlockWarmOrchestrator {
             vaultOwnerToken: params.vaultOwnerToken,
             symbols: symbols.length > 0 ? symbols : undefined,
             daysBack: 7,
+            pickSource: activePickSource,
           });
           cache.set(cacheKey, kaiHome, WARM_CACHE_TTL_MS);
           if (symbols.length === 0) {
-            cache.set(CACHE_KEYS.KAI_MARKET_HOME(params.userId, "default", 7, "default"), kaiHome, WARM_CACHE_TTL_MS);
+            cache.set(
+              CACHE_KEYS.KAI_MARKET_HOME(params.userId, "default", 7, activePickSource),
+              kaiHome,
+              WARM_CACHE_TTL_MS
+            );
           }
+          persistKaiMarketHomePayload({
+            userId: params.userId,
+            pickSource: activePickSource,
+            payload: kaiHome,
+          });
           result.kaiMarketWarmed = true;
         }
       } catch (error) {
@@ -435,7 +464,12 @@ export class UnlockWarmOrchestrator {
 
     if (shouldWarmMarket && (!result.kaiMarketWarmed || symbols.length > 0)) {
       const symbolsKey = toSymbolsKey(symbols);
-      const cacheKey = CACHE_KEYS.KAI_MARKET_HOME(params.userId, symbolsKey, 7, "default");
+      const cacheKey = CACHE_KEYS.KAI_MARKET_HOME(
+        params.userId,
+        symbolsKey,
+        7,
+        activePickSource
+      );
       const cached = cache.get(cacheKey);
       if (cached) {
         result.kaiMarketWarmed = true;
@@ -447,11 +481,21 @@ export class UnlockWarmOrchestrator {
           vaultOwnerToken: params.vaultOwnerToken,
           symbols: symbols.length > 0 ? symbols : undefined,
           daysBack: 7,
+          pickSource: activePickSource,
         });
         cache.set(cacheKey, kaiHome, WARM_CACHE_TTL_MS);
         if (symbols.length === 0) {
-          cache.set(CACHE_KEYS.KAI_MARKET_HOME(params.userId, "default", 7, "default"), kaiHome, WARM_CACHE_TTL_MS);
+          cache.set(
+            CACHE_KEYS.KAI_MARKET_HOME(params.userId, "default", 7, activePickSource),
+            kaiHome,
+            WARM_CACHE_TTL_MS
+          );
         }
+        persistKaiMarketHomePayload({
+          userId: params.userId,
+          pickSource: activePickSource,
+          payload: kaiHome,
+        });
         result.kaiMarketWarmed = true;
       } catch (error) {
         console.warn("[UnlockWarmOrchestrator] Kai market warm-up failed:", error);

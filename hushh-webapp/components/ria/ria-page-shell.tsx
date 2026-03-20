@@ -4,7 +4,11 @@ import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { BriefcaseBusiness, ShieldCheck, TriangleAlert } from "lucide-react";
 
-import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import {
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
 import {
   PageHeader,
   SectionHeader,
@@ -39,18 +43,22 @@ export function RiaPageShell({
 }) {
   return (
     <AppPageShell as="main" width="content" className={cn("pb-28", className)}>
-      <PageHeader
-        eyebrow={eyebrow}
-        title={title}
-        description={description}
-        actions={actions}
-        icon={icon}
-      />
+      <AppPageHeaderRegion>
+        <PageHeader
+          eyebrow={eyebrow}
+          title={title}
+          description={description}
+          actions={actions}
+          icon={icon}
+        />
+      </AppPageHeaderRegion>
 
-      <SurfaceStack className="mt-6">
-        {statusPanel ? <div>{statusPanel}</div> : null}
-        {children}
-      </SurfaceStack>
+      <AppPageContentRegion>
+        <SurfaceStack>
+          {statusPanel ? <div>{statusPanel}</div> : null}
+          {children}
+        </SurfaceStack>
+      </AppPageContentRegion>
     </AppPageShell>
   );
 }

@@ -20,7 +20,11 @@ import {
 } from "lucide-react";
 
 import { PageHeader, SectionHeader } from "@/components/app-ui/page-sections";
-import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import {
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
 import {
   SurfaceCard,
   SurfaceCardContent,
@@ -35,7 +39,7 @@ import { ThemeFocusList, type ThemeFocusItem } from "@/components/kai/cards/them
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
-import { CacheService, CACHE_KEYS, type CacheSnapshot } from "@/lib/services/cache-service";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { ensureKaiVaultOwnerToken } from "@/lib/services/kai-token-guard";
 import {
   ApiService,
@@ -46,8 +50,16 @@ import {
   getKaiActivePickSource,
   setKaiActivePickSource,
 } from "@/lib/kai/pick-source-selection";
+import {
+  getKaiMarketHomePersistentCacheKey,
+  getKaiMarketHomeSessionCacheKey,
+  parseStoredKaiHomeCache,
+  persistKaiMarketHomePayload,
+  toKaiHomeCacheCandidate,
+  type KaiHomeCacheCandidate,
+} from "@/lib/kai/market-home-cache";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
-import { getSessionItem, isNativePlatform, setSessionItem } from "@/lib/utils/session-storage";
+import { getSessionItem, isNativePlatform } from "@/lib/utils/session-storage";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 
@@ -75,14 +87,6 @@ const EXCLUDED_SYMBOLS = new Set([
 function toSymbolsKey(symbols: string[]): string {
   if (!Array.isArray(symbols) || symbols.length === 0) return "default";
   return [...symbols].sort((a, b) => a.localeCompare(b)).join("-");
-}
-
-function getSessionCacheKey(userId: string, pickSource: string): string {
-  return `kai_market_home_session_${userId}_${pickSource}`;
-}
-
-function getPersistentCacheKey(userId: string, pickSource: string): string {
-  return `kai_market_home_last_known_${userId}_${pickSource}`;
 }
 
 const THEME_ICON_MAP: Array<{ test: RegExp; icon: LucideIcon }> = [
@@ -480,46 +484,6 @@ function marketStatusBadge(payload: KaiHomeInsightsV2 | null): {
   };
 }
 
-function toKaiHomeCacheCandidate(
-  snapshot: CacheSnapshot<KaiHomeInsightsV2> | null,
-  source: KaiHomeCacheCandidate["source"]
-): KaiHomeCacheCandidate | null {
-  if (!snapshot) return null;
-  return {
-    payload: snapshot.data,
-    isFresh: snapshot.isFresh,
-    savedAt: snapshot.timestamp,
-    source,
-  };
-}
-
-function parseStoredKaiHomeCache(
-  raw: string | null,
-  ttlMs: number,
-  source: Exclude<KaiHomeCacheCandidate["source"], "memory" | "memory-fallback">
-): KaiHomeCacheCandidate | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as {
-      payload?: KaiHomeInsightsV2;
-      savedAt?: number;
-    };
-    if (!parsed?.payload) return null;
-    const savedAt = Number(parsed.savedAt || 0);
-    if (!Number.isFinite(savedAt) || savedAt <= 0) return null;
-    const ageMs = Date.now() - savedAt;
-    if (ageMs < 0) return null;
-    return {
-      payload: parsed.payload,
-      isFresh: ageMs <= ttlMs,
-      savedAt,
-      source,
-    };
-  } catch {
-    return null;
-  }
-}
-
 function readAnyKaiHomeCache(
   cache: CacheService,
   userId: string,
@@ -580,13 +544,6 @@ type KaiMarketLoadOptions = {
   forceTokenRefresh?: boolean;
   manual?: boolean;
   staleOnly?: boolean;
-};
-
-type KaiHomeCacheCandidate = {
-  payload: KaiHomeInsightsV2;
-  isFresh: boolean;
-  savedAt: number;
-  source: "memory" | "memory-fallback" | "session" | "persistent";
 };
 
 function useKaiMarketHomeController() {
@@ -744,8 +701,8 @@ function useKaiMarketHomeController() {
       };
 
       const cache = CacheService.getInstance();
-      const sessionCacheKey = getSessionCacheKey(userId, pickSource);
-      const persistentCacheKey = getPersistentCacheKey(userId, pickSource);
+      const sessionCacheKey = getKaiMarketHomeSessionCacheKey(userId, pickSource);
+      const persistentCacheKey = getKaiMarketHomePersistentCacheKey(userId, pickSource);
       let trackedSymbols = resolveTrackedSymbols();
       let symbolsKey = toSymbolsKey(trackedSymbols);
       let marketCacheKey = CACHE_KEYS.KAI_MARKET_HOME(userId, symbolsKey, 7, pickSource);
@@ -788,7 +745,7 @@ function useKaiMarketHomeController() {
       if (
         !forceTokenRefresh &&
         !seededCandidate &&
-        isNativePlatform &&
+        isNativePlatform() &&
         typeof window !== "undefined"
       ) {
         seedCachedPayload(
@@ -894,16 +851,11 @@ function useKaiMarketHomeController() {
                     MARKET_HOME_CACHE_TTL_MS
                   );
                   if (typeof window !== "undefined") {
-                    setSessionItem(
-                      sessionCacheKey,
-                      JSON.stringify({ payload: fallbackPayload, savedAt: Date.now() })
-                    );
-                  }
-                  if (typeof window !== "undefined") {
-                    setSessionItem(
-                      persistentCacheKey,
-                      JSON.stringify({ payload: fallbackPayload, savedAt: Date.now() })
-                    );
+                    persistKaiMarketHomePayload({
+                      userId,
+                      pickSource,
+                      payload: fallbackPayload,
+                    });
                   }
                   setLoadingInitial(false);
                 }
@@ -943,16 +895,11 @@ function useKaiMarketHomeController() {
             );
           }
           if (typeof window !== "undefined") {
-            setSessionItem(
-              sessionCacheKey,
-              JSON.stringify({ payload: stabilizedPayload, savedAt: Date.now() })
-            );
-          }
-          if (typeof window !== "undefined") {
-            setSessionItem(
-              persistentCacheKey,
-              JSON.stringify({ payload: stabilizedPayload, savedAt: Date.now() })
-            );
+            persistKaiMarketHomePayload({
+              userId,
+              pickSource,
+              payload: stabilizedPayload,
+            });
           }
         } catch (loadError) {
           if (controller.signal.aborted) return;
@@ -1081,31 +1028,34 @@ export function KaiMarketPreviewView() {
       width="wide"
       className="pb-8"
     >
-      <PageHeader
-        eyebrow="Market"
-        title="Explore the market with Kai"
-        description="Structured market context, advisor-style picks, and compact headlines in one calm surface before you even connect a portfolio."
-        icon={LineChart}
-        accent="sky"
-        actions={
-          <Button
-            variant="none"
-            effect="fade"
-            disabled={refreshing}
-            size="sm"
-            onClick={() => void loadInsights({ manual: true })}
-          >
-            {refreshing ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="mr-2 h-4 w-4" />
-            )}
-            Refresh
-          </Button>
-        }
-      />
+      <AppPageHeaderRegion>
+        <PageHeader
+          eyebrow="Market"
+          title="Explore the market with Kai"
+          description="Structured market context, advisor-style picks, and compact headlines in one calm surface before you even connect a portfolio."
+          icon={LineChart}
+          accent="sky"
+          actions={
+            <Button
+              variant="none"
+              effect="fade"
+              disabled={refreshing}
+              size="sm"
+              onClick={() => void loadInsights({ manual: true })}
+            >
+              {refreshing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Refresh
+            </Button>
+          }
+        />
+      </AppPageHeaderRegion>
 
-      <SurfaceStack className="mt-8">
+      <AppPageContentRegion>
+        <SurfaceStack>
       {loadingInitial && !hasPayload ? (
         <SurfaceCard tone="warning">
           <SurfaceCardContent className="space-y-3 text-left">
@@ -1277,7 +1227,8 @@ export function KaiMarketPreviewView() {
           <ConnectPortfolioCta />
         </section>
       ) : null}
-      </SurfaceStack>
+        </SurfaceStack>
+      </AppPageContentRegion>
     </AppPageShell>
   );
 }

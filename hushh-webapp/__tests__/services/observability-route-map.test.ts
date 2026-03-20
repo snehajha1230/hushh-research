@@ -8,11 +8,12 @@ import {
 describe("observability route map", () => {
   it("maps canonical app routes to stable route IDs", () => {
     expect(resolveRouteId("/kai")).toBe("kai_home");
-    expect(resolveRouteId("/kai/dashboard")).toBe("kai_dashboard");
+    expect(resolveRouteId("/kai/dashboard")).toBe("kai_dashboard_legacy_redirect");
     expect(resolveRouteId("/kai/dashboard/analysis")).toBe("kai_dashboard_legacy_redirect");
     expect(resolveRouteId("/marketplace")).toBe("marketplace");
+    expect(resolveRouteId("/marketplace/ria")).toBe("marketplace_ria_profile");
     expect(resolveRouteId("/ria/clients")).toBe("ria_clients");
-    expect(resolveRouteId("/ria/workspace/user_123")).toBe("ria_workspace");
+    expect(resolveRouteId("/ria/workspace")).toBe("ria_workspace");
     expect(resolveRouteId("/unknown/path")).toBe("unknown");
   });
 

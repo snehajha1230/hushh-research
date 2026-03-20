@@ -16,6 +16,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Copy, Check, Download, AlertTriangle } from 'lucide-react';
 import { downloadTextFile } from '@/lib/utils/native-download';
 import { Icon } from '@/lib/morphy-ux/ui';
+import { copyToClipboard } from '@/lib/utils/clipboard';
 
 interface RecoveryKeyDialogProps {
   open: boolean;
@@ -33,7 +34,10 @@ export function RecoveryKeyDialog({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(recoveryKey);
+      const copiedToClipboard = await copyToClipboard(recoveryKey);
+      if (!copiedToClipboard) {
+        throw new Error("clipboard_unavailable");
+      }
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {

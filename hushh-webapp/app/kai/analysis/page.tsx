@@ -6,7 +6,11 @@ import { ArrowLeft, BarChart3, X } from "lucide-react";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import {
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
 import { SurfaceCard, SurfaceCardContent, SurfaceStack } from "@/components/app-ui/surfaces";
 import { DebateStreamView, type AgentState } from "@/components/kai/debate-stream-view";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
@@ -592,11 +596,10 @@ export default function KaiAnalysisPage() {
   }
 
   return (
-    <div className="w-full">
+    <>
       {showWorkspace ? (
         <AppPageShell as="div" width="wide">
-          <div ref={workspaceTopRef}>
-            <SurfaceStack compact>
+          <AppPageHeaderRegion>
             <PageHeader
               eyebrow="Kai Analysis"
               title="Analysis"
@@ -618,6 +621,10 @@ export default function KaiAnalysisPage() {
                 </>
               }
             />
+          </AppPageHeaderRegion>
+          <AppPageContentRegion>
+            <div ref={workspaceTopRef}>
+              <SurfaceStack compact>
             <SurfaceCard>
               <SurfaceCardContent className="px-4 py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -653,10 +660,16 @@ export default function KaiAnalysisPage() {
               className="w-full"
             >
               <div className="flex justify-center">
-                <TabsList className="mx-auto grid h-10 w-full max-w-md grid-cols-3">
-                  <TabsTrigger value="debate">Debate</TabsTrigger>
-                  <TabsTrigger value="summary">Summary</TabsTrigger>
-                  <TabsTrigger value="detailed">Detailed View</TabsTrigger>
+                <TabsList className="mx-auto grid h-auto w-full max-w-xl grid-cols-1 gap-1 p-1 min-[430px]:grid-cols-3">
+                  <TabsTrigger value="debate" className="min-h-10 whitespace-normal px-3 py-2 text-center">
+                    Debate
+                  </TabsTrigger>
+                  <TabsTrigger value="summary" className="min-h-10 whitespace-normal px-3 py-2 text-center">
+                    Summary
+                  </TabsTrigger>
+                  <TabsTrigger value="detailed" className="min-h-10 whitespace-normal px-3 py-2 text-center">
+                    Detailed View
+                  </TabsTrigger>
                 </TabsList>
               </div>
               <TabsContent value="debate" className="mt-4 data-[state=inactive]:hidden" forceMount>
@@ -742,12 +755,13 @@ export default function KaiAnalysisPage() {
                 )}
               </TabsContent>
             </Tabs>
-            </SurfaceStack>
-          </div>
+              </SurfaceStack>
+            </div>
+          </AppPageContentRegion>
         </AppPageShell>
       ) : !resolvingEntry ? (
         <AppPageShell as="div" width="wide">
-          <SurfaceStack compact>
+          <AppPageHeaderRegion>
             <PageHeader
               eyebrow="Kai Analysis"
               title="Analysis"
@@ -755,21 +769,22 @@ export default function KaiAnalysisPage() {
               icon={BarChart3}
               accent="violet"
             />
+          </AppPageHeaderRegion>
+          <AppPageContentRegion>
+            <SurfaceStack compact>
           {previewTickerFromQuery ? (
-            <div className="mx-auto w-full max-w-4xl">
-              <StockComparisonPreview
-                preview={stockPreview}
-                loading={stockPreviewLoading}
-                error={stockPreviewError}
-                onStartDebate={handleStartDebateFromPreview}
-                onOpenFullAnalysis={handleStartDebateFromPreview}
-                showOpenFullAnalysis={false}
-                compact
-              />
-            </div>
+            <StockComparisonPreview
+              preview={stockPreview}
+              loading={stockPreviewLoading}
+              error={stockPreviewError}
+              onStartDebate={handleStartDebateFromPreview}
+              onOpenFullAnalysis={handleStartDebateFromPreview}
+              showOpenFullAnalysis={false}
+              compact
+            />
           ) : null}
           {activeRunTask ? (
-            <SurfaceCard accent="sky" className="mx-auto w-full max-w-4xl">
+            <SurfaceCard accent="sky" className="w-full">
               <SurfaceCardContent className="px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
               Analysis for <span className="font-semibold">{activeRunTask.ticker}</span> is still
               running in the background.
@@ -801,7 +816,8 @@ export default function KaiAnalysisPage() {
             onSelectTicker={handleSelectTicker}
             onViewHistory={handleViewHistory}
           />
-          </SurfaceStack>
+            </SurfaceStack>
+          </AppPageContentRegion>
         </AppPageShell>
       ) : null}
 
@@ -810,6 +826,6 @@ export default function KaiAnalysisPage() {
           <HushhLoader variant="inline" label="Loading saved analysis..." />
         </AppPageShell>
       ) : null}
-    </div>
+    </>
   );
 }

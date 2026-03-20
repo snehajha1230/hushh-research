@@ -11,6 +11,7 @@ import { PreviewCarouselStep } from "@/components/onboarding/PreviewCarouselStep
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 
 type HomeStep = "intro" | "preview";
 
@@ -31,7 +32,7 @@ function HomeContent() {
      
     (window as any).resetOnboardingMarketing = async () => {
       await OnboardingLocalService.clearMarketingSeen();
-      window.location.href = "/";
+      assignWindowLocation("/");
     };
 
     return () => {

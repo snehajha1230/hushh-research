@@ -37,15 +37,23 @@ if [ "$CI_NATIVE_PARITY_REQUIRED" = "1" ]; then
   else
     echo "⚠ WARNING: verify-capacitor-routes.cjs not found, skipping"
   fi
+
+  if [ -f scripts/verify-native-browser-compat.cjs ]; then
+    npm run verify:native:browser-compat
+  else
+    echo "⚠ WARNING: verify-native-browser-compat.cjs not found, skipping"
+  fi
 else
   echo "Skipping native parity checks in integration-check (CI_NATIVE_PARITY_REQUIRED=0)."
 fi
 
 if [ "$CI_DOCS_PARITY_REQUIRED" = "1" ]; then
-  if [ -f "$REPO_ROOT/scripts/verify-doc-links.cjs" ]; then
+  if node -e 'const pkg=require("./package.json"); process.exit(pkg.scripts && pkg.scripts["verify:docs"] ? 0 : 1)' >/dev/null 2>&1; then
+    npm run verify:docs
+  elif [ -f "$REPO_ROOT/scripts/verify-doc-links.cjs" ]; then
     node "$REPO_ROOT/scripts/verify-doc-links.cjs"
   else
-    echo "⚠ WARNING: scripts/verify-doc-links.cjs not found, skipping"
+    echo "⚠ WARNING: docs/runtime verifier not found, skipping"
   fi
 else
   echo "Skipping docs link parity in integration-check (CI_DOCS_PARITY_REQUIRED=0)."

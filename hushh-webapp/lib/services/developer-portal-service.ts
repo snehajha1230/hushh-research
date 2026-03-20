@@ -1,5 +1,7 @@
 "use client";
 
+import { ApiService } from "@/lib/services/api-service";
+
 export type LiveScopeDescriptor = {
   name: string;
   description: string;
@@ -83,7 +85,7 @@ type PortalRequestOptions = {
 };
 
 async function requestPortal<T>(path: string, options: PortalRequestOptions = {}): Promise<T> {
-  const response = await fetch(path, {
+  const response = await ApiService.apiFetch(path, {
     method: options.method || "GET",
     cache: "no-store",
     headers: {

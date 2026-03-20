@@ -14,6 +14,7 @@ Define one durable documentation model across:
 2. Non-index docs must use `kebab-case.md`.
 3. Avoid temporary plan docs in `docs/reference/`.
 4. Keep paths stable; if moved, update all inbound links in the same PR.
+5. Every major `docs/reference/*` domain and every declared source-tree north-star domain must have a `README.md` index.
 
 ## Placement Rules
 

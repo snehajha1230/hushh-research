@@ -38,13 +38,20 @@ export function resolveRouteId(pathname: string): RouteId {
   if (pathname === ROUTES.PROFILE) return "profile";
   if (pathname === ROUTES.CONSENTS) return "consents";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
-  if (pathname.startsWith(`${ROUTES.MARKETPLACE_RIA_PROFILE}/`)) return "marketplace_ria_profile";
+  if (
+    pathname === ROUTES.MARKETPLACE_RIA_PROFILE ||
+    pathname.startsWith(`${ROUTES.MARKETPLACE_RIA_PROFILE}/`)
+  ) {
+    return "marketplace_ria_profile";
+  }
   if (pathname === ROUTES.RIA_HOME) return "ria_home";
   if (pathname === ROUTES.RIA_ONBOARDING) return "ria_onboarding";
   if (pathname === ROUTES.RIA_CLIENTS) return "ria_clients";
   if (pathname === ROUTES.RIA_REQUESTS) return "ria_requests";
   if (pathname === ROUTES.RIA_SETTINGS) return "ria_settings";
-  if (pathname.startsWith(`${ROUTES.RIA_HOME}/workspace/`)) return "ria_workspace";
+  if (pathname === ROUTES.RIA_WORKSPACE || pathname.startsWith(`${ROUTES.RIA_HOME}/workspace/`)) {
+    return "ria_workspace";
+  }
   if (pathname === ROUTES.KAI_HOME) return "kai_home";
   if (pathname === ROUTES.KAI_ONBOARDING) return "kai_onboarding";
   if (pathname === ROUTES.KAI_IMPORT) return "kai_import";

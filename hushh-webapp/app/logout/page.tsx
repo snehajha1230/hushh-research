@@ -13,7 +13,11 @@ import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 import { ApiService } from "@/lib/services/api-service";
-import { clearSessionStorage } from "@/lib/utils/session-storage";
+import {
+  clearLocalStorage,
+  clearLocalStorageKeys,
+  clearSessionStorage,
+} from "@/lib/utils/session-storage";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -35,22 +39,26 @@ export default function LogoutPage() {
 
   useEffect(() => {
     const handleLogout = async () => {
+      const storageKeysToClear = [
+        "vault_key",
+        "user_id",
+        "user_uid",
+        "user_email",
+        "user_displayName",
+        "user_photo",
+        "user_emailVerified",
+        "user_phoneNumber",
+        "user_creationTime",
+        "user_lastSignInTime",
+        "user_providerData",
+        "passkey_credential_id",
+      ];
+
       try {
         console.log("🔐 Logging out and clearing all vault data...");
 
         // CRITICAL: Clear ALL vault-related data from localStorage
-        localStorage.removeItem("vault_key");
-        localStorage.removeItem("user_id");
-        localStorage.removeItem("user_uid");
-        localStorage.removeItem("user_email");
-        localStorage.removeItem("user_displayName");
-        localStorage.removeItem("user_photo");
-        localStorage.removeItem("user_emailVerified");
-        localStorage.removeItem("user_phoneNumber");
-        localStorage.removeItem("user_creationTime");
-        localStorage.removeItem("user_lastSignInTime");
-        localStorage.removeItem("user_providerData");
-        localStorage.removeItem("passkey_credential_id");
+        clearLocalStorageKeys(storageKeysToClear);
 
         // Clear session cookie via API (httpOnly cookie)
         try {
@@ -91,8 +99,8 @@ export default function LogoutPage() {
         setOnboardingRequiredCookie(false);
         setOnboardingFlowActiveCookie(false);
         // Still clear storage and redirect even if Firebase logout fails
-        localStorage.clear();
-        sessionStorage.clear();
+        clearLocalStorage();
+        clearSessionStorage();
         CacheSyncService.onAuthSignedOut(auth.currentUser?.uid ?? null);
         router.push(ROUTES.HOME);
       }

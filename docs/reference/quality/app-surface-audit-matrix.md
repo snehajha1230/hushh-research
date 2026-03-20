@@ -23,7 +23,7 @@ This matrix tracks the target design-system contract for the current application
 | `/ria/clients` | `SectionHeader`, `SettingsGroup`, `SettingsRow`, detail panel workflow | Simplified into mobile-first roster with Connected / Pending / Invites |
 | `/ria/requests` | shared consent alias | Redirect-only compatibility route into `/consents` |
 | `/ria/picks` | `RiaPageShell`, upload surface, grouped active/history rows | In scope and now part of the minimum RIA shell |
-| `/ria/workspace/[clientId]` | `SectionHeader`, grouped access/data surfaces | Simplified into access summary + data view + request/disconnect actions |
+| `/ria/workspace?clientId=...` | `SectionHeader`, grouped access/data surfaces | Simplified into access summary + data view + request/disconnect actions |
 | `/marketplace` | shared shell, grouped discovery rows/cards | In scope for audit cleanup |
 
 ## Open Follow-Through

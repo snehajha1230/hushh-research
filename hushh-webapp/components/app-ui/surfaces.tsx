@@ -30,7 +30,7 @@ export const SurfaceCard = React.forwardRef<HTMLDivElement, SurfaceCardProps>(
       variant="none"
       effect="glass"
       showRipple={false}
-      glassAccent={tone === "feature" ? "soft" : "none"}
+      glassAccent={tone === "feature" ? "balanced" : "soft"}
       className={cn("min-w-0 overflow-visible", className)}
       {...props}
     >

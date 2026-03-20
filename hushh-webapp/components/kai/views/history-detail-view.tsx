@@ -162,7 +162,7 @@ export function HistoryDetailView({
 
   if (embedded) {
     return (
-      <div className="px-4 pb-safe max-w-2xl mx-auto w-full space-y-4">
+      <div className="mx-auto w-full max-w-3xl space-y-4 px-0 pb-safe sm:px-1">
         {showHeader ? (
           <Card variant="none" effect="glass" preset="default">
             <CardContent className="p-4">

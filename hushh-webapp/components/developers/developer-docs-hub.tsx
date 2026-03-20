@@ -49,6 +49,7 @@ import {
   type DeveloperPortalAccess,
   type LiveDocsResponse,
 } from "@/lib/services/developer-portal-service";
+import { copyToClipboard } from "@/lib/utils/clipboard";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -142,7 +143,10 @@ function formatDeveloperAccessError(
 
 async function copyText(value: string, label: string) {
   try {
-    await navigator.clipboard.writeText(value);
+    const copied = await copyToClipboard(value);
+    if (!copied) {
+      throw new Error("clipboard_unavailable");
+    }
     toast.success(`${label} copied`);
   } catch (error) {
     console.error("[developers] copy failed", error);

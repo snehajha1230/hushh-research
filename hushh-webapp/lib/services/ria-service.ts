@@ -47,12 +47,33 @@ export interface RiaOnboardingStatus {
   exists: boolean;
   ria_profile_id?: string;
   verification_status: string;
+  advisory_status?: string;
+  brokerage_status?: string;
+  requested_capabilities?: string[];
   dev_ria_bypass_allowed?: boolean;
   display_name?: string;
+  individual_legal_name?: string | null;
+  individual_crd?: string | null;
+  advisory_firm_legal_name?: string | null;
+  advisory_firm_iapd_number?: string | null;
+  broker_firm_legal_name?: string | null;
+  broker_firm_crd?: string | null;
   legal_name?: string | null;
   finra_crd?: string | null;
   sec_iard?: string | null;
   latest_verification_event?: {
+    outcome: string;
+    checked_at: string;
+    expires_at?: string | null;
+    reference_metadata?: Record<string, unknown>;
+  } | null;
+  latest_advisory_event?: {
+    outcome: string;
+    checked_at: string;
+    expires_at?: string | null;
+    reference_metadata?: Record<string, unknown>;
+  } | null;
+  latest_brokerage_event?: {
     outcome: string;
     checked_at: string;
     expires_at?: string | null;
@@ -424,20 +445,29 @@ export class RiaService {
     idToken: string,
     payload: {
       display_name: string;
-      legal_name?: string;
-      finra_crd?: string;
-      sec_iard?: string;
+      requested_capabilities: string[];
+      individual_legal_name?: string;
+      individual_crd?: string;
+      advisory_firm_legal_name?: string;
+      advisory_firm_iapd_number?: string;
+      broker_firm_legal_name?: string;
+      broker_firm_crd?: string;
       bio?: string;
       strategy?: string;
       disclosures_url?: string;
-      primary_firm_name?: string;
       primary_firm_role?: string;
     }
   ): Promise<{
     ria_profile_id: string;
     verification_status: string;
+    advisory_status: string;
+    brokerage_status: string;
+    requested_capabilities: string[];
     verification_outcome: string;
     verification_message: string;
+    brokerage_outcome: string;
+    brokerage_message: string;
+    professional_access_granted: boolean;
   }> {
     const response = await authFetch("/api/ria/onboarding/submit", {
       method: "POST",
@@ -459,20 +489,29 @@ export class RiaService {
     idToken: string,
     payload: {
       display_name: string;
-      legal_name?: string;
-      finra_crd?: string;
-      sec_iard?: string;
+      requested_capabilities: string[];
+      individual_legal_name?: string;
+      individual_crd?: string;
+      advisory_firm_legal_name?: string;
+      advisory_firm_iapd_number?: string;
+      broker_firm_legal_name?: string;
+      broker_firm_crd?: string;
       bio?: string;
       strategy?: string;
       disclosures_url?: string;
-      primary_firm_name?: string;
       primary_firm_role?: string;
     }
   ): Promise<{
     ria_profile_id: string;
     verification_status: string;
+    advisory_status: string;
+    brokerage_status: string;
+    requested_capabilities: string[];
     verification_outcome: string;
     verification_message: string;
+    brokerage_outcome: string;
+    brokerage_message: string;
+    professional_access_granted: boolean;
   }> {
     const response = await authFetch("/api/ria/onboarding/dev-activate", {
       method: "POST",

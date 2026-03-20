@@ -28,10 +28,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import {
-  ChartSurfaceCard,
-  SurfaceInset,
-} from "@/components/app-ui/surfaces";
+import { Card, CardContent } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
 
 // =============================================================================
@@ -50,7 +47,6 @@ interface PortfolioHistoryChartProps {
   statementPeriod?: string;
   height?: number;
   className?: string;
-  title?: string;
   /** When true, renders without card wrapper for embedding */
   inline?: boolean;
 }
@@ -165,7 +161,6 @@ export function PortfolioHistoryChart({
   statementPeriod,
   height = 200,
   className,
-  title = "Portfolio History",
   inline = false,
 }: PortfolioHistoryChartProps) {
   // Determine if we have enough data for a chart
@@ -198,19 +193,15 @@ export function PortfolioHistoryChart({
   if (!hasChartData) {
     if (!inline && (beginningValue > 0 || endingValue > 0)) {
       return (
-        <ChartSurfaceCard
-          title={title}
-          className={className}
-          contentClassName="space-y-0"
-        >
-          <SurfaceInset>
+        <Card variant="none" effect="glass" showRipple={false} className={className}>
+          <CardContent className="p-4">
             <PeriodSummaryFallback
               beginningValue={beginningValue}
               endingValue={endingValue}
               statementPeriod={statementPeriod}
             />
-          </SurfaceInset>
-        </ChartSurfaceCard>
+          </CardContent>
+        </Card>
       );
     }
     return null;
@@ -303,11 +294,11 @@ export function PortfolioHistoryChart({
 
   // Card mode: wrap in card
   return (
-    <ChartSurfaceCard title={title} className={className} contentClassName="space-y-0">
-      <SurfaceInset>
+    <Card variant="none" effect="glass" showRipple={false} className={className}>
+      <CardContent className="p-4">
         {chartContent}
-      </SurfaceInset>
-    </ChartSurfaceCard>
+      </CardContent>
+    </Card>
   );
 }
 

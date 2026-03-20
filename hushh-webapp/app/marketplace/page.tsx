@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/lib/morphy-ux/button";
 import { usePersonaState } from "@/lib/persona/persona-context";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildMarketplaceRiaProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import {
   isIAMSchemaNotReadyError,
   RiaService,
@@ -206,7 +206,7 @@ export default function MarketplacePage() {
                 }
                 trailing={
                   <Button asChild variant="none" effect="fade" size="sm">
-                    <Link href={`${ROUTES.MARKETPLACE_RIA_PROFILE}/${encodeURIComponent(ria.id)}`}>
+                    <Link href={buildMarketplaceRiaProfileRoute(ria.id)}>
                       Open profile
                     </Link>
                   </Button>

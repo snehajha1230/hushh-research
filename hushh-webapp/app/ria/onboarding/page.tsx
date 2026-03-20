@@ -28,13 +28,19 @@ const STEPS = [
   "Activate",
 ] as const;
 
-function formatVerificationStatus(status?: string | null, loading?: boolean) {
+function formatVerificationStatus(
+  status?: string | null,
+  loading?: boolean,
+  lane: "advisory" | "brokerage" = "advisory"
+) {
   if (loading) return "Loading";
   switch (status) {
-    case "finra_verified":
-      return "FINRA verified";
+    case "verified":
+      return lane === "brokerage" ? "Broker verified" : "IAPD verified";
     case "active":
       return "Active";
+    case "bypassed":
+      return "Bypassed";
     case "submitted":
       return "Submitted";
     case "rejected":
@@ -48,7 +54,8 @@ function formatVerificationStatus(status?: string | null, loading?: boolean) {
 function verificationTone(status?: string | null): "neutral" | "warning" | "success" | "critical" {
   switch (status) {
     case "active":
-    case "finra_verified":
+    case "verified":
+    case "bypassed":
       return "success";
     case "submitted":
       return "warning";
@@ -74,7 +81,7 @@ const STEP_CONTEXT = [
   {
     decision: "Can the system verify this advisor against regulatory records?",
     detail:
-      "Verification stays fail-closed. If FINRA or SEC verification cannot complete, RIA access remains staged rather than silently enabled.",
+      "Verification stays fail-closed. Advisory access is hard-gated on official IAPD verification, while broker capability follows a separate verification lane.",
   },
   {
     decision: "What firm context helps investors place the advisor correctly?",
@@ -109,10 +116,14 @@ export default function RiaOnboardingPage() {
   const [iamUnavailable, setIamUnavailable] = useState(false);
 
   const [displayName, setDisplayName] = useState("");
-  const [legalName, setLegalName] = useState("");
-  const [finraCrd, setFinraCrd] = useState("");
-  const [secIard, setSecIard] = useState("");
-  const [firmName, setFirmName] = useState("");
+  const [requestAdvisory, setRequestAdvisory] = useState(true);
+  const [individualLegalName, setIndividualLegalName] = useState("");
+  const [individualCrd, setIndividualCrd] = useState("");
+  const [advisoryFirmIapdNumber, setAdvisoryFirmIapdNumber] = useState("");
+  const [advisoryFirmName, setAdvisoryFirmName] = useState("");
+  const [brokerFirmName, setBrokerFirmName] = useState("");
+  const [brokerFirmCrd, setBrokerFirmCrd] = useState("");
+  const [requestBrokerage, setRequestBrokerage] = useState(false);
   const [firmRole, setFirmRole] = useState("");
   const [bio, setBio] = useState("");
   const [strategy, setStrategy] = useState("");
@@ -137,10 +148,18 @@ export default function RiaOnboardingPage() {
         const next = await RiaService.getOnboardingStatus(idToken);
         if (cancelled) return;
         setStatus(next);
+        const requestedCapabilities = next.requested_capabilities || ["advisory"];
         setDisplayName(next.display_name || "");
-        setLegalName(next.legal_name || "");
-        setFinraCrd(next.finra_crd || "");
-        setSecIard(next.sec_iard || "");
+        setRequestAdvisory(
+          requestedCapabilities.length === 0 || requestedCapabilities.includes("advisory")
+        );
+        setIndividualLegalName(next.individual_legal_name || next.legal_name || "");
+        setIndividualCrd(next.individual_crd || next.finra_crd || "");
+        setAdvisoryFirmIapdNumber(next.advisory_firm_iapd_number || next.sec_iard || "");
+        setAdvisoryFirmName(next.advisory_firm_legal_name || "");
+        setBrokerFirmName(next.broker_firm_legal_name || "");
+        setBrokerFirmCrd(next.broker_firm_crd || "");
+        setRequestBrokerage(requestedCapabilities.includes("brokerage"));
       } catch (loadError) {
         if (!cancelled) {
           setStatus(null);
@@ -159,23 +178,60 @@ export default function RiaOnboardingPage() {
     };
   }, [user]);
 
+  const advisoryVerificationStatus = status?.advisory_status || status?.verification_status || "draft";
+  const brokerageVerificationStatus = status?.brokerage_status || "draft";
+  const advisoryAccessReady =
+    advisoryVerificationStatus === "active" ||
+    advisoryVerificationStatus === "verified" ||
+    advisoryVerificationStatus === "bypassed";
+  const brokerageAccessReady =
+    brokerageVerificationStatus === "active" ||
+    brokerageVerificationStatus === "verified" ||
+    brokerageVerificationStatus === "bypassed";
+  const requestedCapabilities = [
+    requestAdvisory ? "advisory" : null,
+    requestBrokerage ? "brokerage" : null,
+  ].filter((value): value is string => Boolean(value));
   const canProceed = useMemo(() => {
-    if (step === 1) return Boolean(displayName.trim());
-    if (step === 2) return Boolean(legalName.trim() || displayName.trim());
-    if (step === 3) return Boolean(firmName.trim() || step < 3);
+    if (step === 1) return Boolean(displayName.trim() && (requestAdvisory || requestBrokerage));
+    if (step === 2) return Boolean(individualLegalName.trim() && individualCrd.trim());
+    if (step === 3) {
+      if (!requestAdvisory && !requestBrokerage) return false;
+      if (requestAdvisory && (!advisoryFirmName.trim() || !advisoryFirmIapdNumber.trim())) {
+        return false;
+      }
+      if (requestBrokerage && (!brokerFirmName.trim() || !brokerFirmCrd.trim())) return false;
+      return true;
+    }
     if (step === 4) return Boolean(strategy.trim() || bio.trim() || headline.trim());
     return true;
-  }, [bio, displayName, firmName, headline, legalName, step, strategy]);
+  }, [
+    advisoryFirmIapdNumber,
+    advisoryFirmName,
+    bio,
+    brokerFirmCrd,
+    brokerFirmName,
+    displayName,
+    headline,
+    individualCrd,
+    individualLegalName,
+    requestAdvisory,
+    requestBrokerage,
+    step,
+    strategy,
+  ]);
   const currentStepContext = STEP_CONTEXT[step] ?? STEP_CONTEXT[0];
-  const verificationLabel = formatVerificationStatus(status?.verification_status, loading);
-  const verificationHelper = status?.latest_verification_event
-    ? `${status.latest_verification_event.outcome} • ${new Date(status.latest_verification_event.checked_at).toLocaleDateString()}`
-    : status?.verification_status === "draft" || !status?.verification_status
+  const verificationLabel = formatVerificationStatus(advisoryVerificationStatus, loading);
+  const verificationHelper = status?.latest_advisory_event || status?.latest_verification_event
+    ? `${(status?.latest_advisory_event || status?.latest_verification_event)?.outcome} • ${new Date((status?.latest_advisory_event || status?.latest_verification_event)!.checked_at).toLocaleDateString()}`
+    : advisoryVerificationStatus === "draft" || !advisoryVerificationStatus
       ? "Verification starts after activation"
       : "Verification updates appear here first";
   const nextUnlock =
-    status?.verification_status === "active" || status?.verification_status === "finra_verified"
+    advisoryAccessReady
       ? "RIA workspace available"
+      : brokerageAccessReady
+        ? "Broker capability verified"
       : step === STEPS.length - 1
         ? "Waiting on verification"
         : "Complete onboarding to submit";
@@ -190,22 +246,31 @@ export default function RiaOnboardingPage() {
       const idToken = await user.getIdToken();
       const result = await RiaService.submitOnboarding(idToken, {
         display_name: displayName,
-        legal_name: legalName || undefined,
-        finra_crd: finraCrd || undefined,
-        sec_iard: secIard || undefined,
+        requested_capabilities: requestedCapabilities,
+        individual_legal_name: individualLegalName || undefined,
+        individual_crd: individualCrd || undefined,
+        advisory_firm_legal_name: advisoryFirmName || undefined,
+        advisory_firm_iapd_number: advisoryFirmIapdNumber || undefined,
+        broker_firm_legal_name: brokerFirmName || undefined,
+        broker_firm_crd: brokerFirmCrd || undefined,
         bio: bio || undefined,
         strategy: strategy || undefined,
         disclosures_url: disclosuresUrl || undefined,
-        primary_firm_name: firmName || undefined,
         primary_firm_role: firmRole || undefined,
       });
       setStatus((current) => ({
         ...(current || { exists: true }),
         display_name: displayName,
-        legal_name: legalName || undefined,
-        finra_crd: finraCrd || undefined,
-        sec_iard: secIard || undefined,
+        requested_capabilities: result.requested_capabilities,
+        individual_legal_name: individualLegalName || undefined,
+        individual_crd: individualCrd || undefined,
+        advisory_firm_legal_name: advisoryFirmName || undefined,
+        advisory_firm_iapd_number: advisoryFirmIapdNumber || undefined,
+        broker_firm_legal_name: brokerFirmName || undefined,
+        broker_firm_crd: brokerFirmCrd || undefined,
         verification_status: result.verification_status,
+        advisory_status: result.advisory_status,
+        brokerage_status: result.brokerage_status,
       }));
 
       await RiaService.setRiaMarketplaceDiscoverability(idToken, {
@@ -234,23 +299,34 @@ export default function RiaOnboardingPage() {
     try {
       const idToken = await user.getIdToken();
       const result = await RiaService.activateDevRia(idToken, {
-        display_name: displayName || legalName || user.displayName || user.email || "RIA User",
-        legal_name: legalName || undefined,
-        finra_crd: finraCrd || undefined,
-        sec_iard: secIard || undefined,
+        display_name:
+          displayName || individualLegalName || user.displayName || user.email || "RIA User",
+        requested_capabilities: requestedCapabilities,
+        individual_legal_name: individualLegalName || undefined,
+        individual_crd: individualCrd || undefined,
+        advisory_firm_legal_name: advisoryFirmName || undefined,
+        advisory_firm_iapd_number: advisoryFirmIapdNumber || undefined,
+        broker_firm_legal_name: brokerFirmName || undefined,
+        broker_firm_crd: brokerFirmCrd || undefined,
         bio: bio || undefined,
         strategy: strategy || undefined,
         disclosures_url: disclosuresUrl || undefined,
-        primary_firm_name: firmName || undefined,
         primary_firm_role: firmRole || undefined,
       });
       setStatus((current) => ({
         ...(current || { exists: true }),
-        display_name: displayName || legalName || user.displayName || user.email || "RIA User",
-        legal_name: legalName || undefined,
-        finra_crd: finraCrd || undefined,
-        sec_iard: secIard || undefined,
+        display_name:
+          displayName || individualLegalName || user.displayName || user.email || "RIA User",
+        requested_capabilities: result.requested_capabilities,
+        individual_legal_name: individualLegalName || undefined,
+        individual_crd: individualCrd || undefined,
+        advisory_firm_legal_name: advisoryFirmName || undefined,
+        advisory_firm_iapd_number: advisoryFirmIapdNumber || undefined,
+        broker_firm_legal_name: brokerFirmName || undefined,
+        broker_firm_crd: brokerFirmCrd || undefined,
         verification_status: result.verification_status,
+        advisory_status: result.advisory_status,
+        brokerage_status: result.brokerage_status,
         dev_ria_bypass_allowed: true,
       }));
 
@@ -299,6 +375,39 @@ export default function RiaOnboardingPage() {
               Start with the professional name clients should recognize immediately.
             </p>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <label className="space-y-3 rounded-3xl border border-border bg-background/80 p-4 md:col-span-2">
+                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                  Requested capabilities
+                </span>
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setRequestAdvisory((current) => !current || !requestBrokerage)}
+                    className={`min-h-11 rounded-full px-4 text-sm font-medium ${
+                      requestAdvisory
+                        ? "bg-foreground text-background"
+                        : "border border-border bg-background text-foreground"
+                    }`}
+                  >
+                    Advisory
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRequestBrokerage((current) => !current || !requestAdvisory)}
+                    className={`min-h-11 rounded-full px-4 text-sm font-medium ${
+                      requestBrokerage
+                        ? "bg-foreground text-background"
+                        : "border border-border bg-background text-foreground"
+                    }`}
+                  >
+                    Brokerage
+                  </button>
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Advisory unlocks the current RIA workspace after IAPD verification. Brokerage is
+                  tracked separately and does not imply advisory approval.
+                </p>
+              </label>
               <label className="space-y-2">
                 <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
                   Display name
@@ -312,13 +421,13 @@ export default function RiaOnboardingPage() {
               </label>
               <label className="space-y-2">
                 <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Legal name
+                  Individual legal name
                 </span>
                 <input
-                  value={legalName}
-                  onChange={(event) => setLegalName(event.target.value)}
+                  value={individualLegalName}
+                  onChange={(event) => setIndividualLegalName(event.target.value)}
                   className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                  placeholder="Full legal entity or adviser name"
+                  placeholder="Full legal adviser or broker name"
                 />
               </label>
             </div>
@@ -329,33 +438,27 @@ export default function RiaOnboardingPage() {
           <RiaSurface>
             <h2 className="text-xl font-semibold text-foreground">Credentials</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              FINRA and SEC details are used for real verification. If the provider is unavailable,
-              activation stays non-active until a verified response arrives.
+              Both capability lanes rely on the individual legal name and the official CRD used for
+              regulator matching. Advisory also requires the adviser firm IAPD record in the next
+              step.
             </p>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <label className="space-y-2">
                 <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  FINRA CRD
+                  Individual CRD
                 </span>
                 <input
-                  value={finraCrd}
-                  onChange={(event) => setFinraCrd(event.target.value)}
+                  value={individualCrd}
+                  onChange={(event) => setIndividualCrd(event.target.value)}
                   className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
                   placeholder="CRD number"
                 />
               </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  SEC IARD
-                </span>
-                <input
-                  value={secIard}
-                  onChange={(event) => setSecIard(event.target.value)}
-                  className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                  placeholder="IARD number"
-                />
-              </label>
             </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              We require the professional legal name and CRD before any advisory or brokerage
+              verification can start.
+            </p>
           </RiaSurface>
         );
       case 3:
@@ -363,32 +466,84 @@ export default function RiaOnboardingPage() {
           <RiaSurface>
             <h2 className="text-xl font-semibold text-foreground">Firm</h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Capture the primary firm context now. Verified memberships and discoverability can be
-              refined later from the RIA dashboard.
+              Capture the official firm records for each requested capability. Advisory uses the
+              IAPD/IARD firm number. Brokerage uses the broker-dealer firm CRD.
             </p>
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Primary firm
-                </span>
-                <input
-                  value={firmName}
-                  onChange={(event) => setFirmName(event.target.value)}
-                  className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                  placeholder="Firm legal name"
-                />
-              </label>
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                  Role title
-                </span>
-                <input
-                  value={firmRole}
-                  onChange={(event) => setFirmRole(event.target.value)}
-                  className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
-                  placeholder="Founding advisor, partner, CIO..."
-                />
-              </label>
+            <div className="mt-5 space-y-6">
+              {requestAdvisory ? (
+                <div className="grid gap-4 rounded-3xl border border-border bg-background/80 p-4 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                      Advisory firm
+                    </p>
+                  </div>
+                  <label className="space-y-2">
+                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                      Firm legal name
+                    </span>
+                    <input
+                      value={advisoryFirmName}
+                      onChange={(event) => setAdvisoryFirmName(event.target.value)}
+                      className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
+                      placeholder="Registered advisory firm name"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                      Firm IAPD number
+                    </span>
+                    <input
+                      value={advisoryFirmIapdNumber}
+                      onChange={(event) => setAdvisoryFirmIapdNumber(event.target.value)}
+                      className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
+                      placeholder="IAPD / IARD number"
+                    />
+                  </label>
+                  <label className="space-y-2 md:col-span-2">
+                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                      Role title
+                    </span>
+                    <input
+                      value={firmRole}
+                      onChange={(event) => setFirmRole(event.target.value)}
+                      className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
+                      placeholder="Founding advisor, partner, CIO..."
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              {requestBrokerage ? (
+                <div className="grid gap-4 rounded-3xl border border-border bg-background/80 p-4 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                      Broker firm
+                    </p>
+                  </div>
+                  <label className="space-y-2">
+                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                      Firm legal name
+                    </span>
+                    <input
+                      value={brokerFirmName}
+                      onChange={(event) => setBrokerFirmName(event.target.value)}
+                      className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
+                      placeholder="Registered broker-dealer name"
+                    />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                      Firm CRD
+                    </span>
+                    <input
+                      value={brokerFirmCrd}
+                      onChange={(event) => setBrokerFirmCrd(event.target.value)}
+                      className="min-h-11 w-full rounded-2xl border border-border bg-background px-4 text-sm"
+                      placeholder="Broker-dealer firm CRD"
+                    />
+                  </label>
+                </div>
+              ) : null}
             </div>
           </RiaSurface>
         );
@@ -508,31 +663,33 @@ export default function RiaOnboardingPage() {
               Activation state
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
-              {status?.verification_status === "finra_verified" ||
-              status?.verification_status === "active"
-                ? "Verification passed. RIA mode is ready."
-                : "Onboarding submitted. Verification is in progress."}
+              {advisoryAccessReady
+                ? "Verification passed. Advisory workspace is ready."
+                : brokerageAccessReady
+                  ? "Broker capability verified. Advisory workspace is still gated."
+                  : "Onboarding submitted. Verification is in progress."}
             </h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
               Communication style is set to <strong>{communicationStyle}</strong> and cadence to{" "}
               <strong>{alertCadence.replace("_", " ")}</strong>. Public profile data is staged, and
-              discoverability is enabled unless this environment is still running in compatibility
-              mode.
+              discoverability only turns on after the advisory lane reaches a trusted state.
             </p>
-            <div className="mt-5 flex flex-wrap gap-3">
-              <Link
-                href={ROUTES.RIA_HOME}
-                className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background"
-              >
-                Open RIA Home
-              </Link>
-              <Link
-                href={ROUTES.RIA_CLIENTS}
-                className="inline-flex min-h-11 items-center justify-center rounded-full border border-border bg-background/60 px-4 text-sm font-medium text-foreground"
-              >
-                Open Clients
-              </Link>
-            </div>
+            {advisoryAccessReady ? (
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Link
+                  href={ROUTES.RIA_HOME}
+                  className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background"
+                >
+                  Open RIA Home
+                </Link>
+                <Link
+                  href={ROUTES.RIA_CLIENTS}
+                  className="inline-flex min-h-11 items-center justify-center rounded-full border border-border bg-background/60 px-4 text-sm font-medium text-foreground"
+                >
+                  Open Clients
+                </Link>
+              </div>
+            ) : null}
           </RiaSurface>
         );
     }
@@ -540,9 +697,9 @@ export default function RiaOnboardingPage() {
 
   return (
     <RiaPageShell
-      eyebrow="RIA Onboarding"
-      title="Verify the advisor before unlocking the workflow"
-      description="Progressive disclosure keeps onboarding short: identity, credentials, firm context, and the public trust surface clients will actually see."
+      eyebrow="Professional Onboarding"
+      title="Verify the licensed professional before unlocking the workflow"
+      description="Progressive disclosure keeps onboarding short: identity, regulatory records, firm context, and the public trust surface clients will actually see."
       statusPanel={
         iamUnavailable ? null : (
           <RiaStatusPanel
@@ -553,7 +710,33 @@ export default function RiaOnboardingPage() {
                 label: "Verification",
                 value: verificationLabel,
                 helper: verificationHelper,
-                tone: verificationTone(status?.verification_status),
+                tone: verificationTone(advisoryVerificationStatus),
+              },
+              ...(requestBrokerage
+                ? [
+                    {
+                      label: "Brokerage",
+                      value: formatVerificationStatus(
+                        brokerageVerificationStatus,
+                        false,
+                        "brokerage"
+                      ),
+                      helper:
+                        brokerageAccessReady
+                          ? "Broker capability cleared its separate verification lane."
+                          : "Broker capability remains isolated from advisory access.",
+                      tone: verificationTone(brokerageVerificationStatus),
+                    },
+                  ]
+                : []),
+              {
+                label: "Capabilities",
+                value:
+                  requestedCapabilities.length > 0
+                    ? requestedCapabilities.join(" + ")
+                    : "None selected",
+                helper: "Advisory unlocks the current workspace. Brokerage stays separate.",
+                tone: "neutral",
               },
               {
                 label: "Step",
@@ -565,25 +748,25 @@ export default function RiaOnboardingPage() {
                 label: "Next unlock",
                 value: nextUnlock,
                 helper:
-                  status?.verification_status === "active" ||
-                  status?.verification_status === "finra_verified"
+                  advisoryAccessReady
                     ? "Marketplace and client acquisition are available"
+                    : brokerageAccessReady
+                      ? "Broker evidence is stored, but advisory workflows stay gated"
                     : "Requests stay gated until trusted status is reached",
                 tone:
-                  status?.verification_status === "active" ||
-                  status?.verification_status === "finra_verified"
+                  advisoryAccessReady
                     ? "success"
                     : "warning",
               },
               {
                 label: "Profile identity",
-                value: displayName || legalName || user?.displayName || "Not set",
+                value: displayName || individualLegalName || user?.displayName || "Not set",
                 helper: "This name appears in invites and public discovery",
                 tone: "neutral",
               },
             ]}
             actions={
-              status?.verification_status === "active" || status?.verification_status === "finra_verified" ? (
+              advisoryAccessReady ? (
                 <Link
                   href={ROUTES.RIA_HOME}
                   className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background"
@@ -646,7 +829,7 @@ export default function RiaOnboardingPage() {
                     onClick={() => void onDevActivate()}
                     className="inline-flex min-h-11 items-center justify-center rounded-full border border-border bg-background px-4 text-sm font-medium text-foreground disabled:opacity-60"
                   >
-                    {saving ? "Activating..." : "Activate Dev RIA"}
+                    {saving ? "Activating..." : "Bypass In Dev/UAT"}
                   </button>
                 ) : null}
                 <button
@@ -659,7 +842,11 @@ export default function RiaOnboardingPage() {
                   }
                   className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-4 text-sm font-medium text-background disabled:opacity-60"
                 >
-                  {step === STEPS.length - 2 ? (saving ? "Submitting..." : "Activate RIA mode") : "Continue"}
+                  {step === STEPS.length - 2
+                    ? saving
+                      ? "Submitting..."
+                      : "Submit for verification"
+                    : "Continue"}
                 </button>
               </div>
             ) : null}

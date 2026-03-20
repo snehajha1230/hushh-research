@@ -56,16 +56,31 @@ describe("app route layout contract", () => {
     expect(declaredRoutes).toEqual(discoveredRoutes);
   });
 
+  it("documents either the shared shell contract or an explicit exemption for every route", () => {
+    for (const entry of APP_ROUTE_LAYOUT_CONTRACT) {
+      if (entry.mode === "standard") {
+        expect(entry.shellVerification, `${entry.route} should declare its shared shell verification source`).toBeDefined();
+        continue;
+      }
+
+      expect(
+        entry.exemptionReason,
+        `${entry.route} should explain why it is exempt from the standard shared shell contract`
+      ).toBeTruthy();
+    }
+  });
+
   it("resolves the expected layout modes for representative paths", () => {
     expect(resolveAppRouteLayoutMode("/")).toBe("hidden");
     expect(resolveAppRouteLayoutMode("/developers")).toBe("standard");
     expect(resolveAppRouteLayoutMode("/login")).toBe("hidden");
+    expect(resolveAppRouteLayoutMode("/consents")).toBe("redirect");
     expect(resolveAppRouteLayoutMode("/kai")).toBe("standard");
     expect(resolveAppRouteLayoutMode("/kai/onboarding")).toBe("flow");
     expect(resolveAppRouteLayoutMode("/kai/dashboard/analysis")).toBe("redirect");
     expect(resolveAppRouteLayoutMode("/kai/plaid/oauth/return")).toBe("standard");
-    expect(resolveAppRouteLayoutMode("/marketplace/ria/ria_123")).toBe("standard");
-    expect(resolveAppRouteLayoutMode("/ria/workspace/user_123")).toBe("standard");
+    expect(resolveAppRouteLayoutMode("/marketplace/ria?riaId=ria_123")).toBe("standard");
+    expect(resolveAppRouteLayoutMode("/ria/workspace?clientId=user_123")).toBe("standard");
   });
 
   it("keeps shell verification sources aligned with the shared page shell contract", () => {
@@ -82,6 +97,15 @@ describe("app route layout contract", () => {
           source,
           `${entry.route} should keep ${entry.shellVerification.file} aligned with ${needle}`
         ).toContain(needle);
+      }
+
+      if (entry.mode === "standard") {
+        expect(
+          entry.shellVerification.includes.some((needle) =>
+            ["AppPageHeaderRegion", "AppPageContentRegion", "SurfaceStack"].includes(needle)
+          ),
+          `${entry.route} should verify the shared market-led page regions or surface stack contract`
+        ).toBe(true);
       }
     }
   });

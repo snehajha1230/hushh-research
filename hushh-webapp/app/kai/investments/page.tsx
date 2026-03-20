@@ -13,13 +13,9 @@ export default function KaiInvestmentsPage() {
   }
 
   return (
-    <div className="relative w-full pb-32">
-      <div className="w-full">
-        <InvestmentsMasterView
-          userId={user.uid}
-          vaultOwnerToken={vaultOwnerToken ?? ""}
-        />
-      </div>
-    </div>
+    <InvestmentsMasterView
+      userId={user.uid}
+      vaultOwnerToken={vaultOwnerToken ?? ""}
+    />
   );
 }

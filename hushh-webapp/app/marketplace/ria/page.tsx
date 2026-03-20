@@ -1,25 +1,33 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { RiaPageShell, RiaSurface } from "@/components/ria/ria-page-shell";
 import { ROUTES } from "@/lib/navigation/routes";
 import { RiaService, type MarketplaceRia } from "@/lib/services/ria-service";
 
 export default function MarketplaceRiaProfilePage() {
-  const params = useParams<{ riaId: string }>();
-  const riaId = String(params.riaId || "");
+  const searchParams = useSearchParams();
+  const riaId = useMemo(() => searchParams.get("riaId")?.trim() || "", [searchParams]);
   const [profile, setProfile] = useState<MarketplaceRia | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const firmNames = Array.isArray(profile?.firms)
+    ? profile.firms
+        .map((firm) => String(firm?.legal_name || "").trim())
+        .filter(Boolean)
+        .join(" · ")
+    : "";
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       if (!riaId) {
+        setProfile(null);
+        setError("Missing RIA profile identifier.");
         setLoading(false);
         return;
       }
@@ -82,7 +90,7 @@ export default function MarketplaceRiaProfilePage() {
             <RiaSurface className="p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Firms</p>
               <p className="mt-2 text-sm font-medium text-foreground">
-                {profile.firms?.map((firm) => firm.legal_name).join(" · ") || "No public firm data"}
+                {firmNames || "No public firm data"}
               </p>
             </RiaSurface>
             <RiaSurface className="p-4">

@@ -177,10 +177,10 @@ Current app-level navigation targets are defined in `hushh-webapp/lib/navigation
 - `/kai/analysis`
 - `/kai/optimize`
 
-Additional implemented route families outside the constant map include:
+Identifier-backed detail surfaces stay on static entrypoints for Capacitor export:
 
-- `/marketplace/ria/[riaId]`
-- `/ria/workspace/[clientId]`
+- `/marketplace/ria?riaId=<ria_id>`
+- `/ria/workspace?clientId=<investor_user_id>`
 
 ### Tri-Flow Delivery
 

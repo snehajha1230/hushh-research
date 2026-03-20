@@ -128,6 +128,42 @@ const STALE_DOC_REFERENCE_PATTERNS = [
   "docs/business/",
 ];
 
+const REQUIRED_DOMAIN_INDEXES = [
+  "docs/guides/README.md",
+  "docs/reference/architecture/README.md",
+  "docs/reference/quality/README.md",
+  "docs/reference/kai/README.md",
+  "docs/reference/mobile/README.md",
+  "docs/reference/operations/README.md",
+  "docs/reference/streaming/README.md",
+];
+
+const REQUIRED_SOURCE_TREE_INDEXES = [
+  "hushh-webapp/components/app-ui/README.md",
+  "hushh-webapp/components/consent/README.md",
+  "hushh-webapp/components/kai/README.md",
+  "hushh-webapp/components/ria/README.md",
+  "hushh-webapp/lib/services/README.md",
+];
+
+const REQUIRED_ROOT_DOC_LINKS = [
+  "./guides/README.md",
+  "./reference/architecture/README.md",
+  "./reference/ai/README.md",
+  "./reference/iam/README.md",
+  "./reference/kai/README.md",
+  "./reference/mobile/README.md",
+  "./reference/operations/README.md",
+  "./reference/quality/README.md",
+  "./reference/streaming/README.md",
+  "./vision/README.md",
+  "../hushh-webapp/components/app-ui/README.md",
+  "../hushh-webapp/components/consent/README.md",
+  "../hushh-webapp/components/kai/README.md",
+  "../hushh-webapp/components/ria/README.md",
+  "../hushh-webapp/lib/services/README.md",
+];
+
 function fail(message) {
   console.error(`ERROR: ${message}`);
   process.exitCode = 1;
@@ -442,6 +478,29 @@ function verifyRequiredOperationalMarkers() {
   }
 }
 
+function verifyRequiredDocIndexes() {
+  const missing = [...REQUIRED_DOMAIN_INDEXES, ...REQUIRED_SOURCE_TREE_INDEXES].filter(
+    (file) => !exists(file)
+  );
+
+  if (missing.length) {
+    fail(`Required documentation indexes are missing:\n${missing.map((x) => `- ${x}`).join("\n")}`);
+  } else {
+    ok("Required documentation index files exist");
+  }
+}
+
+function verifyRootDocHubLinks() {
+  const rootDocs = read("docs/README.md");
+  const missing = REQUIRED_ROOT_DOC_LINKS.filter((link) => !rootDocs.includes(link));
+
+  if (missing.length) {
+    fail(`docs/README.md is missing required north-star index links:\n${missing.map((x) => `- ${x}`).join("\n")}`);
+  } else {
+    ok("docs/README.md links to the required domain and source-tree indexes");
+  }
+}
+
 function main() {
   const operationalDocs = collectDocs(OPERATIONAL_DOC_TARGETS);
   const firstPartyDocs = collectDocs(FIRST_PARTY_DOC_TARGETS);
@@ -460,6 +519,8 @@ function main() {
   verifyNoRemovedFileReferences(firstPartyDocs);
   verifyNoStaleDocReferences(firstPartyDocs);
   verifyDocPathReferences(firstPartyDocs);
+  verifyRequiredDocIndexes();
+  verifyRootDocHubLinks();
   verifyCanonicalRouteContract(operationalDocs);
   verifyRequiredOperationalMarkers();
   verifyNoGeneratedArtifacts();

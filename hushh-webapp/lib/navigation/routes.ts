@@ -16,6 +16,7 @@ export const ROUTES = {
   RIA_HOME: "/ria",
   RIA_ONBOARDING: "/ria/onboarding",
   RIA_CLIENTS: "/ria/clients",
+  RIA_WORKSPACE: "/ria/workspace",
   RIA_REQUESTS: "/ria/requests",
   RIA_PICKS: "/ria/picks",
   RIA_SETTINGS: "/ria/settings",
@@ -29,6 +30,28 @@ export const ROUTES = {
   KAI_ANALYSIS: "/kai/analysis",
   KAI_OPTIMIZE: "/kai/optimize",
 } as const;
+
+function withQuery(pathname: string, entries: Record<string, string | null | undefined>) {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(entries)) {
+    const normalized = String(value ?? "").trim();
+    if (normalized) {
+      params.set(key, normalized);
+    }
+  }
+
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
+  return withQuery(ROUTES.MARKETPLACE_RIA_PROFILE, { riaId });
+}
+
+export function buildRiaWorkspaceRoute(clientId?: string | null) {
+  return withQuery(ROUTES.RIA_WORKSPACE, { clientId });
+}
 
 export function isKaiOnboardingRoute(pathname: string): boolean {
   return (

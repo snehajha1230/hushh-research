@@ -11,6 +11,7 @@ import {
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { auth } from "@/lib/firebase/config";
 import { apiJson } from "@/lib/services/api-client";
+import { getLocalItem, getSessionItem } from "@/lib/utils/session-storage";
 import type {
   GeneratedVaultProvisionResult,
   GeneratedVaultSupport,
@@ -491,8 +492,8 @@ export class VaultService {
     try {
       if (typeof window !== "undefined") {
         return (
-          window.localStorage.getItem("debug_vault_owner") === "true" ||
-          window.sessionStorage.getItem("debug_vault_owner") === "true"
+          getLocalItem("debug_vault_owner") === "true" ||
+          getSessionItem("debug_vault_owner") === "true"
         );
       }
     } catch {

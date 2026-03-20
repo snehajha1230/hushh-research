@@ -82,16 +82,22 @@ npm run verify:cache || { FAIL=1; echo "❌ Cache coherence verification failed"
 cd "$REPO_ROOT"
 echo ""
 
-# 9. Docs Runtime Parity Verification
-echo "▶ [9/12] Docs Runtime Parity Verification..."
+# 9. Browser API Native Compatibility Verification
+echo "▶ [9/12] Browser API Native Compatibility Verification..."
+cd hushh-webapp
+npm run verify:native:browser-compat || { FAIL=1; echo "❌ Browser API native compatibility verification failed"; }
+cd "$REPO_ROOT"
+echo ""
+
+# 10. Docs Runtime Parity Verification
+echo "▶ [10/12] Docs Runtime Parity Verification..."
 cd hushh-webapp
 npm run verify:docs || { FAIL=1; echo "❌ Docs/runtime parity verification failed"; }
 cd "$REPO_ROOT"
 echo ""
 
-# 10. Kai System Audit
-# 10. Env/Secrets/Deploy parity (strict blocking)
-echo "▶ [10/11] Env/Secrets/Deploy Parity..."
+# 11. Env/Secrets/Deploy parity (strict blocking)
+echo "▶ [11/12] Env/Secrets/Deploy Parity..."
 if command -v gcloud >/dev/null 2>&1; then
   python3 scripts/ops/verify-env-secrets-parity.py \
     --project "${GCP_PROJECT_ID:-hushh-pda}" \
@@ -107,8 +113,8 @@ else
 fi
 echo ""
 
-# 11. Git Status (strict blocking)
-echo "▶ [11/11] Git Status (Strict)..."
+# 12. Git Status (strict blocking)
+echo "▶ [12/12] Git Status (Strict)..."
 MODIFIED=$(git status --porcelain | grep "^ M" | wc -l | tr -d ' ')
 UNTRACKED=$(git status --porcelain | grep "^??" | wc -l | tr -d ' ')
 STAGED=$(git status --porcelain | grep "^[AMDRC]" | wc -l | tr -d ' ')

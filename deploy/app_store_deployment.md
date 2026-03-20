@@ -1,7 +1,7 @@
 # App Store & Play Store Deployment Guide for Hushh
 
 **Status**: ✅ App configured and ready for store submission  
-**App Name**: Hushh  
+**App Name**: Kai
 **Bundle ID**: com.hushh.app  
 **Version**: 1.0.0  
 **Build**: 1  
@@ -43,7 +43,7 @@
    - **Capabilities**: Enable these
      - ☑️ Associated Domains (for Firebase)
      - ☑️ Push Notifications
-     - ☑️ Sign In with Apple (optional)
+     - ☑️ Sign In with Apple
 5. Click **Continue** → **Register**
 
 #### Step 2: Create Distribution Certificate

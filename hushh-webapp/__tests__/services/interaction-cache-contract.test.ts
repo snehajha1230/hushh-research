@@ -14,8 +14,11 @@ function read(relativePath: string) {
 
 describe("interaction and cache contract", () => {
   it("keeps shared interaction shells aligned with full-surface ripple behavior", () => {
+    const globals = read("app/globals.css");
     const navbar = read("components/navbar.tsx");
     const topAppBar = read("components/app-ui/top-app-bar.tsx");
+    const taskCenter = read("components/app-ui/debate-task-center.tsx");
+    const providers = read("app/providers.tsx");
     const materialRipple = read("lib/morphy-ux/material-ripple.tsx");
 
     expect(navbar).toContain('hitArea="segment"');
@@ -23,17 +26,40 @@ describe("interaction and cache contract", () => {
 
     expect(topAppBar).toContain('<Check className="ml-auto h-4 w-4 text-current" />');
     expect(topAppBar).toContain('<Loader2 className="ml-auto h-4 w-4 animate-spin text-current" />');
+    expect(taskCenter).toContain("Notifications");
+    expect(taskCenter).toContain("Consent Center");
+    expect(taskCenter).toContain('openConsentSheet({ view: "pending" })');
+    expect(taskCenter).not.toContain("Notification delivery");
+    expect(taskCenter).not.toContain("BellRing");
+    expect(taskCenter).not.toContain("useConsentNotificationState");
+    expect(providers).toContain("ConsentSheetProvider");
+    expect(providers).toContain('"--top-systembar-row-gap": "4px"');
 
+    expect(globals).toContain("--top-shell-reserved-height");
+    expect(globals).toContain("--top-shell-visual-height");
+    expect(globals).toContain(".bar-glass-top::before");
+    expect(globals).toContain(".bar-glass-bottom::before");
+    expect(globals).toContain(".morphy-ripple-host");
+    expect(globals).not.toContain("html.native-ios body {\n    padding-top: env(safe-area-inset-top);");
     expect(materialRipple).toContain("morphy-ripple-host");
+    expect(materialRipple).toContain("overflow-hidden");
     expect(materialRipple).toContain('contain: "paint"');
   });
 
   it("keeps kai market home on stale-aware cache refreshes", () => {
     const kaiMarketHome = read("components/kai/views/kai-market-preview-view.tsx");
+    const riaPicksList = read("components/kai/cards/renaissance-market-list.tsx");
+    const unlockWarmOrchestrator = read("lib/services/unlock-warm-orchestrator.ts");
 
     expect(kaiMarketHome).toContain("staleOnly?: boolean");
     expect(kaiMarketHome).toContain("parseStoredKaiHomeCache");
     expect(kaiMarketHome).toContain("cache.peek<KaiHomeInsightsV2>");
+    expect(kaiMarketHome).toContain("persistKaiMarketHomePayload");
     expect(kaiMarketHome).toContain("refresh({ staleOnly: true })");
+    expect(riaPicksList).not.toContain("useSearchParams");
+    expect(riaPicksList).not.toContain("router.replace");
+    expect(riaPicksList).toContain("useState(DEFAULT_PICKS_PAGE_SIZE)");
+    expect(unlockWarmOrchestrator).toContain("getKaiActivePickSource");
+    expect(unlockWarmOrchestrator).toContain("persistKaiMarketHomePayload");
   });
 });

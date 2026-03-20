@@ -9,6 +9,13 @@
 
 The Hushh mobile app uses **Next.js static export** in a native WebView, with **native plugins** handling security-critical operations. Both iOS and Android achieve feature parity through aligned plugin implementations.
 
+Program parity is enforced against the **entire visible route tree**, not only Kai core pages. The source of truth is:
+
+- `hushh-webapp/route-contracts.json`
+- `hushh-webapp/mobile-parity-registry.json`
+
+Every visible page route must be classified as native-supported or explicitly exempt, and browser-sensitive behavior must either run through shared wrappers or be documented as an accepted exception.
+
 ### Dev mode (hot reload) vs plugin parity
 
 - The **WebView UI** can point to a running `next dev` server for hot reload.
@@ -56,6 +63,33 @@ Notes:
 - Native PRF passkey status:
   - iOS: implemented via `HushhVault.registerPasskeyPrf/authenticatePasskeyPrf` (requires iOS 18+).
   - Android: PRF native passkey methods are still pending; biometric/passphrase fallback remains active.
+- Vault preference/native fallback status:
+  - `storePreferencesToCloud()` is the canonical shipped native-safe path for encrypted preference writes.
+  - `deletePreferences()` remains intentionally unsupported in the web fallback.
+  - New mobile features must not depend on local-only preference deletion semantics without updating the parity contract first.
+
+### Full parity audit lane
+
+Before calling iOS/Android parity complete, run:
+
+- `cd hushh-webapp && npm run verify:capacitor:audit`
+
+That release gate includes:
+
+- full route-contract verification
+- native plugin parity verification
+- Capacitor route classification verification
+- Capacitor runtime config verification
+- mobile Firebase artifact verification
+- docs/runtime parity verification
+- browser-API/native compatibility audit
+- iOS project sanity (`xcodebuild -list`)
+- Android project sanity (`./gradlew tasks --all`)
+
+Accepted parity exceptions currently documented in the registry:
+
+- Android native passkey PRF is still pending.
+- Cloud-backed vault preference methods remain the canonical mobile-safe path for some preference flows.
 
 ### Firebase artifact safety (no secret leak in git)
 
@@ -108,6 +142,22 @@ All 10 plugins exist on both platforms with matching methods:
 | **HushhNotifications** | `HushhNotifications` | Push token registration | `HushhNotificationsPlugin.swift` | `HushhNotificationsPlugin.kt` |
 
 > Note: HushhKeystore uses jsName `HushhKeychain` for historical compatibility.
+
+## Route Coverage
+
+Visible page routes are governed through `pageContracts[]` in `hushh-webapp/route-contracts.json`. That coverage includes:
+
+- product routes (`/kai`, `/consents`, `/profile`, `/marketplace`, `/ria`)
+- `/developers`
+- public/auth content pages (`/`, `/login`, `/logout`)
+- visible lab routes
+- redirect-only compatibility pages that still ship in the app shell
+
+Do not add a visible route without:
+
+1. adding it to `pageContracts[]`
+2. classifying it in `mobile-parity-registry.json`
+3. ensuring its route-facing browser APIs are wrapped or explicitly exempted
 
 ---
 

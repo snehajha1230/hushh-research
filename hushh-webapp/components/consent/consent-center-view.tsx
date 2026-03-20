@@ -27,10 +27,20 @@ import {
   type ConsentCenterResponse,
   type ConsentCenterView,
 } from "@/lib/services/consent-center-service";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  buildConsentSheetProfileHref,
+  normalizeConsentSheetView,
+  type ConsentSheetView,
+} from "@/lib/consent/consent-sheet-route";
 import { Button } from "@/lib/morphy-ux/button";
 import { Badge } from "@/components/ui/badge";
-import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import {
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
 import {
   Select,
   SelectContent,
@@ -51,13 +61,7 @@ const SURFACE_VIEW_LABELS = {
   previous: "Previous",
 } as const;
 
-type ConsentSurfaceView = keyof typeof SURFACE_VIEW_LABELS;
-
-function normalizeSurfaceView(view: string | null): ConsentSurfaceView {
-  if (view === "active") return "active";
-  if (view === "history" || view === "previous") return "previous";
-  return "pending";
-}
+type ConsentSurfaceView = ConsentSheetView;
 
 function resolveRequestView(
   actor: ConsentCenterActor,
@@ -266,9 +270,11 @@ function toPendingConsent(entry: ConsentCenterEntry, durationHours?: number) {
 export function ConsentCenterView({
   embedded = false,
   className,
+  initialView = "pending",
 }: {
   embedded?: boolean;
   className?: string;
+  initialView?: ConsentSurfaceView;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -277,10 +283,12 @@ export function ConsentCenterView({
   const { activePersona, riaCapability } = usePersonaState();
   const notificationState = useConsentNotificationState();
   const actor: ConsentCenterActor = activePersona === "ria" ? "ria" : "investor";
-  const [embeddedView, setEmbeddedView] = useState<ConsentSurfaceView>("pending");
+  const [embeddedView, setEmbeddedView] = useState<ConsentSurfaceView>(
+    normalizeConsentSheetView(initialView)
+  );
   const surfaceView = embedded
     ? embeddedView
-    : normalizeSurfaceView(searchParams.get("view"));
+    : normalizeConsentSheetView(searchParams.get("view"));
   const requestView = resolveRequestView(actor, surfaceView);
 
   const [center, setCenter] = useState<ConsentCenterResponse | null>(null);
@@ -314,6 +322,11 @@ export function ConsentCenterView({
     null
   );
 
+  useEffect(() => {
+    if (!embedded) return;
+    setEmbeddedView(normalizeConsentSheetView(initialView));
+  }, [embedded, initialView]);
+
   const loadCenter = useCallback(
     async (options?: { force?: boolean; silent?: boolean }) => {
       if (!user) {
@@ -322,12 +335,30 @@ export function ConsentCenterView({
         return;
       }
 
-      if (!options?.silent) {
+      const cache = CacheService.getInstance();
+      const cachedSnapshot = cache.peek<ConsentCenterResponse>(
+        CACHE_KEYS.CONSENT_CENTER(user.uid, `${actor}:${requestView}`)
+      );
+      const cachedCenter = cachedSnapshot?.data ?? null;
+      const hasCachedCenter = Boolean(cachedCenter);
+      const shouldSkipNetwork = Boolean(cachedSnapshot?.isFresh) && !options?.force;
+
+      if (hasCachedCenter) {
+        setCenter(cachedCenter);
+        setLoading(false);
+      } else if (!options?.silent) {
         setLoading(true);
-      } else {
+      }
+
+      if (options?.silent || (hasCachedCenter && !shouldSkipNetwork)) {
         setRefreshing(true);
       }
       setError(null);
+
+      if (shouldSkipNetwork) {
+        setRefreshing(false);
+        return;
+      }
 
       try {
         const idToken = await user.getIdToken();
@@ -424,10 +455,7 @@ export function ConsentCenterView({
       setEmbeddedView(nextView);
       return;
     }
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("actor");
-    params.set("view", resolveRequestView(actor, nextView));
-    router.replace(`${ROUTES.CONSENTS}?${params.toString()}`);
+    router.replace(buildConsentSheetProfileHref(nextView));
   };
 
   const handleDisconnectRelationship = useCallback(
@@ -1078,7 +1106,7 @@ export function ConsentCenterView({
       width="content"
       className={cn("pb-6 md:pb-8", className)}
     >
-      <SurfaceStack>
+      <AppPageHeaderRegion>
         <PageHeader
           eyebrow={actor === "ria" ? "Consent Workspace" : "Consent Center"}
           title={
@@ -1105,8 +1133,10 @@ export function ConsentCenterView({
             </Button>
           }
         />
-        {content}
-      </SurfaceStack>
+      </AppPageHeaderRegion>
+      <AppPageContentRegion>
+        <SurfaceStack>{content}</SurfaceStack>
+      </AppPageContentRegion>
     </AppPageShell>
   );
 }

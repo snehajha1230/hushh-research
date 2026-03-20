@@ -152,7 +152,7 @@ export interface EventPayloadMap {
     result: EventResult;
   };
   ria_verification_status_changed: {
-    action: "draft" | "submitted" | "finra_verified" | "active" | "rejected";
+    action: "draft" | "submitted" | "verified" | "active" | "rejected" | "bypassed";
     result: EventResult;
   };
   marketplace_profile_viewed: {

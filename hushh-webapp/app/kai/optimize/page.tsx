@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import {
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   SurfaceCard,
   SurfaceCardContent,
@@ -597,15 +602,18 @@ export default function PortfolioHealthPage() {
 
   return (
     <AppPageShell as="div" width="wide" className="pb-6 sm:pb-8">
-      <SurfaceStack>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Icon icon={Activity} size="md" className="text-emerald-500" />
-          <div>
-            <h1 className="text-xl font-semibold">Portfolio Optimization</h1>
-          </div>
-        </div>
-      </div>
+      <AppPageHeaderRegion>
+        <PageHeader
+          eyebrow="Kai Optimize"
+          title="Portfolio Optimization"
+          description="Use the active portfolio context to review risks, proposed actions, and streamed optimizer output in one place."
+          icon={Activity}
+          accent="emerald"
+        />
+      </AppPageHeaderRegion>
+
+      <AppPageContentRegion>
+        <SurfaceStack>
 
       <SurfaceCard>
         <SurfaceCardContent className="p-4 sm:p-5">
@@ -1247,7 +1255,8 @@ export default function PortfolioHealthPage() {
           </div>
         </>
       )}
-      </SurfaceStack>
+        </SurfaceStack>
+      </AppPageContentRegion>
     </AppPageShell>
   );
 }

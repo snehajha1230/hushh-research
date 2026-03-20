@@ -12,5 +12,6 @@ cd "$WEB_DIR"
 npm run verify:routes
 npm run verify:parity
 npm run verify:capacitor:config
+npm run verify:native:browser-compat
 npm run cap:build:mobile
 npm run verify:capacitor:routes

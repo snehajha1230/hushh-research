@@ -36,7 +36,14 @@ import {
   type FCMInitStatus,
 } from "@/lib/notifications";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import { buildConsentSheetProfileHref } from "@/lib/consent/consent-sheet-route";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
+import {
+  getSessionItem,
+  removeSessionItem,
+  setSessionItem,
+} from "@/lib/utils/session-storage";
+import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 
 // ============================================================================
 // Helpers
@@ -140,9 +147,8 @@ function deliveryModeFromInitStatus(
 }
 
 function readPersistedDeliveryState(userId: string): PersistedDeliveryState | null {
-  if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(getDeliveryStateSessionKey(userId));
+    const raw = getSessionItem(getDeliveryStateSessionKey(userId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PersistedDeliveryState>;
     if (
@@ -164,21 +170,16 @@ function readPersistedDeliveryState(userId: string): PersistedDeliveryState | nu
 }
 
 function persistDeliveryState(userId: string, state: PersistedDeliveryState) {
-  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(
-      getDeliveryStateSessionKey(userId),
-      JSON.stringify(state)
-    );
+    setSessionItem(getDeliveryStateSessionKey(userId), JSON.stringify(state));
   } catch {
     // Ignore session storage write failures.
   }
 }
 
 function clearPersistedDeliveryState(userId: string) {
-  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(getDeliveryStateSessionKey(userId));
+    removeSessionItem(getDeliveryStateSessionKey(userId));
   } catch {
     // Ignore session storage cleanup failures.
   }
@@ -257,7 +258,7 @@ export function ConsentNotificationProvider({
             {isBundle ? (
               <button
                 onClick={() => {
-                  window.location.href = "/consents?view=pending";
+                  assignWindowLocation(buildConsentSheetProfileHref("pending"));
                 }}
                 className="px-4 py-2 bg-foreground text-background text-sm font-medium rounded-lg flex items-center justify-center gap-1.5 transition-colors"
               >
@@ -527,6 +528,17 @@ export function ConsentNotificationProvider({
         const vaultOwnerToken = getVaultOwnerToken();
         if (!vaultOwnerToken) return;
 
+        const cachedPending = CacheService.getInstance().peek<PendingConsent[]>(
+          CACHE_KEYS.PENDING_CONSENTS(uid)
+        );
+        if (!cancelled && Array.isArray(cachedPending?.data)) {
+          setPendingCount(cachedPending.data.length);
+          cachedPending.data.forEach((consent) => showConsentToast(consent));
+          if (cachedPending.isFresh) {
+            return;
+          }
+        }
+
         const pending = await loadPendingConsentsOnce(uid, vaultOwnerToken);
         if (cancelled) return;
         setPendingCount(pending.length);
@@ -569,60 +581,7 @@ export function ConsentNotificationProvider({
  */
 export function usePendingConsentCount() {
   const context = useContext(ConsentNotificationStateContext);
-  const [count, setCount] = useState(context.pendingCount);
-  const { isVaultUnlocked, getVaultOwnerToken } = useVault();
-  const { user } = useAuth();
-
-  useEffect(() => {
-    setCount(context.pendingCount);
-  }, [context.pendingCount]);
-
-  // One-time fetch on vault unlock
-  useEffect(() => {
-    if (!isVaultUnlocked) return;
-    const uid = user?.uid;
-    if (!uid) return;
-
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const vaultOwnerToken = getVaultOwnerToken();
-        if (!vaultOwnerToken) return;
-
-        const pending = await loadPendingConsentsOnce(uid, vaultOwnerToken);
-        if (cancelled) return;
-        setCount(pending.length);
-      } catch (_err) {
-        // Silently ignore -- not critical for badge
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isVaultUnlocked, user?.uid, getVaultOwnerToken]);
-
-  // Adjust count on FCM events
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const data: Record<string, string> =
-        (event as CustomEvent).detail?.data ||
-        (event as CustomEvent).detail?.notification?.data ||
-        {};
-
-      if (data.type === "consent_request") {
-        setCount((prev) => prev + 1);
-      } else if (data.type === "consent_resolved") {
-        setCount((prev) => Math.max(0, prev - 1));
-      }
-    };
-
-    window.addEventListener(FCM_MESSAGE_EVENT, handler);
-    return () => window.removeEventListener(FCM_MESSAGE_EVENT, handler);
-  }, []);
-
-  return count;
+  return context.pendingCount;
 }
 
 export function useConsentNotificationState() {

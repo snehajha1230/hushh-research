@@ -357,7 +357,7 @@ export function AnalysisSummaryView({
         : "bg-blue-500/12 text-blue-600 dark:text-blue-400 border-blue-500/30";
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-4 px-4 pb-safe pt-4">
+    <div className="mx-auto w-full max-w-3xl space-y-4 px-0 pb-safe pt-1 sm:px-1">
       {!embedded ? (
         <div className="flex items-center justify-between gap-3">
           <Button variant="none" effect="fade" size="sm" onClick={onBack} disabled={!onBack}>
